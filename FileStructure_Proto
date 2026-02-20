@@ -1,0 +1,95 @@
+app/
+  _layout.tsx
+  +not-found.tsx
+
+  (auth)/
+    _layout.tsx
+    sign-in.tsx
+    sign-up.tsx
+    forgot-password.tsx
+
+  (tabs)/
+    _layout.tsx
+    search/
+      index.tsx
+      results.tsx
+      provider/[id].tsx
+      book/[providerId].tsx
+    services/
+      index.tsx
+    bookings/
+      index.tsx
+      past.tsx
+      [id].tsx
+    inbox/
+      index.tsx
+      [threadId].tsx
+    more/
+      index.tsx
+      account.tsx
+      provider.tsx
+      settings.tsx
+
+src/
+  components/
+    ui/
+      Button.tsx
+      Text.tsx
+      TextField.tsx
+      Card.tsx
+      Avatar.tsx
+      Rating.tsx
+      Sheet.tsx
+      Spacer.tsx
+    search/
+      LocationSearchBar.tsx
+      ProviderCard.tsx
+      FiltersSheet.tsx
+    booking/
+      DateTimePicker.tsx
+      AddressPicker.tsx
+      PriceBreakdown.tsx
+
+  design/
+    theme.ts            // colors, spacing, radii, shadows
+    tokens.ts
+    typography.ts
+
+  lib/
+    supabase/
+      client.ts
+      auth.ts
+      queries.ts
+      mutations.ts
+      storage.ts
+    stripe/
+      index.ts
+    notifications/
+      push.ts
+    location/
+      index.ts
+
+  state/
+    auth.ts
+    search.ts
+    bookingDraft.ts
+
+  types/
+    supabase.ts         // generated types go here
+    models.ts
+    navigation.ts
+
+  utils/
+    money.ts
+    date.ts
+    validators.ts
+
+assets/
+  fonts/
+  images/
+
+tailwind.config.js
+nativewind-env.d.ts
+babel.config.js
+app.json
+tsconfig.json
