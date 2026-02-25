@@ -88,6 +88,11 @@ assets/
   fonts/
   images/
 
+supabase/
+  schema.sql
+  rls.sql
+  triggers.sql
+
 tailwind.config.js
 nativewind-env.d.ts
 babel.config.js
