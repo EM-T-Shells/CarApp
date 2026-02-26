@@ -1,19 +1,23 @@
--- ENUMS
-CREATE TYPE provider_type AS ENUM ('DETAILER', 'MECHANIC');
-CREATE TYPE appointment_status AS ENUM ('REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELED', 'NO_SHOW');
-CREATE TYPE subscription_status AS ENUM ('ACTIVE', 'PAUSED', 'CANCELED');
-
--- USERS (unchanged from CAI.pdf)
-CREATE TABLE users (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  first_name      VARCHAR NOT NULL,
-  last_name       VARCHAR NOT NULL,
-  profile_pic     TEXT,
-  is_provider     BOOLEAN DEFAULT FALSE,
-  created_at      TIMESTAMPTZ DEFAULT now()
+-- PROVIDER TYPES (admin managed)
+CREATE TABLE provider_types (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        VARCHAR NOT NULL UNIQUE,
+  label       VARCHAR NOT NULL,
+  is_active   BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT now()
 );
 
--- USER INFORMATION (extended with lat/lng)
+-- USERS
+CREATE TABLE users (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name    VARCHAR NOT NULL,
+  last_name     VARCHAR NOT NULL,
+  profile_pic   TEXT,
+  is_provider   BOOLEAN DEFAULT FALSE,
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- USER INFORMATION
 CREATE TABLE user_information (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -25,7 +29,7 @@ CREATE TABLE user_information (
   longitude   NUMERIC(9,6)
 );
 
--- USER CAR INFORMATION (unchanged)
+-- USER CAR INFORMATION
 CREATE TABLE user_car_information (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id   UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -35,27 +39,53 @@ CREATE TABLE user_car_information (
   vin       VARCHAR
 );
 
--- PROVIDERS (merged detailer_provider + mechanic_provider)
+-- PROVIDERS
 CREATE TABLE providers (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID REFERENCES users(id) ON DELETE CASCADE,
+  provider_type_id UUID REFERENCES provider_types(id) ON DELETE SET NULL,
+  rating           NUMERIC(3,2) DEFAULT 0,
+  mile_radius      NUMERIC(5,2),
+  bio              TEXT,
+  is_approved      BOOLEAN DEFAULT FALSE,
+  created_at       TIMESTAMPTZ DEFAULT now()
+);
+
+-- SERVICE CATALOG (admin managed preset list)
+CREATE TABLE service_catalog (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_type_id UUID REFERENCES provider_types(id) ON DELETE SET NULL,
+  name             VARCHAR NOT NULL,
+  category         VARCHAR NOT NULL,
+  is_active        BOOLEAN DEFAULT TRUE,
+  created_at       TIMESTAMPTZ DEFAULT now()
+);
+
+-- PROVIDER SERVICES
+CREATE TABLE provider_services (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id       UUID REFERENCES users(id) ON DELETE CASCADE,
-  type          provider_type NOT NULL,
-  services      JSONB NOT NULL DEFAULT '[]',
-  rating        NUMERIC(3,2) DEFAULT 0,
-  mile_radius   NUMERIC(5,2),
-  bio           TEXT,
-  is_approved   BOOLEAN DEFAULT FALSE,  -- for admin approval flow
+  provider_id   UUID REFERENCES providers(id) ON DELETE CASCADE,
+  catalog_id    UUID REFERENCES service_catalog(id) ON DELETE SET NULL,
+  name          VARCHAR NOT NULL,
+  category      VARCHAR,
+  description   TEXT,
+  price         NUMERIC(10,2),
+  duration_mins INT,
+  is_active     BOOLEAN DEFAULT TRUE,
+  is_custom     BOOLEAN DEFAULT FALSE,
+  is_approved   BOOLEAN DEFAULT TRUE,
+  sort_order    INT DEFAULT 0,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
--- APPOINTMENTS (merged detailer + mechanic appointment tables)
+-- APPOINTMENTS
 CREATE TABLE appointments (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   provider_id       UUID REFERENCES providers(id) ON DELETE SET NULL,
   user_id           UUID REFERENCES users(id) ON DELETE SET NULL,
   car_id            UUID REFERENCES user_car_information(id) ON DELETE SET NULL,
   services          JSONB NOT NULL DEFAULT '[]',
-  status            appointment_status DEFAULT 'REQUESTED',
+  status            VARCHAR NOT NULL,
   scheduled_at      TIMESTAMPTZ NOT NULL,
   location_address  VARCHAR,
   location_lat      NUMERIC(9,6),
@@ -70,58 +100,64 @@ CREATE TABLE appointments (
 
 -- REVIEWS
 CREATE TABLE reviews (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  provider_id   UUID REFERENCES providers(id) ON DELETE CASCADE,
-  user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id    UUID REFERENCES providers(id) ON DELETE CASCADE,
+  user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
   appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
-  rating        NUMERIC(2,1) NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  title         VARCHAR,
-  description   TEXT,
-  images        TEXT[],  -- array of storage URLs
-  kudos_points  INT DEFAULT 0,
-  created_at    TIMESTAMPTZ DEFAULT now()
+  rating         NUMERIC(2,1) NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  title          VARCHAR,
+  description    TEXT,
+  images         TEXT[],
+  kudos_points   INT DEFAULT 0,
+  created_at     TIMESTAMPTZ DEFAULT now()
 );
 
--- MESSAGES / THREADS
+-- MESSAGE THREADS
 CREATE TABLE message_threads (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  appointment_id  UUID REFERENCES appointments(id) ON DELETE CASCADE,
-  customer_id     UUID REFERENCES users(id) ON DELETE SET NULL,
-  provider_id     UUID REFERENCES providers(id) ON DELETE SET NULL,
-  created_at      TIMESTAMPTZ DEFAULT now()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  appointment_id UUID REFERENCES appointments(id) ON DELETE CASCADE,
+  customer_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  provider_id    UUID REFERENCES providers(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ DEFAULT now()
 );
 
+-- MESSAGES
 CREATE TABLE messages (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  thread_id   UUID REFERENCES message_threads(id) ON DELETE CASCADE,
-  sender_id   UUID REFERENCES users(id) ON DELETE SET NULL,
-  body        TEXT,
-  image_url   TEXT,   -- images only, no video per spec [2]
-  is_flagged  BOOLEAN DEFAULT FALSE,  -- for phone/email/payment detection [2]
-  created_at  TIMESTAMPTZ DEFAULT now()
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id  UUID REFERENCES message_threads(id) ON DELETE CASCADE,
+  sender_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+  body       TEXT,
+  image_url  TEXT,
+  is_flagged BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- NOTIFICATIONS
 CREATE TABLE notifications (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
-  type        VARCHAR NOT NULL,  -- 'BOOKING_CONFIRMED', 'REMINDER', 'REVIEW_REQUEST', etc.
-  title       VARCHAR,
-  body        TEXT,
-  is_read     BOOLEAN DEFAULT FALSE,
-  metadata    JSONB,  -- flexible payload (e.g. appointment_id)
-  created_at  TIMESTAMPTZ DEFAULT now()
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID REFERENCES users(id) ON DELETE CASCADE,
+  type       VARCHAR NOT NULL,
+  title      VARCHAR,
+  body       TEXT,
+  is_read    BOOLEAN DEFAULT FALSE,
+  metadata   JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- SUBSCRIPTIONS
 CREATE TABLE subscriptions (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id               UUID REFERENCES users(id) ON DELETE CASCADE,
-  provider_id           UUID REFERENCES providers(id) ON DELETE SET NULL,
-  status                subscription_status DEFAULT 'ACTIVE',
-  frequency             VARCHAR,  -- 'WEEKLY', 'MONTHLY', etc.
-  services              JSONB NOT NULL DEFAULT '[]',
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                UUID REFERENCES users(id) ON DELETE CASCADE,
+  provider_id            UUID REFERENCES providers(id) ON DELETE SET NULL,
+  status                 VARCHAR NOT NULL,
+  frequency              VARCHAR,
+  services               JSONB NOT NULL DEFAULT '[]',
   stripe_subscription_id TEXT,
-  next_scheduled_at     TIMESTAMPTZ,
-  created_at            TIMESTAMPTZ DEFAULT now()
+  next_scheduled_at      TIMESTAMPTZ,
+  created_at             TIMESTAMPTZ DEFAULT now()
 );
+
+-- SEED: initial provider types
+INSERT INTO provider_types (name, label) VALUES
+  ('DETAILER', 'Car Detailer'),
+  ('MECHANIC', 'Mechanic');
