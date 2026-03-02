@@ -1,0 +1,65 @@
+Sign Up (Single Screen, multi-step)
+
+Step 1: Email + Password
+  └── Step 2: First + Last Name
+        └── Step 3: Role Selection [1]
+              │
+              ├── "Customer"
+              │     └── Step 4a: Add Vehicle (Year, Make, Model, VIN) [1]
+              │           └── → (tabs)/search
+              │
+              └── "Service Provider"
+                    └── Step 4b: Provider Type [1]
+                          ├── Detailer
+                          └── Mechanic
+                                └── Step 5: Select Services from catalog
+                                      └── Step 6: Bio + Mile Radius
+                                            └── → (auth)/pending-approval
+
+
+Sign In
+
+sign-in.tsx
+  ├── Email + Password  →  supabase.auth.signInWithPassword()
+  ├── Google / Facebook →  supabase.auth.signInWithOAuth() [1]
+  │     └── First OAuth login? → check if users row exists
+  │           ├── YES → continue
+  │           └── NO  → go to Step 2 of sign-up
+  │
+  └── On success: read users.is_provider
+        ├── FALSE             → (tabs)/search
+        ├── TRUE + approved   → (tabs)/more/provider
+        └── TRUE + pending    → (auth)/pending-approval
+
+
+Forgot Password
+
+forgot-password.tsx
+  └── supabase.auth.resetPasswordForEmail()
+        └── Supabase sends email link → back to sign-in
+
+
+Mutation Order on Final Submit
+
+1. supabase.auth.signUp()         → creates auth.users row
+2. trigger fires                  → creates public.users row
+3. UPDATE users                   → first_name, last_name, is_provider
+4a. (Customer)  INSERT user_car_information
+4b. (Provider)  INSERT providers (is_approved = FALSE)
+5.  (Provider)  INSERT provider_services for each selected catalog item
+
+
+Session Handling
+
+onAuthStateChange()
+  ├── SIGNED_IN      → fetch users row → hydrate state
+  ├── SIGNED_OUT     → clear state → (auth)/sign-in
+  └── TOKEN_REFRESHED → update session silently
+
+
+Components Involved (src/components/auth/) 
+
+    StepIndicator.tsx — progress through sign-up steps
+    RoleSelector.tsx — customer vs provider UI
+    ServicePicker.tsx — catalog services filtered by provider type
+    VehicleForm.tsx — customer vehicle fields
