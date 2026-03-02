@@ -5,8 +5,9 @@ app/
   (auth)/
     _layout.tsx
     sign-in.tsx
-    sign-up.tsx
+    sign-up.tsx          // single screen, multi-step (email → name → role → customer/provider path)
     forgot-password.tsx
+    pending-approval.tsx // new — provider holding screen after onboarding submission
 
   (tabs)/
     _layout.tsx
@@ -49,18 +50,23 @@ src/
       DateTimePicker.tsx
       AddressPicker.tsx
       PriceBreakdown.tsx
+    auth/                          // new
+      StepIndicator.tsx            // shows progress through sign-up steps
+      RoleSelector.tsx             // customer vs provider selection UI
+      ServicePicker.tsx            // provider service selection from catalog
+      VehicleForm.tsx              // customer vehicle input fields
 
   design/
-    theme.ts            // colors, spacing, radii, shadows
+    theme.ts
     tokens.ts
     typography.ts
 
   lib/
     supabase/
       client.ts
-      auth.ts
+      auth.ts                      // signUp, signIn, signOut, resetPassword, signInWithOAuth
       queries.ts
-      mutations.ts
+      mutations.ts                 // createProfile, createVehicle, createProviderProfile, createProviderServices
       storage.ts
     stripe/
       index.ts
@@ -70,12 +76,13 @@ src/
       index.ts
 
   state/
-    auth.ts
+    auth.ts                        // session, user, profile, onAuthStateChange listener
     search.ts
     bookingDraft.ts
+    signUpDraft.ts                 // new — holds multi-step sign-up form state
 
   types/
-    supabase.ts         // generated types go here
+    supabase.ts
     models.ts
     navigation.ts
 
@@ -87,11 +94,6 @@ src/
 assets/
   fonts/
   images/
-
-supabase/
-  schema.sql
-  rls.sql
-  triggers.sql
 
 tailwind.config.js
 nativewind-env.d.ts
