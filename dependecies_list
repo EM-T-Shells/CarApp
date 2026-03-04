@@ -1,0 +1,26 @@
+**Expo managed**
+- `expo-router` — file-based navigation
+- `expo-linking` — deep linking
+- `expo-constants` — app config/env variables
+- `expo-status-bar` — status bar control
+- `expo-location` — GPS/geolocation [1]
+- `expo-notifications` — push notifications [1]
+- `expo-auth-session` — OAuth (Google/Facebook) [4]
+- `expo-web-browser` — required by auth-session
+- `expo-image-picker` — image uploads in inbox [1]
+- `expo-file-system` — file handling
+- `expo-calendar` — calendar sync [1]
+
+**Supabase**
+- `@supabase/supabase-js` — database, auth, storage [3]
+- `@react-native-async-storage/async-storage` — session persistence
+
+**Payments**
+- `@stripe/stripe-react-native` — Stripe payments [1]
+
+**State Management**
+- `zustand` — global state stores [2]
+
+**Styling**
+- `nativewind` — Tailwind for React Native
+- `tailwindcss` — required by NativeWind
