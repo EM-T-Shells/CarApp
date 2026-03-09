@@ -4,10 +4,8 @@ app/
 
   (auth)/
     _layout.tsx
-    sign-in.tsx
-    sign-up.tsx          // single screen, multi-step (email → name → role → customer/provider path)
-    forgot-password.tsx
-    pending-approval.tsx // new — provider holding screen after onboarding submission
+    sign-in.tsx              // single screen — Google + Apple SSO only
+    pending-approval.tsx    
 
   (tabs)/
     _layout.tsx
@@ -50,11 +48,11 @@ src/
       DateTimePicker.tsx
       AddressPicker.tsx
       PriceBreakdown.tsx
-    auth/                          // new
-      StepIndicator.tsx            // shows progress through sign-up steps
-      RoleSelector.tsx             // customer vs provider selection UI
-      ServicePicker.tsx            // provider service selection from catalog
-      VehicleForm.tsx              // customer vehicle input fields
+    auth/
+      StepIndicator.tsx      // progress through onboarding steps
+      RoleSelector.tsx       // customer vs provider selection UI
+      ServicePicker.tsx      // provider service selection from catalog
+      VehicleForm.tsx        // customer vehicle input fields
 
   design/
     theme.ts
@@ -64,9 +62,9 @@ src/
   lib/
     supabase/
       client.ts
-      auth.ts                      // signUp, signIn, signOut, resetPassword, signInWithOAuth
+      auth.ts                // signInWithGoogle, signInWithApple, signOut, isNewUser
       queries.ts
-      mutations.ts                 // createProfile, createVehicle, createProviderProfile, createProviderServices
+      mutations.ts           
       storage.ts
     stripe/
       index.ts
@@ -76,10 +74,10 @@ src/
       index.ts
 
   state/
-    auth.ts                        // session, user, profile, onAuthStateChange listener
+    auth.ts                  
     search.ts
     bookingDraft.ts
-    signUpDraft.ts                 // new — holds multi-step sign-up form state
+    signUpDraft.ts           // holds multi-step onboarding form state
 
   types/
     supabase.ts
