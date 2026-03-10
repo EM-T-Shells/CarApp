@@ -1,3 +1,7 @@
+import { ServiceSnapshot } from '../../types/models'
+import { supabase } from "./client";
+import { containsFlaggedContent } from '../../utils/validators'
+
 // ─── USER ────────────────────────────────────────────────────────────────────
 
 export const createUser = (payload: {
@@ -65,7 +69,7 @@ export const createAppointment = (payload: {
   provider_id: string;
   user_id: string;
   car_id: string;
-  services: AppointmentService[];   // JSONB array — define shape in types/models.ts
+  services: ServiceSnapshot[];   // JSONB array — define shape in types/models.ts
   scheduled_at: string;
   location_address?: string;
   location_lat?: number;
@@ -89,9 +93,9 @@ export const cancelAppointment = (appointmentId: string, depositForfeited: boole
     })
     .eq('id', appointmentId);
 
-export const updateAppointmentServices = (
+export const updateServiceSnapshots = (
   appointmentId: string,
-  services: AppointmentService[] // updated JSONB array
+  services: ServiceSnapshot[] // updated JSONB array
 ) =>
   supabase
     .from('appointments')
@@ -120,7 +124,7 @@ export const sendMessage = (payload: {
   body: string;
   image_url?: string;
 }) => {
-  const flagged = containsFlaggedContent(payload.body); // from utils/validators.ts
+  const flagged = containsFlaggedContent(payload.body); 
   return supabase.from('messages').insert({
     ...payload,
     is_flagged: flagged,
@@ -149,7 +153,7 @@ export const createSubscription = (payload: {
   user_id: string;
   provider_id: string;
   frequency: string;
-  services: AppointmentService[];
+  services: ServiceSnapshot[];
   stripe_subscription_id: string;
   next_scheduled_at: string;
 }) =>

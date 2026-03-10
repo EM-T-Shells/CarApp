@@ -1,5 +1,7 @@
 // ─── AUTH ────────────────────────────────────────────────────────────────────
 
+import { supabase } from "./client";
+
 export const getCurrentUser = () =>
   supabase.auth.getUser();
 
