@@ -1,0 +1,69 @@
+Pre-Coding Technical Checklist for SUDS
+
+You're already in good shape with the DB schema , feature blueprint , and file structure . Here's what to lock down before writing a single line of code:
+✅ 1. Finalize Your DB Schema
+
+    Confirm all relationships (FKs, joins) are correct
+    Confirm the services JSON fields have a defined shape — don't leave those vague
+    Add any missing tables (e.g., reviews, messages/threads, subscriptions, notifications)
+    Decide on Row Level Security (RLS) rules if using Supabase
+
+✅ 2. Auth Flow Decision
+
+    Email/password + social login (Google, Facebook) 
+    Decide on session handling (JWT, Supabase Auth, etc.)
+    Map out the full auth flow: sign up → profile creation → role selection (customer vs provider)
+
+✅ 3. API / Data Layer Contract
+
+    For every screen in your file structure , define what data it needs and where it comes from
+    Write out your key Supabase queries and mutations before building UI (these live in lib/supabase/queries.ts and mutations.ts)
+    Define your Stripe integration points: one-time deposit (15%), recurring billing for subscriptions 
+
+✅ 4. Define Your Type System
+
+    Fill out types/models.ts and types/supabase.ts based on your schema 
+    Every entity (User, Booking, Provider, Service, Review) should have a typed interface before you touch a component
+
+ 5. Design Tokens & Theme
+
+    Lock in your color scheme, typography, spacing in design/theme.ts and tokens.ts 
+    This prevents design drift once you start building components
+
+ 6. Map MVP User Flows (screen by screen)
+
+Based on Phase 1 priority , trace these end-to-end before coding:
+
+    Customer flow: Search → Filter → Provider Profile → Book → Payment → Confirmation
+    Provider flow: Onboarding → Set services → Accept/decline bookings → View calendar
+    Auth flow: Register → Add vehicle → Add payment method
+
+ 7. Third-Party Services — Accounts & Config Ready
+
+Before coding, have these set up:
+
+    Stripe — account created, test keys ready, webhook endpoints planned
+    Supabase — project created, schema migrated, storage buckets configured
+    Push notifications — Expo push or similar configured
+    Geolocation — decide on provider (Google Maps API, etc.) and have keys ready
+
+ 8. State Management Plan
+
+Your file structure has state/auth.ts, state/search.ts, state/bookingDraft.ts  — before coding, decide:
+
+    What lives in global state vs local component state
+    How the booking draft gets built step-by-step across screens
+
+ 9. Error & Edge Case Handling Plan
+
+Specifically for SUDS:
+
+    What happens if a booking is cancelled within 24 hrs (deposit forfeited)  — define the logic clearly
+    What triggers a blocked message in the inbox (phone, email, Venmo mentions) 
+    What happens if a provider rejects a booking?
+
+ 10. Dev Environment & Tooling
+
+    ESLint, Prettier, TypeScript config locked in
+    Branching strategy decided (e.g., main, dev, feature branches)
+    Testing approach decided (even if minimal for MVP)
