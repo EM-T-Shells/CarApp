@@ -28,6 +28,7 @@ app/
       account.tsx
       provider.tsx
       settings.tsx
+      admin.tsx
 
 src/
   components/
