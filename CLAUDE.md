@@ -86,3 +86,34 @@ After every code change, write the appropriate tests before considering the task
 | Utility functions, state stores | Unit | Jest | `__tests__/` adjacent to file |
 | Supabase queries / mutations | Integration | Jest + mocked Supabase client | `__tests__/` adjacent to file |
 | Complete user flows | E2E | Maestro | `e2e/` at project root |
+
+## Git Conventions
+
+### Branching Strategy
+- `main` — production only. Never commit directly.
+- `dev` — integration branch. All features merge here first.
+- `feature/<name>` — one branch per file or feature (e.g., `feature/auth-screen`)
+- `fix/<name>` — for bug fixes (e.g., `fix/sign-in-redirect`)
+- `dev` is branched off `main` once at project start — all feature/* and fix/* branches stem from `dev`
+
+### Rules for Claude
+- NEVER commit directly to `main` or `dev`
+- Always branch off `dev` when starting a new file or feature
+- One branch per task — do not bundle unrelated changes
+- After completing a task, stage only the files relevant to that task
+
+### Commit Message Format
+`<type>(<scope>): <short description>`
+
+Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
+
+Examples:
+- `feat(auth): add signInWithGoogle function`
+- `fix(booking): correct deposit calculation`
+- `test(validators): add unit tests for containsFlaggedContent`
+
+## Notes for Claude
+- Before writing code for a new feature, state your approach and confirm it aligns with ARCHITECTURE.md.
+- When modifying existing code, only touch what is necessary — do not refactor surrounding code.
+- If something is unclear about domain logic, ask rather than assume.
+- After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
