@@ -1,0 +1,64 @@
+# Build outputs & native artifacts
+carApp/.expo/
+carApp/android/
+carApp/ios/
+carApp/dist/
+carApp/.metro-cache/
+
+# Dependencies
+carApp/node_modules/
+
+# Environment & secrets
+carApp/.env
+carApp/.env.*
+
+# Assets (binary files Claude can't use)
+carApp/assets/fonts/
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.svg
+**/*.ttf
+**/*.otf
+**/*.woff
+**/*.woff2
+
+# Generated files (auto-generated, don't edit)
+carApp/src/types/supabase.ts
+
+# Test files (exclude unless in a testing session)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+carApp/coverage/
+
+# DB migrations (exclude unless actively working on schema)
+carApp/migrations/
+carApp/supabase/migrations/
+
+# Logs
+**/*.log
+carApp/fixtures/
+
+# Binary / non-text docs
+Blueprint/CarApp_Buildsheet.docx
+
+# Lock files (large, not useful for context)
+carApp/package-lock.json
+carApp/yarn.lock
+carApp/pnpm-lock.yaml
+
+# IDE & OS noise
+.DS_Store
+.vscode/
+**/.idea/
+**/Thumbs.db
+
+# Git internals
+.git/
+
+# Claude README (meta-documentation, not project code)
+Claude README/
