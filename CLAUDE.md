@@ -95,6 +95,7 @@ After every code change, write the appropriate tests before considering the task
 - `feature/<name>` — one branch per file or feature (e.g., `feature/auth-screen`)
 - `fix/<name>` — for bug fixes (e.g., `fix/sign-in-redirect`)
 - `dev` is branched off `main` once at project start — all feature/* and fix/* branches stem from `dev`
+- Never merge branches — all merges are handled manually by the developer in GitHub
 
 ### Rules for Claude
 - NEVER commit directly to `main` or `dev`
