@@ -1,6 +1,6 @@
 Here's the unified merged schema with SQL and RLS policies:
 
-```sql
+
 -- ============================================================
 -- STABL — UNIFIED MERGED SCHEMA
 -- ============================================================
@@ -501,4 +501,3 @@ CREATE POLICY "location_cache: provider update own" ON provider_location_cache
       SELECT user_id FROM provider_profiles WHERE id = provider_id
     )
   );
-```
