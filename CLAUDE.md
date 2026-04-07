@@ -171,7 +171,10 @@ Examples:
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
 - After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
+- Before starting any new feature, check `Blueprint/build_checklist.md` 
+  to confirm the correct build order and mark tasks complete as you go.
 
-## Reference Documents
+  ## Reference Documents
 - `ARCHITECTURE.md` — ERD, table decisions, key design patterns. Read before writing any new file.
 - `Blueprint/schema_policies.sql` — Unified merged schema with RLS policies. Source of truth for all table structures.
+
