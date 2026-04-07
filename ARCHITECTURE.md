@@ -16,9 +16,12 @@
 | Maps / Geo | Google Maps SDK + react-native-maps | Live tracking, navigation, radius search |
 | Global State | Zustand | auth, search, bookingDraft, signUpDraft, providerDraft |
 | Localized State | React Context | Feature-scoped trees only (forms, modals) |
+| Styling | NativeWind + Tailwind CSS | Utility-first styling for React Native |
 | Analytics | Mixpanel | Funnel analysis, retention |
 | Error Monitoring | Sentry | Crash reporting, performance |
-| AI / LLM | Anthropic Claude API | Lug AI assistant |
+| Identity Verification | Persona | Provider identity checks |
+| Background Checks | Checkr | Provider background screening |
+| AI / LLM | Anthropic Claude API | Lug AI assistant (via Edge Function) |
 
 ---
 
@@ -100,6 +103,17 @@ stabl/
 │       ├── theme.ts 
 │       ├── tokens.ts                 # All color, spacing, radius tokens — source of truth 
 │       └── typography.ts 
+├── supabase/ 
+│   └── functions/                    # Edge Functions (Deno runtime — not Node) 
+│       ├── stripe-webhook/ 
+│       ├── checkr-webhook/ 
+│       ├── persona-webhook/ 
+│       ├── notify-booking-confirmed/ 
+│       ├── notify-provider-enroute/ 
+│       ├── notify-job-complete/ 
+│       ├── notify-payout-processed/ 
+│       ├── notify-kudos-received/ 
+│       └── lug-ai/ 
 ├── e2e/                              # Maestro E2E flows 
 ├── assets/ 
 │   ├── fonts/ 
@@ -113,31 +127,39 @@ stabl/
 ---
 
 ## Data Models
-Full schema and RLS policies live in `Blueprint/schema_policies.md` — that is the source of truth.
+
+Full schema and RLS policies live in `Blueprint/schema_policies.sql` — that is the source of truth.
 
 All tables live in Supabase (PostgreSQL). TypeScript types are in `src/types/models.ts`.
 `src/types/supabase.ts` is auto-generated — never edit manually.
 
 ---
+
 ### Entity Relationship Overview
+
+```
+provider_types                  (admin-managed: 'DETAILER', 'MECHANIC')
+service_catalog                 (admin-managed preset service list, scoped by provider_type)
+
 users
 ├── vehicles                    (1:many — customer vehicles)
 ├── provider_profiles           (1:1 — opt-in provider mode)
-│     ├── provider_vetting      (1:1 — vetting step statuses)
-│     ├── service_packages      (1:many — provider's offered services)
-│     └── provider_location_cache (1:1 — last known GPS position)
+│     ├── provider_vetting      (1:1 — vetting step statuses: identity, background, insurance, credentials, bank)
+│     ├── service_packages      (1:many — provider's offered services, linked to service_catalog)
+│     ├── provider_location_cache (1:1 — last known GPS position; live GPS in Redis)
+│     └── payouts               (1:many — provider payout per booking)
 ├── bookings                    (as customer or provider)
-│     ├── booking_photos        (before/after photos)
-│     ├── payments              (deposit, balance, refund)
-│     ├── payouts               (provider payout per booking)
-│     ├── ratings               (4-dimension gear rating)
-│     └── kudos                 (freeform positive badges)
+│     ├── booking_photos        (1:many — before/after photos)
+│     ├── payments              (1:many — deposit, balance, refund)
+│     ├── ratings               (1:1 per reviewer — 4-dimension gear rating)
+│     └── kudos                 (1:many — freeform positive badges)
 ├── message_threads             (as customer or provider)
 │     └── messages
 ├── notifications
-├── subscriptions
+├── subscriptions               (recurring bookings with a provider)
 └── promo_redemptions
-     └── promotions
+     └── promotions             (referral, gift_card, discount)
+```
 
 ### Auth Flow 
 
@@ -164,3 +186,33 @@ app/_layout.tsx — onAuthStateChange
                          role check
                          ├── customer: Search, Bookings, Inbox, Services, More
                          └── provider mode: same tabs + provider views in More/provider.tsx
+
+---
+
+## Key Design Decisions
+
+- **Dual-role users**: All users default to Customer. Provider mode is opt-in post-signup (`role` column supports `'customer'`, `'provider'`, `'both'`). A user can be both simultaneously — the UI shows provider-specific views in the More tab when provider mode is active.
+- **Provider vetting gate**: A provider must pass all 6 vetting steps (identity via Persona, background check via Checkr, insurance, credentials, bank account via Stripe Connect, profile completeness ≥ 80%) before `verification_status` is set to `approved`. Until approved, the provider cannot receive bookings.
+- **Service snapshots**: Services are snapshotted as JSONB in the `bookings.services` column at booking time. Price or name changes by providers never alter existing bookings.
+- **Deposit model**: 15% of booking total collected at booking via Stripe; remainder captured on job completion. `deposit_forfeited = true` on late cancellations (within 24 hours of scheduled time).
+- **Fee structure**: Provider platform fee is 5% (0% for Founding Providers for first 3 months, controlled by `is_founding_provider` and `platform_fee_rate`). Customer service fee is 2% added at checkout.
+- **Live GPS architecture**: Provider location updates every 5 seconds during active bookings. Live position is written to Redis (never directly to Postgres from the app). `provider_location_cache` in Postgres stores last-known position, persisted server-side. Customers with an active booking (`en_route` or `in_progress`) can read their provider's cached location via RLS policy.
+- **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert. Flagged body is replaced with `[Message flagged for review]`. Auto-detection of phone numbers, email addresses, and external payment handles ('Venmo me') triggers flagging.
+- **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
+- **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).
+- **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `Blueprint/schema_policies.sql` for all policies.
+- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses are constrained by a system prompt referencing the Stabl service catalog. Always provides a human escalation path.
+
+---
+
+## Post-MVP (Do Not Build Now)
+
+These features are planned but explicitly out of scope for the initial build. Do not implement unless instructed.
+
+- Recurring subscription bookings (schema exists in `subscriptions` table but UI/logic is deferred)
+- Provider subscription tiers (Basic / Pro / Elite)
+- Mechanics expansion (Phase 1b — `provider_types` supports it, but only detailing flows are built)
+- Lug 2.0 proactive push alerts
+- Geographic expansion beyond NoVA / DC Metro
+- Stabl Care membership
+- Offline resilience (queuing, optimistic UI, local caching)
