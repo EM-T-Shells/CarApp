@@ -365,7 +365,7 @@ Examples:
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
 - After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
-- Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete as you go.
+- Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete with an "x" as you go.
 
 ---
 
