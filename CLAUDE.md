@@ -73,7 +73,7 @@ All secrets are stored in environment variables. Never hardcode any of these val
 **Mobile app** — stored in `.env.local`, prefixed with `EXPO_PUBLIC_`:
 ```
 EXPO_PUBLIC_SUPABASE_URL
-EXPO_PUBLIC_SUPABASE_ANON_KEY
+EXPO_PUBLIC_SUPABASE_KEY
 EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
 EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
 EXPO_PUBLIC_SENTRY_DSN
