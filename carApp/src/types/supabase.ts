@@ -10,86 +10,192 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-      appointments: {
+      booking_photos: {
         Row: {
-          car_id: string | null
-          created_at: string | null
-          deposit_amount: number | null
-          deposit_forfeited: boolean | null
+          booking_id: string | null
           id: string
-          location_address: string | null
-          location_lat: number | null
-          location_lng: number | null
-          notes: string | null
-          provider_id: string | null
-          scheduled_at: string
-          services: Json
-          status: string
-          stripe_payment_id: string | null
-          total_estimate: number | null
-          updated_at: string | null
-          user_id: string | null
+          photo_type: string
+          storage_url: string
+          uploaded_at: string | null
         }
         Insert: {
-          car_id?: string | null
-          created_at?: string | null
-          deposit_amount?: number | null
-          deposit_forfeited?: boolean | null
+          booking_id?: string | null
           id?: string
-          location_address?: string | null
-          location_lat?: number | null
-          location_lng?: number | null
-          notes?: string | null
-          provider_id?: string | null
-          scheduled_at: string
-          services?: Json
-          status: string
-          stripe_payment_id?: string | null
-          total_estimate?: number | null
-          updated_at?: string | null
-          user_id?: string | null
+          photo_type: string
+          storage_url: string
+          uploaded_at?: string | null
         }
         Update: {
-          car_id?: string | null
-          created_at?: string | null
-          deposit_amount?: number | null
-          deposit_forfeited?: boolean | null
+          booking_id?: string | null
           id?: string
-          location_address?: string | null
-          location_lat?: number | null
-          location_lng?: number | null
-          notes?: string | null
-          provider_id?: string | null
-          scheduled_at?: string
-          services?: Json
-          status?: string
-          stripe_payment_id?: string | null
-          total_estimate?: number | null
-          updated_at?: string | null
-          user_id?: string | null
+          photo_type?: string
+          storage_url?: string
+          uploaded_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "appointments_car_id_fkey"
-            columns: ["car_id"]
+            foreignKeyName: "booking_photos_booking_id_fkey"
+            columns: ["booking_id"]
             isOneToOne: false
-            referencedRelation: "user_car_information"
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bookings: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          customer_id: string | null
+          deposit_amount: number | null
+          deposit_forfeited: boolean | null
+          id: string
+          location_lat: number | null
+          location_lng: number | null
+          notes: string | null
+          package_id: string | null
+          platform_fee: number | null
+          provider_id: string | null
+          provider_payout: number | null
+          scheduled_at: string
+          service_address: string | null
+          service_fee: number | null
+          service_location: unknown
+          services: Json
+          started_at: string | null
+          status: string
+          total_amount: number | null
+          updated_at: string | null
+          vehicle_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          customer_id?: string | null
+          deposit_amount?: number | null
+          deposit_forfeited?: boolean | null
+          id?: string
+          location_lat?: number | null
+          location_lng?: number | null
+          notes?: string | null
+          package_id?: string | null
+          platform_fee?: number | null
+          provider_id?: string | null
+          provider_payout?: number | null
+          scheduled_at: string
+          service_address?: string | null
+          service_fee?: number | null
+          service_location?: unknown
+          services?: Json
+          started_at?: string | null
+          status?: string
+          total_amount?: number | null
+          updated_at?: string | null
+          vehicle_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          customer_id?: string | null
+          deposit_amount?: number | null
+          deposit_forfeited?: boolean | null
+          id?: string
+          location_lat?: number | null
+          location_lng?: number | null
+          notes?: string | null
+          package_id?: string | null
+          platform_fee?: number | null
+          provider_id?: string | null
+          provider_payout?: number | null
+          scheduled_at?: string
+          service_address?: string | null
+          service_fee?: number | null
+          service_location?: unknown
+          services?: Json
+          started_at?: string | null
+          status?: string
+          total_amount?: number | null
+          updated_at?: string | null
+          vehicle_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "appointments_provider_id_fkey"
+            foreignKeyName: "bookings_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "service_packages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_provider_id_fkey"
             columns: ["provider_id"]
             isOneToOne: false
-            referencedRelation: "providers"
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "appointments_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "bookings_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kudos: {
+        Row: {
+          badge: string
+          booking_id: string | null
+          created_at: string | null
+          giver_id: string | null
+          id: string
+          receiver_id: string | null
+        }
+        Insert: {
+          badge: string
+          booking_id?: string | null
+          created_at?: string | null
+          giver_id?: string | null
+          id?: string
+          receiver_id?: string | null
+        }
+        Update: {
+          badge?: string
+          booking_id?: string | null
+          created_at?: string | null
+          giver_id?: string | null
+          id?: string
+          receiver_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kudos_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kudos_giver_id_fkey"
+            columns: ["giver_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kudos_receiver_id_fkey"
+            columns: ["receiver_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -98,21 +204,21 @@ export type Database = {
       }
       message_threads: {
         Row: {
-          appointment_id: string | null
+          booking_id: string | null
           created_at: string | null
           customer_id: string | null
           id: string
           provider_id: string | null
         }
         Insert: {
-          appointment_id?: string | null
+          booking_id?: string | null
           created_at?: string | null
           customer_id?: string | null
           id?: string
           provider_id?: string | null
         }
         Update: {
-          appointment_id?: string | null
+          booking_id?: string | null
           created_at?: string | null
           customer_id?: string | null
           id?: string
@@ -120,10 +226,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "message_threads_appointment_id_fkey"
-            columns: ["appointment_id"]
+            foreignKeyName: "message_threads_booking_id_fkey"
+            columns: ["booking_id"]
             isOneToOne: false
-            referencedRelation: "appointments"
+            referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
           {
@@ -137,7 +243,7 @@ export type Database = {
             foreignKeyName: "message_threads_provider_id_fkey"
             columns: ["provider_id"]
             isOneToOne: false
-            referencedRelation: "providers"
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -145,29 +251,32 @@ export type Database = {
       messages: {
         Row: {
           body: string | null
-          created_at: string | null
           id: string
           image_url: string | null
           is_flagged: boolean | null
+          is_read: boolean | null
           sender_id: string | null
+          sent_at: string | null
           thread_id: string | null
         }
         Insert: {
           body?: string | null
-          created_at?: string | null
           id?: string
           image_url?: string | null
           is_flagged?: boolean | null
+          is_read?: boolean | null
           sender_id?: string | null
+          sent_at?: string | null
           thread_id?: string | null
         }
         Update: {
           body?: string | null
-          created_at?: string | null
           id?: string
           image_url?: string | null
           is_flagged?: boolean | null
+          is_read?: boolean | null
           sender_id?: string | null
+          sent_at?: string | null
           thread_id?: string | null
         }
         Relationships: [
@@ -228,65 +337,286 @@ export type Database = {
           },
         ]
       }
-      provider_services: {
+      payments: {
         Row: {
-          catalog_id: string | null
-          category: string | null
-          created_at: string | null
-          description: string | null
-          duration_mins: number | null
+          amount: number | null
+          booking_id: string | null
           id: string
-          is_active: boolean | null
-          is_approved: boolean | null
-          is_custom: boolean | null
-          name: string
-          price: number | null
-          provider_id: string | null
-          sort_order: number | null
+          payment_type: string
+          processed_at: string | null
+          status: string
+          stripe_payment_intent_id: string | null
+          user_id: string | null
         }
         Insert: {
-          catalog_id?: string | null
-          category?: string | null
-          created_at?: string | null
-          description?: string | null
-          duration_mins?: number | null
+          amount?: number | null
+          booking_id?: string | null
           id?: string
-          is_active?: boolean | null
-          is_approved?: boolean | null
-          is_custom?: boolean | null
-          name: string
-          price?: number | null
-          provider_id?: string | null
-          sort_order?: number | null
+          payment_type: string
+          processed_at?: string | null
+          status: string
+          stripe_payment_intent_id?: string | null
+          user_id?: string | null
         }
         Update: {
-          catalog_id?: string | null
-          category?: string | null
-          created_at?: string | null
-          description?: string | null
-          duration_mins?: number | null
+          amount?: number | null
+          booking_id?: string | null
           id?: string
-          is_active?: boolean | null
-          is_approved?: boolean | null
-          is_custom?: boolean | null
-          name?: string
-          price?: number | null
-          provider_id?: string | null
-          sort_order?: number | null
+          payment_type?: string
+          processed_at?: string | null
+          status?: string
+          stripe_payment_intent_id?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "provider_services_catalog_id_fkey"
-            columns: ["catalog_id"]
+            foreignKeyName: "payments_booking_id_fkey"
+            columns: ["booking_id"]
             isOneToOne: false
-            referencedRelation: "service_catalog"
+            referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "provider_services_provider_id_fkey"
+            foreignKeyName: "payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payouts: {
+        Row: {
+          amount: number | null
+          booking_id: string | null
+          id: string
+          paid_at: string | null
+          provider_id: string | null
+          status: string
+          stripe_transfer_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          booking_id?: string | null
+          id?: string
+          paid_at?: string | null
+          provider_id?: string | null
+          status: string
+          stripe_transfer_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          booking_id?: string | null
+          id?: string
+          paid_at?: string | null
+          provider_id?: string | null
+          status?: string
+          stripe_transfer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payouts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payouts_provider_id_fkey"
             columns: ["provider_id"]
             isOneToOne: false
-            referencedRelation: "providers"
+            referencedRelation: "provider_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promo_redemptions: {
+        Row: {
+          amount_applied: number | null
+          booking_id: string | null
+          id: string
+          promo_id: string | null
+          redeemed_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount_applied?: number | null
+          booking_id?: string | null
+          id?: string
+          promo_id?: string | null
+          redeemed_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount_applied?: number | null
+          booking_id?: string | null
+          id?: string
+          promo_id?: string | null
+          redeemed_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_redemptions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_redemptions_promo_id_fkey"
+            columns: ["promo_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_redemptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promotions: {
+        Row: {
+          code: string
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          issued_to: string | null
+          promo_type: string
+          uses_remaining: number | null
+          value: number | null
+          value_type: string
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          issued_to?: string | null
+          promo_type: string
+          uses_remaining?: number | null
+          value?: number | null
+          value_type: string
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          issued_to?: string | null
+          promo_type?: string
+          uses_remaining?: number | null
+          value?: number | null
+          value_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotions_issued_to_fkey"
+            columns: ["issued_to"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_location_cache: {
+        Row: {
+          latitude: number
+          longitude: number
+          provider_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          latitude: number
+          longitude: number
+          provider_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          latitude?: number
+          longitude?: number
+          provider_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_location_cache_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: true
+            referencedRelation: "provider_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_profiles: {
+        Row: {
+          approved_at: string | null
+          avg_gear_rating: number | null
+          bio: string | null
+          coverage_area: string | null
+          created_at: string | null
+          id: string
+          is_founding_provider: boolean | null
+          kudos_count: number | null
+          mile_radius: number | null
+          platform_fee_rate: number | null
+          provider_type_id: string | null
+          stripe_account_id: string | null
+          total_jobs: number | null
+          user_id: string | null
+          verification_status: string
+        }
+        Insert: {
+          approved_at?: string | null
+          avg_gear_rating?: number | null
+          bio?: string | null
+          coverage_area?: string | null
+          created_at?: string | null
+          id?: string
+          is_founding_provider?: boolean | null
+          kudos_count?: number | null
+          mile_radius?: number | null
+          platform_fee_rate?: number | null
+          provider_type_id?: string | null
+          stripe_account_id?: string | null
+          total_jobs?: number | null
+          user_id?: string | null
+          verification_status?: string
+        }
+        Update: {
+          approved_at?: string | null
+          avg_gear_rating?: number | null
+          bio?: string | null
+          coverage_area?: string | null
+          created_at?: string | null
+          id?: string
+          is_founding_provider?: boolean | null
+          kudos_count?: number | null
+          mile_radius?: number | null
+          platform_fee_rate?: number | null
+          provider_type_id?: string | null
+          stripe_account_id?: string | null
+          total_jobs?: number | null
+          user_id?: string | null
+          verification_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_profiles_provider_type_id_fkey"
+            columns: ["provider_type_id"]
+            isOneToOne: false
+            referencedRelation: "provider_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -315,109 +645,139 @@ export type Database = {
         }
         Relationships: []
       }
-      providers: {
+      provider_vetting: {
         Row: {
-          bio: string | null
+          background_status: string
+          bank_status: string
+          checkr_report_id: string | null
           created_at: string | null
+          credentials_status: string
           id: string
-          is_approved: boolean | null
-          mile_radius: number | null
-          provider_type_id: string | null
-          rating: number | null
-          user_id: string | null
+          identity_status: string
+          insurance_status: string
+          persona_inquiry_id: string | null
+          profile_completeness: number | null
+          provider_id: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          updated_at: string | null
         }
         Insert: {
-          bio?: string | null
+          background_status?: string
+          bank_status?: string
+          checkr_report_id?: string | null
           created_at?: string | null
+          credentials_status?: string
           id?: string
-          is_approved?: boolean | null
-          mile_radius?: number | null
-          provider_type_id?: string | null
-          rating?: number | null
-          user_id?: string | null
+          identity_status?: string
+          insurance_status?: string
+          persona_inquiry_id?: string | null
+          profile_completeness?: number | null
+          provider_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          updated_at?: string | null
         }
         Update: {
-          bio?: string | null
+          background_status?: string
+          bank_status?: string
+          checkr_report_id?: string | null
           created_at?: string | null
+          credentials_status?: string
           id?: string
-          is_approved?: boolean | null
-          mile_radius?: number | null
-          provider_type_id?: string | null
-          rating?: number | null
-          user_id?: string | null
+          identity_status?: string
+          insurance_status?: string
+          persona_inquiry_id?: string | null
+          profile_completeness?: number | null
+          provider_id?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "providers_provider_type_id_fkey"
-            columns: ["provider_type_id"]
+            foreignKeyName: "provider_vetting_provider_id_fkey"
+            columns: ["provider_id"]
             isOneToOne: false
-            referencedRelation: "provider_types"
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "providers_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "provider_vetting_reviewed_by_fkey"
+            columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
       }
-      reviews: {
+      ratings: {
         Row: {
-          appointment_id: string | null
+          booking_id: string | null
+          communication_score: number | null
           created_at: string | null
-          description: string | null
+          dispute_window_end: string | null
           id: string
-          images: string[] | null
-          kudos_points: number | null
-          provider_id: string | null
-          rating: number
-          title: string | null
-          user_id: string | null
+          is_flagged: boolean | null
+          overall_score: number | null
+          quality_score: number | null
+          review_text: string | null
+          reviewee_id: string | null
+          reviewer_id: string | null
+          timeliness_score: number | null
+          value_score: number | null
         }
         Insert: {
-          appointment_id?: string | null
+          booking_id?: string | null
+          communication_score?: number | null
           created_at?: string | null
-          description?: string | null
+          dispute_window_end?: string | null
           id?: string
-          images?: string[] | null
-          kudos_points?: number | null
-          provider_id?: string | null
-          rating: number
-          title?: string | null
-          user_id?: string | null
+          is_flagged?: boolean | null
+          overall_score?: number | null
+          quality_score?: number | null
+          review_text?: string | null
+          reviewee_id?: string | null
+          reviewer_id?: string | null
+          timeliness_score?: number | null
+          value_score?: number | null
         }
         Update: {
-          appointment_id?: string | null
+          booking_id?: string | null
+          communication_score?: number | null
           created_at?: string | null
-          description?: string | null
+          dispute_window_end?: string | null
           id?: string
-          images?: string[] | null
-          kudos_points?: number | null
-          provider_id?: string | null
-          rating?: number
-          title?: string | null
-          user_id?: string | null
+          is_flagged?: boolean | null
+          overall_score?: number | null
+          quality_score?: number | null
+          review_text?: string | null
+          reviewee_id?: string | null
+          reviewer_id?: string | null
+          timeliness_score?: number | null
+          value_score?: number | null
         }
         Relationships: [
           {
-            foreignKeyName: "reviews_appointment_id_fkey"
-            columns: ["appointment_id"]
+            foreignKeyName: "ratings_booking_id_fkey"
+            columns: ["booking_id"]
             isOneToOne: false
-            referencedRelation: "appointments"
+            referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reviews_provider_id_fkey"
-            columns: ["provider_id"]
+            foreignKeyName: "ratings_reviewee_id_fkey"
+            columns: ["reviewee_id"]
             isOneToOne: false
-            referencedRelation: "providers"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reviews_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "ratings_reviewer_id_fkey"
+            columns: ["reviewer_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -459,9 +819,73 @@ export type Database = {
           },
         ]
       }
+      service_packages: {
+        Row: {
+          base_price: number | null
+          catalog_id: string | null
+          category: string
+          created_at: string | null
+          description: string | null
+          duration_mins: number | null
+          id: string
+          is_active: boolean | null
+          is_approved: boolean | null
+          is_custom: boolean | null
+          name: string
+          provider_id: string | null
+          sort_order: number | null
+        }
+        Insert: {
+          base_price?: number | null
+          catalog_id?: string | null
+          category: string
+          created_at?: string | null
+          description?: string | null
+          duration_mins?: number | null
+          id?: string
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          is_custom?: boolean | null
+          name: string
+          provider_id?: string | null
+          sort_order?: number | null
+        }
+        Update: {
+          base_price?: number | null
+          catalog_id?: string | null
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          duration_mins?: number | null
+          id?: string
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          is_custom?: boolean | null
+          name?: string
+          provider_id?: string | null
+          sort_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_packages_catalog_id_fkey"
+            columns: ["catalog_id"]
+            isOneToOne: false
+            referencedRelation: "service_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_packages_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "provider_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           created_at: string | null
+          discount_rate: number | null
           frequency: string | null
           id: string
           next_scheduled_at: string | null
@@ -473,6 +897,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          discount_rate?: number | null
           frequency?: string | null
           id?: string
           next_scheduled_at?: string | null
@@ -484,6 +909,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          discount_rate?: number | null
           frequency?: string | null
           id?: string
           next_scheduled_at?: string | null
@@ -498,7 +924,7 @@ export type Database = {
             foreignKeyName: "subscriptions_provider_id_fkey"
             columns: ["provider_id"]
             isOneToOne: false
-            referencedRelation: "providers"
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -510,111 +936,94 @@ export type Database = {
           },
         ]
       }
-      user_car_information: {
-        Row: {
-          id: string
-          make: string
-          model: string
-          user_id: string | null
-          vin: string | null
-          year: number
-        }
-        Insert: {
-          id?: string
-          make: string
-          model: string
-          user_id?: string | null
-          vin?: string | null
-          year: number
-        }
-        Update: {
-          id?: string
-          make?: string
-          model?: string
-          user_id?: string | null
-          vin?: string | null
-          year?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_car_information_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      user_information: {
-        Row: {
-          address: string | null
-          city: string | null
-          id: string
-          latitude: number | null
-          longitude: number | null
-          state: string | null
-          user_id: string | null
-          zip_code: string | null
-        }
-        Insert: {
-          address?: string | null
-          city?: string | null
-          id?: string
-          latitude?: number | null
-          longitude?: number | null
-          state?: string | null
-          user_id?: string | null
-          zip_code?: string | null
-        }
-        Update: {
-          address?: string | null
-          city?: string | null
-          id?: string
-          latitude?: number | null
-          longitude?: number | null
-          state?: string | null
-          user_id?: string | null
-          zip_code?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_information_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       users: {
         Row: {
+          avatar_url: string | null
           created_at: string | null
-          first_name: string | null
+          email: string | null
+          full_name: string | null
           id: string
-          is_provider: boolean | null
-          last_name: string | null
-          profile_pic: string | null
+          is_verified: boolean | null
+          phone: string | null
+          role: string
           stripe_customer_id: string | null
+          updated_at: string | null
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string | null
-          first_name?: string | null
-          id: string
-          is_provider?: boolean | null
-          last_name?: string | null
-          profile_pic?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          is_verified?: boolean | null
+          phone?: string | null
+          role?: string
           stripe_customer_id?: string | null
+          updated_at?: string | null
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string | null
-          first_name?: string | null
+          email?: string | null
+          full_name?: string | null
           id?: string
-          is_provider?: boolean | null
-          last_name?: string | null
-          profile_pic?: string | null
+          is_verified?: boolean | null
+          phone?: string | null
+          role?: string
           stripe_customer_id?: string | null
+          updated_at?: string | null
         }
         Relationships: []
+      }
+      vehicles: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          id: string
+          is_primary: boolean | null
+          license_plate: string | null
+          make: string
+          model: string
+          trim: string | null
+          user_id: string | null
+          vin: string | null
+          year: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          id?: string
+          is_primary?: boolean | null
+          license_plate?: string | null
+          make: string
+          model: string
+          trim?: string | null
+          user_id?: string | null
+          vin?: string | null
+          year: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          id?: string
+          is_primary?: boolean | null
+          license_plate?: string | null
+          make?: string
+          model?: string
+          trim?: string | null
+          user_id?: string | null
+          vin?: string | null
+          year?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

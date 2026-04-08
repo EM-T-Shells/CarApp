@@ -1,0 +1,53 @@
+Here's the updated dependencies list we produced earlier in this conversation:
+
+---
+
+## Dependencies List
+
+**Expo Managed**
+- `expo-router` — file-based navigation
+- `expo-linking` — deep linking
+- `expo-constants` — app config/env variables
+- `expo-status-bar` — status bar control
+- `expo-location` — GPS/geolocation (live tracking, 5-second updates)
+- `expo-notifications` — local notification scheduling
+- `expo-auth-session` — OAuth (Google/Apple)
+- `expo-web-browser` — required by auth-session
+- `expo-image-picker` — before/after photo uploads by provider
+- `expo-file-system` — file handling
+- `expo-camera` — in-app camera for provider photo capture during active job
+- `expo-secure-store` — secure storage for auth tokens
+
+**Supabase**
+- `@supabase/supabase-js` — database, auth, realtime, storage
+- `@react-native-async-storage/async-storage` — session persistence
+
+**Payments**
+- `@stripe/stripe-react-native` — Stripe Connect, deposits, balance capture
+
+**State Management**
+- `zustand` — global state stores
+- React Context — built-in, no package required; feature-scoped localized state
+
+**Maps & Location**
+- `react-native-maps` — live GPS map, provider tracking, service location pin
+- `@googlemaps/js-api-loader` — Google Maps SDK integration
+
+**Notifications**
+- `@react-native-firebase/app` — Firebase core (required by FCM)
+- `@react-native-firebase/messaging` — Firebase Cloud Messaging for push
+
+**Analytics & Monitoring**
+- `mixpanel-react-native` — funnel analysis, retention tracking
+- `@sentry/react-native` — crash reporting, performance monitoring
+
+**UI & Animation**
+- `react-native-reanimated` — spring-based animations
+- `react-native-gesture-handler` — required by Reanimated and sheets
+- `nativewind` — Tailwind for React Native
+- `tailwindcss` — required by NativeWind
+- `lucide-react-native` — base icon library
+
+**Utilities**
+- `ioredis` — Redis client (GPS caching, rate limiting, short-lived tokens)
+- `date-fns` — date formatting
