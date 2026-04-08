@@ -1,6 +1,3 @@
-Here's the unified merged schema with SQL and RLS policies:
-
-
 -- ============================================================
 -- STABL — UNIFIED MERGED SCHEMA
 -- ============================================================

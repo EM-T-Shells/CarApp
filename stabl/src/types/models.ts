@@ -1,193 +1,101 @@
-import { Json } from './supabase'
+import { Tables, TablesInsert, TablesUpdate } from './supabase';
 
-// ─── SERVICE SNAPSHOT (shape of JSONB in appointments & subscriptions) ───────
-export type ServiceSnapshot = {
-  provider_service_id: string
-  name: string
-  price: number
-  duration_mins: number
-  category: string
-}
+// ── Users ──────────────────────────────────────────────────────────────
+export type User = Tables<'users'>;
+export type UserInsert = TablesInsert<'users'>;
+export type UserUpdate = TablesUpdate<'users'>;
 
-// ─── USER ────────────────────────────────────────────────────────────────────
-export type User = {
-  id: string
-  first_name: string | null
-  last_name: string | null
-  profile_pic: string | null
-  is_provider: boolean
-  stripe_customer_id: string | null
-  created_at: string
-}
+// ── Vehicles ───────────────────────────────────────────────────────────
+export type Vehicle = Tables<'vehicles'>;
+export type VehicleInsert = TablesInsert<'vehicles'>;
+export type VehicleUpdate = TablesUpdate<'vehicles'>;
 
-// ─── USER INFORMATION ────────────────────────────────────────────────────────
-export type UserInformation = {
-  id: string
-  user_id: string
-  address: string | null
-  city: string | null
-  state: string | null
-  zip_code: string | null
-  latitude: number | null
-  longitude: number | null
-}
+// ── Provider Profiles ──────────────────────────────────────────────────
+export type ProviderProfile = Tables<'provider_profiles'>;
+export type ProviderProfileInsert = TablesInsert<'provider_profiles'>;
+export type ProviderProfileUpdate = TablesUpdate<'provider_profiles'>;
 
-// ─── USER CAR ────────────────────────────────────────────────────────────────
-export type UserCar = {
-  id: string
-  user_id: string
-  make: string
-  model: string
-  year: number
-  vin: string | null
-}
+// ── Provider Types ─────────────────────────────────────────────────────
+export type ProviderType = Tables<'provider_types'>;
+export type ProviderTypeInsert = TablesInsert<'provider_types'>;
+export type ProviderTypeUpdate = TablesUpdate<'provider_types'>;
 
-// ─── PROVIDER TYPE ───────────────────────────────────────────────────────────
-export type ProviderType = {
-  id: string
-  name: 'DETAILER' | 'MECHANIC'
-  label: string
-  is_active: boolean
-}
+// ── Provider Vetting ───────────────────────────────────────────────────
+export type ProviderVetting = Tables<'provider_vetting'>;
+export type ProviderVettingInsert = TablesInsert<'provider_vetting'>;
+export type ProviderVettingUpdate = TablesUpdate<'provider_vetting'>;
 
-// ─── PROVIDER ────────────────────────────────────────────────────────────────
-export type Provider = {
-  id: string
-  user_id: string
-  provider_type_id: string | null
-  rating: number
-  mile_radius: number | null
-  bio: string | null
-  is_approved: boolean
-  created_at: string
-}
+// ── Provider Location Cache ────────────────────────────────────────────
+export type ProviderLocationCache = Tables<'provider_location_cache'>;
+export type ProviderLocationCacheInsert = TablesInsert<'provider_location_cache'>;
+export type ProviderLocationCacheUpdate = TablesUpdate<'provider_location_cache'>;
 
-// ─── PROVIDER (with joined user + type — for display) ────────────────────────
-export type ProviderWithDetails = Provider & {
-  user: User
-  provider_type: ProviderType | null
-  services: ProviderService[]
-}
+// ── Service Catalog ────────────────────────────────────────────────────
+export type ServiceCatalog = Tables<'service_catalog'>;
+export type ServiceCatalogInsert = TablesInsert<'service_catalog'>;
+export type ServiceCatalogUpdate = TablesUpdate<'service_catalog'>;
 
-// ─── SERVICE CATALOG ─────────────────────────────────────────────────────────
-export type ServiceCatalogItem = {
-  id: string
-  provider_type_id: string | null
-  name: string
-  category: string
-  is_active: boolean
-}
+// ── Service Packages ───────────────────────────────────────────────────
+export type ServicePackage = Tables<'service_packages'>;
+export type ServicePackageInsert = TablesInsert<'service_packages'>;
+export type ServicePackageUpdate = TablesUpdate<'service_packages'>;
 
-// ─── PROVIDER SERVICE ────────────────────────────────────────────────────────
-export type ProviderService = {
-  id: string
-  provider_id: string
-  catalog_id: string | null
-  name: string
-  category: string | null
-  description: string | null
-  price: number | null
-  duration_mins: number | null
-  is_active: boolean
-  is_custom: boolean
-  is_approved: boolean
-  sort_order: number
-}
+// ── Bookings ───────────────────────────────────────────────────────────
+export type Booking = Tables<'bookings'>;
+export type BookingInsert = TablesInsert<'bookings'>;
+export type BookingUpdate = TablesUpdate<'bookings'>;
 
-// ─── APPOINTMENT ─────────────────────────────────────────────────────────────
-export type AppointmentStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'in_progress'
-  | 'completed'
-  | 'cancelled'
+// ── Booking Photos ─────────────────────────────────────────────────────
+export type BookingPhoto = Tables<'booking_photos'>;
+export type BookingPhotoInsert = TablesInsert<'booking_photos'>;
+export type BookingPhotoUpdate = TablesUpdate<'booking_photos'>;
 
-export type Appointment = {
-  id: string
-  provider_id: string
-  user_id: string
-  car_id: string | null
-  services: ServiceSnapshot[]
-  status: AppointmentStatus
-  scheduled_at: string
-  location_address: string | null
-  location_lat: number | null
-  location_lng: number | null
-  deposit_amount: number | null
-  total_estimate: number | null
-  stripe_payment_id: string | null
-  notes: string | null
-  created_at: string
-  updated_at: string
-  deposit_forfeited: boolean
-}
+// ── Payments ───────────────────────────────────────────────────────────
+export type Payment = Tables<'payments'>;
+export type PaymentInsert = TablesInsert<'payments'>;
+export type PaymentUpdate = TablesUpdate<'payments'>;
 
-// ─── REVIEW ──────────────────────────────────────────────────────────────────
-export type Review = {
-  id: string
-  provider_id: string
-  user_id: string
-  appointment_id: string
-  rating: number
-  title: string | null
-  description: string | null
-  images: string[] | null
-  kudos_points: number
-  created_at: string
-}
+// ── Payouts ────────────────────────────────────────────────────────────
+export type Payout = Tables<'payouts'>;
+export type PayoutInsert = TablesInsert<'payouts'>;
+export type PayoutUpdate = TablesUpdate<'payouts'>;
 
-// ─── MESSAGE THREAD ──────────────────────────────────────────────────────────
-export type MessageThread = {
-  id: string
-  appointment_id: string
-  customer_id: string
-  provider_id: string
-  created_at: string
-}
+// ── Ratings ────────────────────────────────────────────────────────────
+export type Rating = Tables<'ratings'>;
+export type RatingInsert = TablesInsert<'ratings'>;
+export type RatingUpdate = TablesUpdate<'ratings'>;
 
-// ─── MESSAGE ─────────────────────────────────────────────────────────────────
-export type Message = {
-  id: string
-  thread_id: string
-  sender_id: string
-  body: string | null
-  image_url: string | null
-  is_flagged: boolean
-  created_at: string
-}
+// ── Kudos ──────────────────────────────────────────────────────────────
+export type Kudos = Tables<'kudos'>;
+export type KudosInsert = TablesInsert<'kudos'>;
+export type KudosUpdate = TablesUpdate<'kudos'>;
 
-// ─── NOTIFICATION ────────────────────────────────────────────────────────────
-export type NotificationType =
-  | 'booking_confirmed'
-  | 'booking_cancelled'
-  | 'appointment_reminder'
-  | 'review_request'
-  | 'message_received'
-  | 'promo'
+// ── Message Threads ────────────────────────────────────────────────────
+export type MessageThread = Tables<'message_threads'>;
+export type MessageThreadInsert = TablesInsert<'message_threads'>;
+export type MessageThreadUpdate = TablesUpdate<'message_threads'>;
 
-export type Notification = {
-  id: string
-  user_id: string
-  type: NotificationType
-  title: string | null
-  body: string | null
-  is_read: boolean
-  metadata: Json | null
-  created_at: string
-}
+// ── Messages ───────────────────────────────────────────────────────────
+export type Message = Tables<'messages'>;
+export type MessageInsert = TablesInsert<'messages'>;
+export type MessageUpdate = TablesUpdate<'messages'>;
 
-// ─── SUBSCRIPTION ────────────────────────────────────────────────────────────
-export type SubscriptionStatus = 'active' | 'paused' | 'cancelled'
-export type SubscriptionFrequency = 'weekly' | 'biweekly' | 'monthly'
+// ── Notifications ──────────────────────────────────────────────────────
+export type Notification = Tables<'notifications'>;
+export type NotificationInsert = TablesInsert<'notifications'>;
+export type NotificationUpdate = TablesUpdate<'notifications'>;
 
-export type Subscription = {
-  id: string
-  user_id: string
-  provider_id: string
-  status: SubscriptionStatus
-  frequency: SubscriptionFrequency | null
-  services: ServiceSnapshot[]
-  stripe_subscription_id: string | null
-  next_scheduled_at: string | null
-  created_at: string
-}
+// ── Promotions ─────────────────────────────────────────────────────────
+export type Promotion = Tables<'promotions'>;
+export type PromotionInsert = TablesInsert<'promotions'>;
+export type PromotionUpdate = TablesUpdate<'promotions'>;
+
+// ── Promo Redemptions ──────────────────────────────────────────────────
+export type PromoRedemption = Tables<'promo_redemptions'>;
+export type PromoRedemptionInsert = TablesInsert<'promo_redemptions'>;
+export type PromoRedemptionUpdate = TablesUpdate<'promo_redemptions'>;
+
+// ── Subscriptions ──────────────────────────────────────────────────────
+export type Subscription = Tables<'subscriptions'>;
+export type SubscriptionInsert = TablesInsert<'subscriptions'>;
+export type SubscriptionUpdate = TablesUpdate<'subscriptions'>;
