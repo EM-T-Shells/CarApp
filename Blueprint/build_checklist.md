@@ -1,7 +1,7 @@
 # CarApp — Build Checklist
 
 ## Phase 0 — Foundation
-- [ ] `src/lib/supabase/client.ts` — Supabase singleton
+- [x] `src/lib/supabase/client.ts` — Supabase singleton
 - [ ] `src/types/supabase.ts` — generate from schema (supabase gen types)
 - [ ] `src/types/models.ts` — domain TypeScript interfaces
 - [ ] `src/types/navigation.ts` — Expo Router typed params
