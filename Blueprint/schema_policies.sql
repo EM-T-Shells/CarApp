@@ -1,5 +1,5 @@
 -- ============================================================
--- STABL — UNIFIED MERGED SCHEMA
+-- CARAPP — UNIFIED MERGED SCHEMA
 -- ============================================================
 
 -- PROVIDER TYPES (admin managed)

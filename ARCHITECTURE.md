@@ -1,4 +1,4 @@
-# Stabl Architecture
+# CarApp Architecture
 
 ## Stack
 
@@ -26,7 +26,7 @@
 ---
 
 ## Folder Structure
-stabl/ 
+carApp/ 
 ├── app/ 
 │   ├── _layout.tsx                   # Root auth gate 
 │   ├── (auth)/ 
@@ -201,7 +201,7 @@ app/_layout.tsx — onAuthStateChange
 - **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).
 - **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `Blueprint/schema_policies.sql` for all policies.
-- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses are constrained by a system prompt referencing the Stabl service catalog. Always provides a human escalation path.
+- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses are constrained by a system prompt referencing the CarApp service catalog. Always provides a human escalation path.
 
 ---
 
@@ -214,5 +214,5 @@ These features are planned but explicitly out of scope for the initial build. Do
 - Mechanics expansion (Phase 1b — `provider_types` supports it, but only detailing flows are built)
 - Lug 2.0 proactive push alerts
 - Geographic expansion beyond NoVA / DC Metro
-- Stabl Care membership
+- CarApp Care membership
 - Offline resilience (queuing, optimistic UI, local caching)

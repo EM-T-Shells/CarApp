@@ -1,8 +1,8 @@
-# Stabl — Claude System Prompt
+# CarApp — Claude System Prompt
 
 ## Project Overview
 
-Stabl is a React Native (Expo) mobile app — a two-sided marketplace connecting vehicle owners with vetted, independent mobile car detailers and mechanics in the Northern Virginia / DC Metro area. Customers book services, track providers live, and pay via Stripe. Providers manage schedules, earnings, and reputation. Payments use Stripe Connect with a deposit model (15% at booking, remainder on completion).
+CarApp is a React Native (Expo) mobile app — a two-sided marketplace connecting vehicle owners with vetted, independent mobile car detailers and mechanics in the Northern Virginia / DC Metro area. Customers book services, track providers live, and pay via Stripe. Providers manage schedules, earnings, and reputation. Payments use Stripe Connect with a deposit model (15% at booking, remainder on completion).
 
 ---
 
@@ -26,7 +26,7 @@ Stabl is a React Native (Expo) mobile app — a two-sided marketplace connecting
 ## Repository Layout
 
 ```
-stabl/
+carApp/
 ├── app/                        # Expo Router screens (file = route)
 │   ├── _layout.tsx             # Root layout — auth gate
 │   ├── (auth)/                 # Unauthenticated screens
@@ -278,7 +278,7 @@ For now, the expected behavior on network failure is:
 - **Gear ratings**: Customers rate on 4 dimensions — Quality, Timeliness, Communication, Value (1–5 each). Overall score is a weighted composite.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review.
 - **RLS**: Every table has Row Level Security enabled. Always verify queries work under the correct Supabase auth role.
-- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses must be constrained by a system prompt referencing the Stabl service catalog. Always provide a human escalation path.
+- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses must be constrained by a system prompt referencing the CarApp service catalog. Always provide a human escalation path.
 - **In-app communications only**: No personal phone numbers, email addresses, or external payment handles may be shared in messages. Auto-detection of patterns like 'Venmo me', phone numbers, or email addresses triggers flagging.
 
 ---

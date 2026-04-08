@@ -1,4 +1,4 @@
-# Stabl — Build Checklist
+# CarApp — Build Checklist
 
 ## Phase 0 — Foundation
 - [ ] `src/lib/supabase/client.ts` — Supabase singleton
@@ -69,7 +69,7 @@
 - [ ] `app/(tabs)/search/index.tsx` — search home with location bar
 - [ ] `app/(tabs)/search/results.tsx` — filtered provider list
 - [ ] `app/(tabs)/search/provider/[id].tsx` — provider profile
-- [ ] `app/(tabs)/services/index.tsx` — Stabl service catalog browse
+- [ ] `app/(tabs)/services/index.tsx` — CarApp service catalog browse
 
 ---
 
@@ -199,4 +199,4 @@
 - [ ] Mechanics expansion (Phase 1b)
 - [ ] Lug 2.0 proactive push alerts
 - [ ] Geographic expansion
-- [ ] Stabl Care membership
+- [ ] CarApp Care membership
