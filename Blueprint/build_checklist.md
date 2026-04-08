@@ -2,8 +2,8 @@
 
 ## Phase 0 — Foundation
 - [x] `src/lib/supabase/client.ts` — Supabase singleton
-- [ ] `src/types/supabase.ts` — generate from schema (supabase gen types)
-- [ ] `src/types/models.ts` — domain TypeScript interfaces
+- [x] `src/types/supabase.ts` — generate from schema (supabase gen types)
+- [x] `src/types/models.ts` — domain TypeScript interfaces
 - [ ] `src/types/navigation.ts` — Expo Router typed params
 - [ ] `src/design/tokens.ts` — all color, spacing, radius tokens
 - [ ] `src/design/typography.ts` — font sizes, weights, families
