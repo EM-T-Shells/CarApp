@@ -31,7 +31,9 @@
     "plugins": [
       "expo-secure-store",
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ]
   }
 }
