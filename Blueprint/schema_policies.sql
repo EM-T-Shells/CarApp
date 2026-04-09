@@ -315,11 +315,9 @@ CREATE POLICY "users: read own" ON users
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "users: update own verification flags" ON users
+CREATE POLICY "users: update verification flags" ON users
   FOR UPDATE USING (auth.uid() = id)
-  WITH CHECK (
-    auth.uid() = id
-  );
+  WITH CHECK (auth.uid() = id);
 
 -- VEHICLES
 CREATE POLICY "vehicles: read own" ON vehicles
