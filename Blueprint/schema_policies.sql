@@ -21,6 +21,8 @@ CREATE TABLE users (
   avatar_url         TEXT,
   is_verified        BOOLEAN DEFAULT FALSE,
   stripe_customer_id TEXT,
+  email_verified     BOOLEAN DEFAULT FALSE,
+  phone_verified     BOOLEAN DEFAULT FALSE,
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
@@ -312,6 +314,12 @@ CREATE POLICY "users: read own" ON users
 
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "users: update own verification flags" ON users
+  FOR UPDATE USING (auth.uid() = id)
+  WITH CHECK (
+    auth.uid() = id
+  );
 
 -- VEHICLES
 CREATE POLICY "vehicles: read own" ON vehicles

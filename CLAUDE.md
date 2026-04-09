@@ -19,6 +19,7 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 - **Analytics**: Mixpanel
 - **Error Monitoring**: Sentry
 - **Auth Storage**: Expo Secure Store
+- **SMS Provider**: Twilio (configured at Supabase project level for phone OTP — not in app code)
 - **Styling**: NativeWind + Tailwind CSS
 
 ---
@@ -267,6 +268,7 @@ For now, the expected behavior on network failure is:
 ## Key Business Logic
 
 - **Auth gate**: `app/_layout.tsx` listens to `onAuthStateChange` → routes to `(auth)/sign-in` or `(tabs)/`
+- **OTP auth**: Email and phone OTP are supported via Supabase Auth's built-in OTP API (`signInWithOtp`). No custom token table. Phone OTP requires Twilio configured in Supabase dashboard.
 - **Role model**: All users default to Customer. Provider mode is opt-in post-signup and requires full vetting completion before first booking.
 - **Service snapshots**: Services are snapshotted as JSONB at booking time — price/name changes by providers never alter existing bookings.
 - **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert; flagged body is replaced with `[Message flagged for review]`.

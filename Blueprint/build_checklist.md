@@ -16,6 +16,8 @@
 
 ## Phase 1 — Auth Layer
 - [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signOut, isNewUser
+- [ ] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
+- [ ] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
 - [ ] `src/state/auth.ts` — Zustand auth store (session, user, role)
 - [ ] `src/state/signUpDraft.ts` — customer multi-step onboarding state
 - [ ] `src/state/providerDraft.ts` — provider onboarding multi-step state
@@ -25,7 +27,7 @@
 - [ ] `src/components/auth/ServicePicker.tsx`
 - [ ] `app/_layout.tsx` — root auth gate (onAuthStateChange)
 - [ ] `app/(auth)/_layout.tsx`
-- [ ] `app/(auth)/sign-in.tsx` — Google + Apple SSO
+- [ ] `app/(auth)/sign-in.tsx` — Google + Apple SSO + Email/Phone OTP entry
 - [ ] `app/(auth)/pending-approval.tsx` — provider awaiting vetting
 
 ---

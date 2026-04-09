@@ -21,6 +21,7 @@
 | Error Monitoring | Sentry | Crash reporting, performance |
 | Identity Verification | Persona | Provider identity checks |
 | Background Checks | Checkr | Provider background screening |
+| OTP Auth | Supabase Auth (built-in) | Email and phone one-time password via Supabase's OTP API |
 | AI / LLM | Anthropic Claude API | Lug AI assistant (via Edge Function) |
 
 ---
@@ -30,7 +31,7 @@ carApp/
 ├── app/ 
 │   ├── _layout.tsx                   # Root auth gate 
 │   ├── (auth)/ 
-│   │   ├── sign-in.tsx               # Google + Apple SSO 
+│   │   ├── sign-in.tsx               # Google + Apple SSO + Email/Phone OTP 
 │   │   └── pending-approval.tsx      # Provider awaiting vetting approval 
 │   └── (tabs)/ 
 │       ├── _layout.tsx               # 5-tab bar config 
@@ -170,7 +171,17 @@ app/_layout.tsx — onAuthStateChange
      │
      ├── No session ──► app/(auth)/sign-in
      │                        │
-     │              Google / Apple OAuth
+     │              ┌─────────┴─────────┐
+     │              │                   │
+     │     Google / Apple OAuth    Email/Phone OTP
+     │              │                   │
+     │              │          otp-entry.tsx (enter email/phone)
+     │              │                   │
+     │              │          Supabase Auth signInWithOtp
+     │              │                   │
+     │              │          otp-verify.tsx (enter OTP code)
+     │              │                   │
+     │              └─────────┬─────────┘
      │                        │
      │              Supabase Auth ──► session stored in SecureStore
      │                        │
