@@ -2,20 +2,22 @@
 
 ## Phase 0 — Foundation
 - [x] `src/lib/supabase/client.ts` — Supabase singleton
-- [ ] `src/types/supabase.ts` — generate from schema (supabase gen types)
-- [ ] `src/types/models.ts` — domain TypeScript interfaces
-- [ ] `src/types/navigation.ts` — Expo Router typed params
-- [ ] `src/design/tokens.ts` — all color, spacing, radius tokens
-- [ ] `src/design/typography.ts` — font sizes, weights, families
-- [ ] `src/design/theme.ts` — combined theme object
-- [ ] `src/utils/money.ts` — cents ↔ display formatting
-- [ ] `src/utils/date.ts` — ISO string parsing and formatting
+- [x] `src/types/supabase.ts` — generate from schema (supabase gen types)
+- [x] `src/types/models.ts` — domain TypeScript interfaces
+- [x] `src/types/navigation.ts` — Expo Router typed params
+- [x] `src/design/tokens.ts` — all color, spacing, radius tokens
+- [x] `src/design/typography.ts` — font sizes, weights, families
+- [x] `src/design/theme.ts` — combined theme object
+- [x] `src/utils/money.ts` — cents ↔ display formatting
+- [x] `src/utils/date.ts` — ISO string parsing and formatting
 - [ ] `src/utils/validators.ts` — form validation + containsFlaggedContent()
 
 ---
 
 ## Phase 1 — Auth Layer
-- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signOut, isNewUser
+- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
+- [ ] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
+- [ ] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
 - [ ] `src/state/auth.ts` — Zustand auth store (session, user, role)
 - [ ] `src/state/signUpDraft.ts` — customer multi-step onboarding state
 - [ ] `src/state/providerDraft.ts` — provider onboarding multi-step state
@@ -25,7 +27,7 @@
 - [ ] `src/components/auth/ServicePicker.tsx`
 - [ ] `app/_layout.tsx` — root auth gate (onAuthStateChange)
 - [ ] `app/(auth)/_layout.tsx`
-- [ ] `app/(auth)/sign-in.tsx` — Google + Apple SSO
+- [ ] `app/(auth)/sign-in.tsx` — Google + Apple SSO + Email/Phone OTP entry
 - [ ] `app/(auth)/pending-approval.tsx` — provider awaiting vetting
 
 ---

@@ -19,6 +19,7 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 - **Analytics**: Mixpanel
 - **Error Monitoring**: Sentry
 - **Auth Storage**: Expo Secure Store
+- **SMS Provider**: Twilio (configured at Supabase project level for phone OTP — not in app code)
 - **Styling**: NativeWind + Tailwind CSS
 
 ---
@@ -26,42 +27,43 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 ## Repository Layout
 
 ```
-carApp/
-├── app/                        # Expo Router screens (file = route)
-│   ├── _layout.tsx             # Root layout — auth gate
-│   ├── (auth)/                 # Unauthenticated screens
-│   └── (tabs)/                 # Authenticated tab screens
-├── src/
-│   ├── lib/
-│   │   ├── supabase/           # client.ts, auth.ts, queries.ts, mutations.ts, storage.ts
-│   │   ├── redis/              # GPS caching, rate limiting, short-lived tokens
-│   │   ├── stripe/             # Stripe Connect integration
-│   │   ├── checkr/             # Background check webhook handling
-│   │   ├── persona/            # Identity verification flow
-│   │   ├── notifications/      # Firebase Cloud Messaging (push.ts)
-│   │   └── location/           # GPS utilities
-│   ├── state/                  # Zustand global state slices
-│   ├── types/                  # models.ts, supabase.ts (generated), navigation.ts
-│   ├── utils/                  # validators.ts, money.ts, date.ts
-│   ├── components/             # Reusable UI components (domain-organized)
-│   └── design/                 # theme.ts, tokens.ts, typography.ts
-├── supabase/
-│   └── functions/              # Edge Functions (Deno runtime — not Node)
-│       ├── stripe-webhook/
-│       ├── checkr-webhook/
-│       ├── persona-webhook/
-│       ├── notify-booking-confirmed/
-│       ├── notify-provider-enroute/
-│       ├── notify-job-complete/
-│       ├── notify-payout-processed/
-│       ├── notify-kudos-received/
-│       └── lug-ai/
-├── e2e/                        # Maestro E2E flows
-├── assets/                     # Fonts, images, icons
-├── Blueprint/                  # Schema, policies, build plan docs
+CarApp/                             # Git repo root
+├── Blueprint/                      # Schema, policies, build plan docs
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
-└── .claudeignore
+├── .claudeignore
+└── carApp/                         # Expo app root
+    ├── app/                        # Expo Router screens (file = route)
+    │   ├── _layout.tsx             # Root layout — auth gate
+    │   ├── (auth)/                 # Unauthenticated screens (sign-in, otp-entry, otp-verify, pending-approval)
+    │   └── (tabs)/                 # Authenticated tab screens
+    ├── src/
+    │   ├── lib/
+    │   │   ├── supabase/           # client.ts, auth.ts, queries.ts, mutations.ts, storage.ts
+    │   │   ├── redis/              # GPS caching, rate limiting, short-lived tokens
+    │   │   ├── stripe/             # Stripe Connect integration
+    │   │   ├── checkr/             # Background check webhook handling
+    │   │   ├── persona/            # Identity verification flow
+    │   │   ├── notifications/      # Firebase Cloud Messaging (push.ts)
+    │   │   └── location/           # GPS utilities
+    │   ├── state/                  # Zustand global state slices
+    │   ├── types/                  # models.ts, supabase.ts (generated), navigation.ts
+    │   ├── utils/                  # validators.ts, money.ts, date.ts
+    │   ├── components/             # Reusable UI components (domain-organized)
+    │   └── design/                 # theme.ts, tokens.ts, typography.ts
+    ├── supabase/
+    │   └── functions/              # Edge Functions (Deno runtime — not Node)
+    │       ├── stripe-webhook/
+    │       ├── checkr-webhook/
+    │       ├── persona-webhook/
+    │       ├── notify-booking-confirmed/
+    │       ├── notify-provider-enroute/
+    │       ├── notify-job-complete/
+    │       ├── notify-payout-processed/
+    │       ├── notify-kudos-received/
+    │       └── lug-ai/
+    ├── e2e/                        # Maestro E2E flows
+    └── assets/                     # Fonts, images, icons
 ```
 
 ---
@@ -267,6 +269,7 @@ For now, the expected behavior on network failure is:
 ## Key Business Logic
 
 - **Auth gate**: `app/_layout.tsx` listens to `onAuthStateChange` → routes to `(auth)/sign-in` or `(tabs)/`
+- **OTP auth**: Email and phone OTP are supported via Supabase Auth's built-in OTP API (`signInWithOtp`). No custom token table. Phone OTP requires Twilio configured in Supabase dashboard.
 - **Role model**: All users default to Customer. Provider mode is opt-in post-signup and requires full vetting completion before first booking.
 - **Service snapshots**: Services are snapshotted as JSONB at booking time — price/name changes by providers never alter existing bookings.
 - **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert; flagged body is replaced with `[Message flagged for review]`.
@@ -343,7 +346,17 @@ After every code change, write the appropriate tests before considering the task
 - NEVER commit directly to `main` or `dev`
 - Always branch off `dev` when starting a new file or feature
 - One branch per task — do not bundle unrelated changes
-- After completing a task, stage only the files relevant to that task
+- After completing a task, do the following in order:
+  1. Stage only the files relevant to the task: `git add <file>`
+  2. Commit with a clean, descriptive message: `git commit -m "<type>(<scope>): <short description>"`
+  3. Push the feature branch to GitHub: `git push origin <branch-name>`
+  4. Merge the feature branch into `dev`: `git checkout dev && git merge <branch-name>`
+  5. Push the updated `dev` branch: `git push origin dev`
+  6. Delete the feature branch locally and remotely:
+     `git branch -d <branch-name>`
+     `git push origin --delete <branch-name>`
+  7. Return to `dev` as the working branch for the next task
+- Commit messages must be clean and descriptive — do not reference AI, Claude, or automated tooling
 
 ### Commit Message Format
 
@@ -365,7 +378,7 @@ Examples:
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
 - After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
-- Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete as you go.
+- Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete with an "x" as you go.
 
 ---
 
@@ -375,3 +388,18 @@ Examples:
 - `Blueprint/schema_policies.sql` — Unified merged schema with RLS policies. Source of truth for all table structures.
 - `Blueprint/dependencies_list` — All approved packages. Check before installing anything new.
 - `Blueprint/build_checklist.md` — Phase-by-phase build order. Check before starting any new feature.
+
+## File Notes Log
+
+After every completed git cycle, append a concise one-line note about the file that was just built to `Blueprint/reference.md`.
+
+**Format:**
+`[path/to/file.ts] — <one sentence describing what this file does and why it exists in the app>`
+
+**Example:**
+`[src/design/tokens.ts] — Single source of truth for all color, spacing, radius, and typography values; imported by every component to enforce visual consistency.`
+
+**Rules:**
+- One entry per completed task — do not batch multiple files into one note
+- Append only — never edit or delete existing entries
+- Keep the description to one sentence, focused on purpose and role in the app

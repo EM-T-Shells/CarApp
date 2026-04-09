@@ -21,6 +21,8 @@ CREATE TABLE users (
   avatar_url         TEXT,
   is_verified        BOOLEAN DEFAULT FALSE,
   stripe_customer_id TEXT,
+  email_verified     BOOLEAN DEFAULT FALSE,
+  phone_verified     BOOLEAN DEFAULT FALSE,
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
@@ -321,6 +323,9 @@ CREATE POLICY "vehicles: write own" ON vehicles
   FOR ALL USING (auth.uid() = user_id);
 
 -- PROVIDER PROFILES
+CREATE POLICY "provider_profiles: read own" ON provider_profiles
+  FOR SELECT USING (auth.uid() = user_id);
+
 CREATE POLICY "provider_profiles: read approved" ON provider_profiles
   FOR SELECT USING (verification_status = 'approved');
 
