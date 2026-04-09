@@ -27,42 +27,43 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 ## Repository Layout
 
 ```
-carApp/
-├── app/                        # Expo Router screens (file = route)
-│   ├── _layout.tsx             # Root layout — auth gate
-│   ├── (auth)/                 # Unauthenticated screens
-│   └── (tabs)/                 # Authenticated tab screens
-├── src/
-│   ├── lib/
-│   │   ├── supabase/           # client.ts, auth.ts, queries.ts, mutations.ts, storage.ts
-│   │   ├── redis/              # GPS caching, rate limiting, short-lived tokens
-│   │   ├── stripe/             # Stripe Connect integration
-│   │   ├── checkr/             # Background check webhook handling
-│   │   ├── persona/            # Identity verification flow
-│   │   ├── notifications/      # Firebase Cloud Messaging (push.ts)
-│   │   └── location/           # GPS utilities
-│   ├── state/                  # Zustand global state slices
-│   ├── types/                  # models.ts, supabase.ts (generated), navigation.ts
-│   ├── utils/                  # validators.ts, money.ts, date.ts
-│   ├── components/             # Reusable UI components (domain-organized)
-│   └── design/                 # theme.ts, tokens.ts, typography.ts
-├── supabase/
-│   └── functions/              # Edge Functions (Deno runtime — not Node)
-│       ├── stripe-webhook/
-│       ├── checkr-webhook/
-│       ├── persona-webhook/
-│       ├── notify-booking-confirmed/
-│       ├── notify-provider-enroute/
-│       ├── notify-job-complete/
-│       ├── notify-payout-processed/
-│       ├── notify-kudos-received/
-│       └── lug-ai/
-├── e2e/                        # Maestro E2E flows
-├── assets/                     # Fonts, images, icons
-├── Blueprint/                  # Schema, policies, build plan docs
+CarApp/                             # Git repo root
+├── Blueprint/                      # Schema, policies, build plan docs
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
-└── .claudeignore
+├── .claudeignore
+└── carApp/                         # Expo app root
+    ├── app/                        # Expo Router screens (file = route)
+    │   ├── _layout.tsx             # Root layout — auth gate
+    │   ├── (auth)/                 # Unauthenticated screens (sign-in, otp-entry, otp-verify, pending-approval)
+    │   └── (tabs)/                 # Authenticated tab screens
+    ├── src/
+    │   ├── lib/
+    │   │   ├── supabase/           # client.ts, auth.ts, queries.ts, mutations.ts, storage.ts
+    │   │   ├── redis/              # GPS caching, rate limiting, short-lived tokens
+    │   │   ├── stripe/             # Stripe Connect integration
+    │   │   ├── checkr/             # Background check webhook handling
+    │   │   ├── persona/            # Identity verification flow
+    │   │   ├── notifications/      # Firebase Cloud Messaging (push.ts)
+    │   │   └── location/           # GPS utilities
+    │   ├── state/                  # Zustand global state slices
+    │   ├── types/                  # models.ts, supabase.ts (generated), navigation.ts
+    │   ├── utils/                  # validators.ts, money.ts, date.ts
+    │   ├── components/             # Reusable UI components (domain-organized)
+    │   └── design/                 # theme.ts, tokens.ts, typography.ts
+    ├── supabase/
+    │   └── functions/              # Edge Functions (Deno runtime — not Node)
+    │       ├── stripe-webhook/
+    │       ├── checkr-webhook/
+    │       ├── persona-webhook/
+    │       ├── notify-booking-confirmed/
+    │       ├── notify-provider-enroute/
+    │       ├── notify-job-complete/
+    │       ├── notify-payout-processed/
+    │       ├── notify-kudos-received/
+    │       └── lug-ai/
+    ├── e2e/                        # Maestro E2E flows
+    └── assets/                     # Fonts, images, icons
 ```
 
 ---

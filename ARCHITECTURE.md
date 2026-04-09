@@ -22,107 +22,111 @@
 | Identity Verification | Persona | Provider identity checks |
 | Background Checks | Checkr | Provider background screening |
 | OTP Auth | Supabase Auth (built-in) | Email and phone one-time password via Supabase's OTP API |
+| SMS Provider | Twilio | Phone OTP delivery — configured at Supabase project level, not in app code |
 | AI / LLM | Anthropic Claude API | Lug AI assistant (via Edge Function) |
 
 ---
 
 ## Folder Structure
-carApp/ 
-├── app/ 
-│   ├── _layout.tsx                   # Root auth gate 
-│   ├── (auth)/ 
-│   │   ├── sign-in.tsx               # Google + Apple SSO + Email/Phone OTP 
-│   │   └── pending-approval.tsx      # Provider awaiting vetting approval 
-│   └── (tabs)/ 
-│       ├── _layout.tsx               # 5-tab bar config 
-│       ├── search/ 
-│       │   ├── index.tsx 
-│       │   ├── results.tsx 
-│       │   ├── provider/[id].tsx 
-│       │   └── book/[providerId].tsx 
-│       ├── services/ 
-│       │   └── index.tsx 
-│       ├── bookings/ 
-│       │   ├── index.tsx 
-│       │   ├── past.tsx 
-│       │   ├── [id].tsx 
-│       │   └── tracking/[bookingId].tsx 
-│       ├── inbox/ 
-│       │   ├── index.tsx 
-│       │   └── [threadId].tsx 
-│       └── more/ 
-│           ├── index.tsx 
-│           ├── account.tsx 
-│           ├── provider.tsx 
-│           ├── settings.tsx 
-│           ├── lug.tsx 
-│           └── admin.tsx 
-├── src/ 
-│   ├── lib/ 
-│   │   ├── supabase/ 
-│   │   │   ├── client.ts             # Supabase singleton 
-│   │   │   ├── auth.ts               # signIn, signOut, OAuth helpers 
-│   │   │   ├── queries.ts            # All SELECT operations 
-│   │   │   ├── mutations.ts          # All INSERT / UPDATE operations 
-│   │   │   └── storage.ts            # File uploads (photos, identity docs) 
-│   │   ├── redis/ 
-│   │   │   └── index.ts              # GPS caching, rate limiting, short-lived tokens 
-│   │   ├── stripe/ 
-│   │   │   └── index.ts              # Connect, payment intents, payouts 
-│   │   ├── checkr/ 
-│   │   │   └── index.ts              # Background check webhook handling 
-│   │   ├── persona/ 
-│   │   │   └── index.ts              # Identity verification flow 
-│   │   ├── notifications/ 
-│   │   │   └── push.ts               # Firebase Cloud Messaging 
-│   │   └── location/ 
-│   │       └── index.ts              # Geocoding, distance calc, GPS helpers 
-│   ├── state/ 
-│   │   ├── auth.ts                   # Authenticated user + session 
-│   │   ├── search.ts                 # Provider search filters + results 
-│   │   ├── bookingDraft.ts           # In-progress booking builder 
-│   │   ├── signUpDraft.ts            # Customer multi-step registration state 
-│   │   └── providerDraft.ts          # Provider onboarding multi-step form state 
-│   ├── types/ 
-│   │   ├── models.ts                 # Domain TypeScript interfaces 
-│   │   ├── supabase.ts               # Auto-generated Supabase types — never edit manually 
-│   │   └── navigation.ts             # Expo Router typed params 
-│   ├── utils/ 
-│   │   ├── validators.ts             # Form validation + content moderation 
-│   │   ├── money.ts                  # Cents ↔ display formatting 
-│   │   └── date.ts                   # ISO string parsing and formatting 
-│   ├── components/ 
-│   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
-│   │   ├── search/                   # LocationSearchBar, ProviderCard, FiltersSheet 
-│   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary 
-│   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
-│   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, ServiceMenuEditor, EarningsDashboard 
-│   │   ├── kudos/                    # KudosBadgeSelector, KudosDisplay 
-│   │   ├── lug/                      # LugBubble, LugThread 
-│   │   └── auth/                     # StepIndicator, RoleSelector, ServicePicker, VehicleForm 
-│   └── design/ 
-│       ├── theme.ts 
-│       ├── tokens.ts                 # All color, spacing, radius tokens — source of truth 
-│       └── typography.ts 
-├── supabase/ 
-│   └── functions/                    # Edge Functions (Deno runtime — not Node) 
-│       ├── stripe-webhook/ 
-│       ├── checkr-webhook/ 
-│       ├── persona-webhook/ 
-│       ├── notify-booking-confirmed/ 
-│       ├── notify-provider-enroute/ 
-│       ├── notify-job-complete/ 
-│       ├── notify-payout-processed/ 
-│       ├── notify-kudos-received/ 
-│       └── lug-ai/ 
-├── e2e/                              # Maestro E2E flows 
-├── assets/ 
-│   ├── fonts/ 
-│   └── images/ 
-├── Blueprint/                        # Schema, policies, dependencies, build plan docs 
-├── CLAUDE.md 
-├── ARCHITECTURE.md 
-└── .claudeignore 
+CarApp/                                   # Git repo root
+├── Blueprint/                            # Schema, policies, dependencies, build plan docs
+├── ARCHITECTURE.md
+├── CLAUDE.md
+├── .claudeignore
+└── carApp/                               # Expo app root
+    ├── app/ 
+    │   ├── _layout.tsx                   # Root auth gate 
+    │   ├── (auth)/ 
+    │   │   ├── sign-in.tsx               # Google + Apple SSO + Email/Phone OTP 
+    │   │   ├── otp-entry.tsx             # OTP code input screen (email + phone)
+    │   │   ├── otp-verify.tsx            # OTP verification + session handoff
+    │   │   └── pending-approval.tsx      # Provider awaiting vetting approval 
+    │   └── (tabs)/ 
+    │       ├── _layout.tsx               # 5-tab bar config 
+    │       ├── search/ 
+    │       │   ├── index.tsx 
+    │       │   ├── results.tsx 
+    │       │   ├── provider/[id].tsx 
+    │       │   └── book/[providerId].tsx 
+    │       ├── services/ 
+    │       │   └── index.tsx 
+    │       ├── bookings/ 
+    │       │   ├── index.tsx 
+    │       │   ├── past.tsx 
+    │       │   ├── [id].tsx 
+    │       │   └── tracking/[bookingId].tsx 
+    │       ├── inbox/ 
+    │       │   ├── index.tsx 
+    │       │   └── [threadId].tsx 
+    │       └── more/ 
+    │           ├── index.tsx 
+    │           ├── account.tsx 
+    │           ├── provider.tsx 
+    │           ├── settings.tsx 
+    │           ├── lug.tsx 
+    │           └── admin.tsx 
+    ├── src/ 
+    │   ├── lib/ 
+    │   │   ├── supabase/ 
+    │   │   │   ├── client.ts             # Supabase singleton 
+    │   │   │   ├── auth.ts               # signIn, signOut, OAuth + OTP helpers 
+    │   │   │   ├── queries.ts            # All SELECT operations 
+    │   │   │   ├── mutations.ts          # All INSERT / UPDATE operations 
+    │   │   │   └── storage.ts            # File uploads (photos, identity docs) 
+    │   │   ├── redis/ 
+    │   │   │   └── index.ts              # GPS caching, rate limiting, short-lived tokens 
+    │   │   ├── stripe/ 
+    │   │   │   └── index.ts              # Connect, payment intents, payouts 
+    │   │   ├── checkr/ 
+    │   │   │   └── index.ts              # Background check webhook handling 
+    │   │   ├── persona/ 
+    │   │   │   └── index.ts              # Identity verification flow 
+    │   │   ├── notifications/ 
+    │   │   │   └── push.ts               # Firebase Cloud Messaging 
+    │   │   └── location/ 
+    │   │       └── index.ts              # Geocoding, distance calc, GPS helpers 
+    │   ├── state/ 
+    │   │   ├── auth.ts                   # Authenticated user + session 
+    │   │   ├── search.ts                 # Provider search filters + results 
+    │   │   ├── bookingDraft.ts           # In-progress booking builder 
+    │   │   ├── signUpDraft.ts            # Customer multi-step registration state 
+    │   │   └── providerDraft.ts          # Provider onboarding multi-step form state 
+    │   ├── types/ 
+    │   │   ├── models.ts                 # Domain TypeScript interfaces 
+    │   │   ├── supabase.ts               # Auto-generated Supabase types — never edit manually 
+    │   │   └── navigation.ts             # Expo Router typed params 
+    │   ├── utils/ 
+    │   │   ├── validators.ts             # Form validation + content moderation 
+    │   │   ├── money.ts                  # Cents ↔ display formatting 
+    │   │   └── date.ts                   # ISO string parsing and formatting 
+    │   ├── components/ 
+    │   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
+    │   │   ├── search/                   # LocationSearchBar, ProviderCard, FiltersSheet 
+    │   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary 
+    │   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
+    │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, ServiceMenuEditor, EarningsDashboard 
+    │   │   ├── kudos/                    # KudosBadgeSelector, KudosDisplay 
+    │   │   ├── lug/                      # LugBubble, LugThread 
+    │   │   └── auth/                     # StepIndicator, RoleSelector, ServicePicker, VehicleForm 
+    │   └── design/ 
+    │       ├── theme.ts 
+    │       ├── tokens.ts                 # All color, spacing, radius tokens — source of truth 
+    │       └── typography.ts 
+    ├── supabase/ 
+    │   └── functions/                    # Edge Functions (Deno runtime — not Node) 
+    │       ├── stripe-webhook/ 
+    │       ├── checkr-webhook/ 
+    │       ├── persona-webhook/ 
+    │       ├── notify-booking-confirmed/ 
+    │       ├── notify-provider-enroute/ 
+    │       ├── notify-job-complete/ 
+    │       ├── notify-payout-processed/ 
+    │       ├── notify-kudos-received/ 
+    │       └── lug-ai/ 
+    ├── e2e/                              # Maestro E2E flows 
+    └── assets/ 
+        ├── fonts/ 
+        └── images/ 
 
 
 ---

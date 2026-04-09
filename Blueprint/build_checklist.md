@@ -15,7 +15,7 @@
 ---
 
 ## Phase 1 — Auth Layer
-- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signOut, isNewUser
+- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
 - [ ] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
 - [ ] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
 - [ ] `src/state/auth.ts` — Zustand auth store (session, user, role)

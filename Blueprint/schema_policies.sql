@@ -315,10 +315,6 @@ CREATE POLICY "users: read own" ON users
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "users: update verification flags" ON users
-  FOR UPDATE USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
-
 -- VEHICLES
 CREATE POLICY "vehicles: read own" ON vehicles
   FOR SELECT USING (auth.uid() = user_id);
@@ -327,6 +323,9 @@ CREATE POLICY "vehicles: write own" ON vehicles
   FOR ALL USING (auth.uid() = user_id);
 
 -- PROVIDER PROFILES
+CREATE POLICY "provider_profiles: read own" ON provider_profiles
+  FOR SELECT USING (auth.uid() = user_id);
+
 CREATE POLICY "provider_profiles: read approved" ON provider_profiles
   FOR SELECT USING (verification_status = 'approved');
 
