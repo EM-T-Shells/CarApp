@@ -343,7 +343,17 @@ After every code change, write the appropriate tests before considering the task
 - NEVER commit directly to `main` or `dev`
 - Always branch off `dev` when starting a new file or feature
 - One branch per task — do not bundle unrelated changes
-- After completing a task, stage only the files relevant to that task
+- After completing a task, do the following in order:
+  1. Stage only the files relevant to the task: `git add <file>`
+  2. Commit with a clean, descriptive message: `git commit -m "<type>(<scope>): <short description>"`
+  3. Push the feature branch to GitHub: `git push origin <branch-name>`
+  4. Merge the feature branch into `dev`: `git checkout dev && git merge <branch-name>`
+  5. Push the updated `dev` branch: `git push origin dev`
+  6. Delete the feature branch locally and remotely:
+     `git branch -d <branch-name>`
+     `git push origin --delete <branch-name>`
+  7. Return to `dev` as the working branch for the next task
+- Commit messages must be clean and descriptive — do not reference AI, Claude, or automated tooling
 
 ### Commit Message Format
 
@@ -375,3 +385,18 @@ Examples:
 - `Blueprint/schema_policies.sql` — Unified merged schema with RLS policies. Source of truth for all table structures.
 - `Blueprint/dependencies_list` — All approved packages. Check before installing anything new.
 - `Blueprint/build_checklist.md` — Phase-by-phase build order. Check before starting any new feature.
+
+## File Notes Log
+
+After every completed git cycle, append a concise one-line note about the file that was just built to `Blueprint/reference.md`.
+
+**Format:**
+`[path/to/file.ts] — <one sentence describing what this file does and why it exists in the app>`
+
+**Example:**
+`[src/design/tokens.ts] — Single source of truth for all color, spacing, radius, and typography values; imported by every component to enforce visual consistency.`
+
+**Rules:**
+- One entry per completed task — do not batch multiple files into one note
+- Append only — never edit or delete existing entries
+- Keep the description to one sentence, focused on purpose and role in the app
