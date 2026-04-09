@@ -8,8 +8,8 @@
 - [x] `src/design/tokens.ts` — all color, spacing, radius tokens
 - [x] `src/design/typography.ts` — font sizes, weights, families
 - [x] `src/design/theme.ts` — combined theme object
-- [ ] `src/utils/money.ts` — cents ↔ display formatting
-- [ ] `src/utils/date.ts` — ISO string parsing and formatting
+- [x] `src/utils/money.ts` — cents ↔ display formatting
+- [x] `src/utils/date.ts` — ISO string parsing and formatting
 - [ ] `src/utils/validators.ts` — form validation + containsFlaggedContent()
 
 ---

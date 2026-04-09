@@ -12,3 +12,8 @@
 [src/design/typography.ts] — Defines all font sizes, weights, line heights, and pre-composed text styles used across the app.
 
 [src/design/theme.ts] — Combines tokens and typography into a single importable theme object; components import from here when they need values from multiple token groups.
+
+[src/utils/money.ts] — All monetary formatting and calculation helpers; converts between cents and display strings, computes deposits, platform fees, service fees, and provider payouts.
+
+[src/utils/date.ts] — All date/time parsing, formatting, and comparison helpers; handles ISO string display, relative time, and business-logic checks for the 24h cancellation and 48h dispute windows.
+
