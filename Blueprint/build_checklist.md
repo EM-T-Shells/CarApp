@@ -10,25 +10,25 @@
 - [x] `src/design/theme.ts` — combined theme object
 - [x] `src/utils/money.ts` — cents ↔ display formatting
 - [x] `src/utils/date.ts` — ISO string parsing and formatting
-- [ ] `src/utils/validators.ts` — form validation + containsFlaggedContent()
+- [x] `src/utils/validators.ts` — form validation + containsFlaggedContent()
 
 ---
 
 ## Phase 1 — Auth Layer
-- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
-- [ ] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
-- [ ] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
-- [ ] `src/state/auth.ts` — Zustand auth store (session, user, role)
-- [ ] `src/state/signUpDraft.ts` — customer multi-step onboarding state
-- [ ] `src/state/providerDraft.ts` — provider onboarding multi-step state
-- [ ] `src/components/auth/StepIndicator.tsx`
-- [ ] `src/components/auth/RoleSelector.tsx`
-- [ ] `src/components/auth/VehicleForm.tsx`
-- [ ] `src/components/auth/ServicePicker.tsx`
-- [ ] `app/_layout.tsx` — root auth gate (onAuthStateChange)
-- [ ] `app/(auth)/_layout.tsx`
-- [ ] `app/(auth)/sign-in.tsx` — Google + Apple SSO + Email/Phone OTP entry
-- [ ] `app/(auth)/pending-approval.tsx` — provider awaiting vetting
+- [x] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
+- [x] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
+- [x] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
+- [x] `src/state/auth.ts` — Zustand auth store (session, user, role)
+- [x] `src/state/signUpDraft.ts` — customer multi-step onboarding state
+- [x] `src/state/providerDraft.ts` — provider onboarding multi-step state
+- [x] `src/components/auth/StepIndicator.tsx`
+- [x] `src/components/auth/RoleSelector.tsx`
+- [x] `src/components/auth/VehicleForm.tsx`
+- [x] `src/components/auth/ServicePicker.tsx`
+- [x] `app/_layout.tsx` — root auth gate (onAuthStateChange)
+- [x] `app/(auth)/_layout.tsx`
+- [x] `app/(auth)/sign-in.tsx` — Google + Apple SSO + Email/Phone OTP entry
+- [x] `app/(auth)/pending-approval.tsx` — provider awaiting vetting
 
 ---
 
@@ -165,14 +165,7 @@
 
 ---
 
-## Phase 17 — Promotions & Referrals
-- [ ] Gift card purchase + redemption flow
-- [ ] Referral code generation + redemption at checkout
-- [ ] Promo code entry at checkout
-
----
-
-## Phase 18 — Admin Panel (React Web)
+## Phase 17 — Admin Panel (React Web)
 - [ ] Admin app scaffold (React web, separate from mobile)
 - [ ] User management — search, view, suspend
 - [ ] Provider vetting queue — review docs, approve/reject
@@ -184,7 +177,7 @@
 
 ---
 
-## Phase 19 — Polish & Pre-Launch
+## Phase 18 — Polish & Pre-Launch
 - [ ] Dark mode — verify all components against dark tokens
 - [ ] Accessibility audit — 44x44pt touch targets, WCAG AA contrast
 - [ ] Error states — empty states, network failures, timeout handling
@@ -202,3 +195,6 @@
 - [ ] Lug 2.0 proactive push alerts
 - [ ] Geographic expansion
 - [ ] CarApp Care membership
+- [ ] Gift card purchase + redemption flow
+- [ ] Referral code generation + redemption at checkout
+- [ ] Promo code entry at checkout

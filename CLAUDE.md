@@ -343,6 +343,10 @@ After every code change, write the appropriate tests before considering the task
 
 ### Rules for Claude
 
+- **At the start of every new session, before creating any branch or writing any code:**
+  1. Ensure you are on `dev`: `git checkout dev`
+  2. Pull the latest changes from origin: `git pull origin dev`
+  3. Only then create a new feature branch off the updated `dev`
 - NEVER commit directly to `main` or `dev`
 - Always branch off `dev` when starting a new file or feature
 - One branch per task — do not bundle unrelated changes
@@ -374,6 +378,7 @@ Examples:
 
 ## Workflow Rules
 
+- At the start of every session, always run `git checkout dev && git pull origin dev` before beginning any task.
 - Before writing code for a new feature, state your approach and confirm it aligns with ARCHITECTURE.md.
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
