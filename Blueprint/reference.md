@@ -46,3 +46,5 @@
 [app/(auth)/otp-verify.tsx] — 6-digit OTP verify screen that calls verifyOtp, surfaces errors inline, supports resend, and lets the root auth gate handle post-session navigation.
 
 [app/(auth)/pending-approval.tsx] — Provider gating screen shown while provider_vetting is incomplete; lists the five vetting steps with status badges, shows an approved-of-total counter, and exposes sign-out.
+
+[src/components/ui/Text.tsx] — Branded typography wrapper that maps every textStyle variant from design/typography.ts to a React Native Text element with automatic dark-mode color resolution via the design token palette.

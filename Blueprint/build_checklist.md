@@ -33,7 +33,7 @@
 ---
 
 ## Phase 2 — UI Component Library
-- [ ] `src/components/ui/Text.tsx`
+- [x] `src/components/ui/Text.tsx`
 - [ ] `src/components/ui/Button.tsx`
 - [ ] `src/components/ui/TextField.tsx`
 - [ ] `src/components/ui/Card.tsx`
