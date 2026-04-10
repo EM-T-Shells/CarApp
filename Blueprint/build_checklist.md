@@ -10,12 +10,12 @@
 - [x] `src/design/theme.ts` — combined theme object
 - [x] `src/utils/money.ts` — cents ↔ display formatting
 - [x] `src/utils/date.ts` — ISO string parsing and formatting
-- [ ] `src/utils/validators.ts` — form validation + containsFlaggedContent()
+- [x] `src/utils/validators.ts` — form validation + containsFlaggedContent()
 
 ---
 
 ## Phase 1 — Auth Layer
-- [ ] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
+- [x] `src/lib/supabase/auth.ts` — signInWithGoogle, signInWithApple, signInWithOtp, signOut, isNewUser
 - [ ] `app/(auth)/otp-entry.tsx` — OTP code input screen (email + phone)
 - [ ] `app/(auth)/otp-verify.tsx` — OTP verification + session handoff
 - [ ] `src/state/auth.ts` — Zustand auth store (session, user, role)
@@ -165,14 +165,7 @@
 
 ---
 
-## Phase 17 — Promotions & Referrals
-- [ ] Gift card purchase + redemption flow
-- [ ] Referral code generation + redemption at checkout
-- [ ] Promo code entry at checkout
-
----
-
-## Phase 18 — Admin Panel (React Web)
+## Phase 17 — Admin Panel (React Web)
 - [ ] Admin app scaffold (React web, separate from mobile)
 - [ ] User management — search, view, suspend
 - [ ] Provider vetting queue — review docs, approve/reject
@@ -184,7 +177,7 @@
 
 ---
 
-## Phase 19 — Polish & Pre-Launch
+## Phase 18 — Polish & Pre-Launch
 - [ ] Dark mode — verify all components against dark tokens
 - [ ] Accessibility audit — 44x44pt touch targets, WCAG AA contrast
 - [ ] Error states — empty states, network failures, timeout handling
@@ -202,3 +195,6 @@
 - [ ] Lug 2.0 proactive push alerts
 - [ ] Geographic expansion
 - [ ] CarApp Care membership
+- [ ] Gift card purchase + redemption flow
+- [ ] Referral code generation + redemption at checkout
+- [ ] Promo code entry at checkout
