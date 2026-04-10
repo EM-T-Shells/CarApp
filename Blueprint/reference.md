@@ -17,3 +17,6 @@
 
 [src/utils/date.ts] — All date/time parsing, formatting, and comparison helpers; handles ISO string display, relative time, and business-logic checks for the 24h cancellation and 48h dispute windows.
 
+[src/utils/validators.ts] — Form validation helpers (email, phone, name, vehicle, review, promo, rating) and containsFlaggedContent() content moderation that detects phone numbers, emails, and off-platform payment/contact attempts in messages.
+
+[src/lib/supabase/auth.ts] — Auth helpers wrapping Supabase Auth: OAuth sign-in (Google/Apple via expo-auth-session), email/phone OTP send and verify, sign-out, and isNewUser check against the users table.
