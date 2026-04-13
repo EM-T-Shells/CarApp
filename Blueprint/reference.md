@@ -56,3 +56,5 @@
 [src/components/ui/TextField.tsx] — Labeled text input with focus/error/disabled border states, inline error and hint text, left/right icon slots, built-in secure-text show/hide toggle, multiline support, dark mode, and WCAG 2.1 AA compliant touch targets.
 
 [src/components/ui/Card.tsx] — Flexible surface container with elevated/outlined/flat variants, optional press interaction (Pressable with disabled/accessibility support), dark mode shadow and background tokens, and 12px card border radius per design spec.
+
+[src/components/ui/Avatar.tsx] — Profile photo component rendering a Supabase Storage image URI or a hash-derived initials fallback; supports xs/sm/md/lg/xl sizes, an optional online/offline presence dot, optional press interaction with WCAG 2.1 AA 44pt hit targets, and full dark-mode support.
