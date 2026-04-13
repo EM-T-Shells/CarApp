@@ -1,166 +1,319 @@
-import { ServiceSnapshot } from '../../types/models'
-import { supabase } from "./client";
+import type { PostgrestError } from '@supabase/supabase-js'
+import { supabase } from './client'
 import { containsFlaggedContent } from '../../utils/validators'
+import type {
+  Booking,
+  BookingInsert,
+  BookingPhoto,
+  BookingPhotoInsert,
+  BookingUpdate,
+  Kudos,
+  KudosInsert,
+  Message,
+  MessageInsert,
+  MessageThread,
+  MessageThreadInsert,
+  Notification,
+  PromoRedemption,
+  PromoRedemptionInsert,
+  ProviderProfile,
+  ProviderProfileInsert,
+  ProviderProfileUpdate,
+  ProviderVettingUpdate,
+  Rating,
+  RatingInsert,
+  RatingUpdate,
+  ServicePackage,
+  ServicePackageInsert,
+  ServicePackageUpdate,
+  User,
+  UserUpdate,
+  Vehicle,
+  VehicleInsert,
+  VehicleUpdate,
+} from '../../types/models'
 
-// ─── USER ────────────────────────────────────────────────────────────────────
+// ── Result Types ───────────────────────────────────────────────────────
 
-export const createUser = (payload: {
-  id: string; // must match Supabase auth.users id
-  first_name: string;
-  last_name: string;
-  profile_pic?: string;
-}) =>
-  supabase.from('users').insert(payload);
+export type MutationResult<T> =
+  | { data: T; error: null }
+  | { data: null; error: Error }
 
-export const upsertUserInformation = (userId: string, info: {
-  address?: string;
-  city?: string;
-  state?: string;
-  zip_code?: string;
-  latitude?: number;
-  longitude?: number;
-}) =>
-  supabase
-    .from('user_information')
-    .upsert({ user_id: userId, ...info });
+type DbResponse<T> = { data: T | null; error: PostgrestError | null }
 
-export const addVehicle = (userId: string, vehicle: {
-  make: string;
-  model: string;
-  year: number;
-  vin?: string;
-}) =>
-  supabase.from('user_car_information').insert({ user_id: userId, ...vehicle });
+// ── Helpers ────────────────────────────────────────────────────────────
 
-// ─── PROVIDER ────────────────────────────────────────────────────────────────
+function unknownError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err))
+}
 
-export const createProviderProfile = (payload: {
-  user_id: string;
-  provider_type_id: string;
-  bio?: string;
-  mile_radius?: number;
-}) =>
-  supabase.from('providers').insert({ ...payload, is_approved: false });
+async function runMutation<T>(
+  builder: PromiseLike<DbResponse<T>>,
+): Promise<MutationResult<T>> {
+  try {
+    const { data, error } = await builder
+    if (error) return { data: null, error }
+    if (data === null) return { data: null, error: new Error('No data returned') }
+    return { data, error: null }
+  } catch (err) {
+    return { data: null, error: unknownError(err) }
+  }
+}
 
-export const upsertProviderService = (service: {
-  provider_id: string;
-  catalog_id?: string;
-  name: string;
-  category?: string;
-  description?: string;
-  price: number;
-  duration_mins?: number;
-  is_custom?: boolean;
-}) =>
-  supabase.from('provider_services').upsert(service);
+async function runVoid(
+  builder: PromiseLike<{ error: PostgrestError | null }>,
+): Promise<MutationResult<true>> {
+  try {
+    const { error } = await builder
+    if (error) return { data: null, error }
+    return { data: true, error: null }
+  } catch (err) {
+    return { data: null, error: unknownError(err) }
+  }
+}
 
-export const respondToAppointment = (
-  appointmentId: string,
-  status: 'confirmed' | 'declined'
-) =>
-  supabase
-    .from('appointments')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', appointmentId);
+// ── Users ──────────────────────────────────────────────────────────────
 
-// ─── APPOINTMENTS ────────────────────────────────────────────────────────────
+export function updateUser(
+  userId: string,
+  updates: UserUpdate,
+): Promise<MutationResult<User>> {
+  return runMutation<User>(
+    supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single(),
+  )
+}
 
-export const createAppointment = (payload: {
-  provider_id: string;
-  user_id: string;
-  car_id: string;
-  services: ServiceSnapshot[];   // JSONB array — define shape in types/models.ts
-  scheduled_at: string;
-  location_address?: string;
-  location_lat?: number;
-  location_lng?: number;
-  deposit_amount: number;
-  total_estimate: number;
-  stripe_payment_id: string;
-  notes?: string;
-}) =>
-  supabase.from('appointments').insert({
-    ...payload,
-    status: 'pending',
-  });
+// ── Vehicles ───────────────────────────────────────────────────────────
 
-export const cancelAppointment = (appointmentId: string, depositForfeited: boolean) =>
-  supabase
-    .from('appointments')
-    .update({
-      status: depositForfeited ? 'cancelled_forfeited' : 'cancelled',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', appointmentId);
+export function insertVehicle(
+  vehicle: VehicleInsert,
+): Promise<MutationResult<Vehicle>> {
+  return runMutation<Vehicle>(
+    supabase.from('vehicles').insert(vehicle).select().single(),
+  )
+}
 
-export const updateServiceSnapshots = (
-  appointmentId: string,
-  services: ServiceSnapshot[] // updated JSONB array
-) =>
-  supabase
-    .from('appointments')
-    .update({ services, updated_at: new Date().toISOString() })
-    .eq('id', appointmentId);
+export function updateVehicle(
+  vehicleId: string,
+  updates: VehicleUpdate,
+): Promise<MutationResult<Vehicle>> {
+  return runMutation<Vehicle>(
+    supabase
+      .from('vehicles')
+      .update(updates)
+      .eq('id', vehicleId)
+      .select()
+      .single(),
+  )
+}
 
-// ─── REVIEWS ─────────────────────────────────────────────────────────────────
+export function deleteVehicle(
+  vehicleId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('vehicles').delete().eq('id', vehicleId),
+  )
+}
 
-export const createReview = (payload: {
-  provider_id: string;
-  user_id: string;
-  appointment_id: string;
-  rating: number;
-  title?: string;
-  description?: string;
-  images?: string[];
-  kudos_points?: number;
-}) =>
-  supabase.from('reviews').insert(payload);
+// ── Provider Profiles ──────────────────────────────────────────────────
 
-// ─── MESSAGES ────────────────────────────────────────────────────────────────
+export function insertProviderProfile(
+  profile: ProviderProfileInsert,
+): Promise<MutationResult<ProviderProfile>> {
+  return runMutation<ProviderProfile>(
+    supabase.from('provider_profiles').insert(profile).select().single(),
+  )
+}
 
-export const sendMessage = (payload: {
-  thread_id: string;
-  sender_id: string;
-  body: string;
-  image_url?: string;
-}) => {
-  const flagged = containsFlaggedContent(payload.body); 
-  return supabase.from('messages').insert({
-    ...payload,
-    is_flagged: flagged,
-    body: flagged ? '[Message flagged for review]' : payload.body,
-  });
-};
+export function updateProviderProfile(
+  providerId: string,
+  updates: ProviderProfileUpdate,
+): Promise<MutationResult<ProviderProfile>> {
+  return runMutation<ProviderProfile>(
+    supabase
+      .from('provider_profiles')
+      .update(updates)
+      .eq('id', providerId)
+      .select()
+      .single(),
+  )
+}
 
-export const createThread = (payload: {
-  appointment_id: string;
-  customer_id: string;
-  provider_id: string;
-}) =>
-  supabase.from('message_threads').insert(payload);
+// ── Provider Vetting ───────────────────────────────────────────────────
 
-// ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+export function updateProviderVetting(
+  providerId: string,
+  updates: ProviderVettingUpdate,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase
+      .from('provider_vetting')
+      .update(updates)
+      .eq('provider_id', providerId),
+  )
+}
 
-export const markNotificationRead = (notificationId: string) =>
-  supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('id', notificationId);
+// ── Service Packages ───────────────────────────────────────────────────
 
-// ─── SUBSCRIPTIONS ───────────────────────────────────────────────────────────
+export function insertServicePackage(
+  pkg: ServicePackageInsert,
+): Promise<MutationResult<ServicePackage>> {
+  return runMutation<ServicePackage>(
+    supabase.from('service_packages').insert(pkg).select().single(),
+  )
+}
 
-export const createSubscription = (payload: {
-  user_id: string;
-  provider_id: string;
-  frequency: string;
-  services: ServiceSnapshot[];
-  stripe_subscription_id: string;
-  next_scheduled_at: string;
-}) =>
-  supabase.from('subscriptions').insert({ ...payload, status: 'active' });
+export function updateServicePackage(
+  packageId: string,
+  updates: ServicePackageUpdate,
+): Promise<MutationResult<ServicePackage>> {
+  return runMutation<ServicePackage>(
+    supabase
+      .from('service_packages')
+      .update(updates)
+      .eq('id', packageId)
+      .select()
+      .single(),
+  )
+}
 
-export const cancelSubscription = (subscriptionId: string) =>
-  supabase
-    .from('subscriptions')
-    .update({ status: 'cancelled' })
-    .eq('id', subscriptionId);
+export function deleteServicePackage(
+  packageId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('service_packages').delete().eq('id', packageId),
+  )
+}
+
+// ── Bookings ───────────────────────────────────────────────────────────
+
+export function insertBooking(
+  booking: BookingInsert,
+): Promise<MutationResult<Booking>> {
+  return runMutation<Booking>(
+    supabase.from('bookings').insert(booking).select().single(),
+  )
+}
+
+export function updateBooking(
+  bookingId: string,
+  updates: BookingUpdate,
+): Promise<MutationResult<Booking>> {
+  return runMutation<Booking>(
+    supabase
+      .from('bookings')
+      .update(updates)
+      .eq('id', bookingId)
+      .select()
+      .single(),
+  )
+}
+
+// ── Booking Photos ─────────────────────────────────────────────────────
+
+export function insertBookingPhoto(
+  photo: BookingPhotoInsert,
+): Promise<MutationResult<BookingPhoto>> {
+  return runMutation<BookingPhoto>(
+    supabase.from('booking_photos').insert(photo).select().single(),
+  )
+}
+
+// ── Ratings ────────────────────────────────────────────────────────────
+
+export function insertRating(
+  rating: RatingInsert,
+): Promise<MutationResult<Rating>> {
+  return runMutation<Rating>(
+    supabase.from('ratings').insert(rating).select().single(),
+  )
+}
+
+export function updateRating(
+  ratingId: string,
+  updates: RatingUpdate,
+): Promise<MutationResult<Rating>> {
+  return runMutation<Rating>(
+    supabase
+      .from('ratings')
+      .update(updates)
+      .eq('id', ratingId)
+      .select()
+      .single(),
+  )
+}
+
+// ── Kudos ──────────────────────────────────────────────────────────────
+
+export function insertKudos(
+  kudos: KudosInsert,
+): Promise<MutationResult<Kudos>> {
+  return runMutation<Kudos>(
+    supabase.from('kudos').insert(kudos).select().single(),
+  )
+}
+
+// ── Message Threads ────────────────────────────────────────────────────
+
+export function insertMessageThread(
+  thread: MessageThreadInsert,
+): Promise<MutationResult<MessageThread>> {
+  return runMutation<MessageThread>(
+    supabase.from('message_threads').insert(thread).select().single(),
+  )
+}
+
+// ── Messages ───────────────────────────────────────────────────────────
+
+export function insertMessage(
+  message: MessageInsert,
+): Promise<MutationResult<Message>> {
+  const body = message.body ?? ''
+  const sanitizedMessage: MessageInsert = containsFlaggedContent(body)
+    ? { ...message, body: '[Message flagged for review]', is_flagged: true }
+    : message
+
+  return runMutation<Message>(
+    supabase.from('messages').insert(sanitizedMessage).select().single(),
+  )
+}
+
+// ── Notifications ──────────────────────────────────────────────────────
+
+export function markNotificationRead(
+  notificationId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId),
+  )
+}
+
+export function markAllNotificationsRead(
+  userId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', userId)
+      .eq('is_read', false),
+  )
+}
+
+// ── Promo Redemptions ──────────────────────────────────────────────────
+
+export function insertPromoRedemption(
+  redemption: PromoRedemptionInsert,
+): Promise<MutationResult<PromoRedemption>> {
+  return runMutation<PromoRedemption>(
+    supabase.from('promo_redemptions').insert(redemption).select().single(),
+  )
+}
