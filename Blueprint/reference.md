@@ -50,3 +50,5 @@
 [src/components/ui/Text.tsx] — Branded typography wrapper that maps every textStyle variant from design/typography.ts to a React Native Text element with automatic dark-mode color resolution via the design token palette.
 
 [src/lib/supabase/queries.ts] — Centralized SELECT layer for every Supabase read in the app (users, vehicles, providers, bookings, messages, ratings, payouts, notifications, promotions, location cache); wraps each query in try/catch and returns a typed `{ data, error }` tuple so screens never call `supabase.from()` directly.
+
+[src/components/ui/Button.tsx] — Multi-variant accessible button (primary/secondary/success/danger/ghost, sm/md/lg sizes) built with React.forwardRef, Pressable, and design tokens; supports loading/disabled states, left/right icons, dark mode, and meets WCAG 2.1 AA 44dp touch target.
