@@ -54,3 +54,5 @@
 [src/components/ui/Button.tsx] — Multi-variant accessible button (primary/secondary/success/danger/ghost, sm/md/lg sizes) built with React.forwardRef, Pressable, and design tokens; supports loading/disabled states, left/right icons, dark mode, and meets WCAG 2.1 AA 44dp touch target.
 
 [src/components/ui/TextField.tsx] — Labeled text input with focus/error/disabled border states, inline error and hint text, left/right icon slots, built-in secure-text show/hide toggle, multiline support, dark mode, and WCAG 2.1 AA compliant touch targets.
+
+[src/components/ui/Card.tsx] — Flexible surface container with elevated/outlined/flat variants, optional press interaction (Pressable with disabled/accessibility support), dark mode shadow and background tokens, and 12px card border radius per design spec.
