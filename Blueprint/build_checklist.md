@@ -54,12 +54,12 @@
 ---
 
 ## Phase 4 — Tab Shell & Navigation
-- [ ] `app/(tabs)/_layout.tsx` — 5-tab bar config
-- [ ] `app/(tabs)/search/index.tsx` — empty shell
-- [ ] `app/(tabs)/services/index.tsx` — empty shell
-- [ ] `app/(tabs)/bookings/index.tsx` — empty shell
-- [ ] `app/(tabs)/inbox/index.tsx` — empty shell
-- [ ] `app/(tabs)/more/index.tsx` — empty shell
+- [x] `app/(tabs)/_layout.tsx` — 5-tab bar config
+- [x] `app/(tabs)/search/index.tsx` — empty shell
+- [x] `app/(tabs)/services/index.tsx` — empty shell
+- [x] `app/(tabs)/bookings/index.tsx` — empty shell
+- [x] `app/(tabs)/inbox/index.tsx` — empty shell
+- [x] `app/(tabs)/more/index.tsx` — empty shell
 
 ---
 
