@@ -66,3 +66,5 @@
 [src/components/ui/Rating.tsx] — General-purpose 1–5 star rating widget used across provider cards, booking history, and rating prompts; supports read-only display with fractional half-star rendering, interactive tappable input with WCAG 2.1 AA hit targets, an optional label string, sm/md/lg sizes, and full dark-mode support via the gearGold design token.
 
 [src/components/ui/GearRating.tsx] — 4-dimension gear rating widget (Quality, Timeliness, Communication, Value) that composes the Rating component into independently controlled 1–5 star rows; supports read-only display with fractional rendering, interactive per-dimension input, and an optional Overall row showing the arithmetic mean in gearGold with full dark-mode support.
+
+[src/components/ui/KudosBadge.tsx] — Pill badge for the 6 fixed kudos types (Meticulous, Reliable, Magic Hands, Great Value, Fast Worker, Communicator); renders a Lucide icon + label + optional received-count in display or interactive/selectable mode with gearGold-fill selected state and deepIndigo outlined unselected state, WCAG 2.1 AA 44pt touch targets, and full dark-mode support.

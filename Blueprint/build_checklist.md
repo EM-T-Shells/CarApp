@@ -40,7 +40,7 @@
 - [x] `src/components/ui/Avatar.tsx`
 - [x] `src/components/ui/Rating.tsx`
 - [x] `src/components/ui/GearRating.tsx`
-- [ ] `src/components/ui/KudosBadge.tsx`
+- [x] `src/components/ui/KudosBadge.tsx`
 - [ ] `src/components/ui/Sheet.tsx`
 - [ ] `src/components/ui/Spacer.tsx`
 
