@@ -38,7 +38,7 @@
 - [x] `src/components/ui/TextField.tsx`
 - [x] `src/components/ui/Card.tsx`
 - [x] `src/components/ui/Avatar.tsx`
-- [ ] `src/components/ui/Rating.tsx`
+- [x] `src/components/ui/Rating.tsx`
 - [ ] `src/components/ui/GearRating.tsx`
 - [ ] `src/components/ui/KudosBadge.tsx`
 - [ ] `src/components/ui/Sheet.tsx`

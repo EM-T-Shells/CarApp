@@ -62,3 +62,5 @@
 [src/lib/supabase/mutations.ts] — Centralized INSERT/UPDATE/DELETE layer for every Supabase write in the app (users, vehicles, providers, vetting, service packages, bookings, photos, ratings, kudos, messages, notifications, promo redemptions); wraps each mutation in try/catch and returns a typed `{ data, error }` tuple, with message content moderation via containsFlaggedContent() before insert.
 
 [src/lib/supabase/storage.ts] — Centralized file upload/download/delete layer for Supabase Storage across three buckets (avatars, booking-photos, vetting-documents); validates mime type and file size, builds deterministic paths, provides convenience wrappers for each bucket, and returns typed `{ data, error }` tuples with signed URL support for private buckets.
+
+[src/components/ui/Rating.tsx] — General-purpose 1–5 star rating widget used across provider cards, booking history, and rating prompts; supports read-only display with fractional half-star rendering, interactive tappable input with WCAG 2.1 AA hit targets, an optional label string, sm/md/lg sizes, and full dark-mode support via the gearGold design token.
