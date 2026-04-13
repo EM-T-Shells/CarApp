@@ -48,7 +48,7 @@
 
 ## Phase 3 — Supabase Data Layer
 - [x] `src/lib/supabase/queries.ts` — all SELECT operations
-- [ ] `src/lib/supabase/mutations.ts` — all INSERT/UPDATE operations
+- [x] `src/lib/supabase/mutations.ts` — all INSERT/UPDATE operations
 - [ ] `src/lib/supabase/storage.ts` — file uploads (photos, identity docs)
 
 ---
