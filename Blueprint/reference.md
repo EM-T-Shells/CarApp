@@ -67,4 +67,6 @@
 
 [src/components/ui/GearRating.tsx] — 4-dimension gear rating widget (Quality, Timeliness, Communication, Value) that composes the Rating component into independently controlled 1–5 star rows; supports read-only display with fractional rendering, interactive per-dimension input, and an optional Overall row showing the arithmetic mean in gearGold with full dark-mode support.
 
+[src/components/ui/KudosBadge.tsx] — Pill badge for the 6 fixed kudos types (Meticulous, Reliable, Magic Hands, Great Value, Fast Worker, Communicator); renders a Lucide icon + label + optional received-count in display or interactive/selectable mode with gearGold-fill selected state and deepIndigo outlined unselected state, WCAG 2.1 AA 44pt touch targets, and full dark-mode support.
+
 [app/(tabs)/_layout.tsx] — Expo Router Tabs layout configuring the 5-tab bottom navigation bar (Search, Services, Bookings, Inbox, More) with Lucide icons, design token colors, and automatic dark-mode support via useColorScheme.
