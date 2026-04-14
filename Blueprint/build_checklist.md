@@ -42,7 +42,7 @@
 - [x] `src/components/ui/GearRating.tsx`
 - [x] `src/components/ui/KudosBadge.tsx`
 - [x] `src/components/ui/Sheet.tsx`
-- [ ] `src/components/ui/Spacer.tsx`
+- [x] `src/components/ui/Spacer.tsx`
 
 ---
 
