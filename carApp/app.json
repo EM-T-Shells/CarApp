@@ -33,7 +33,16 @@
       "expo-router",
       "expo-web-browser",
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
-    ]
+      "@react-native-firebase/messaging",
+      "@react-native-community/datetimepicker",
+      "@stripe/stripe-react-native"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0ee57d2b-6494-492b-a675-64f892ea5f17"
+      }
+    },
+    "owner": "emre6706"
   }
 }

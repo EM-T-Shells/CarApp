@@ -87,8 +87,8 @@
 ---
 
 ## Phase 7 — Payments
-- [ ] `src/lib/stripe/index.ts` — Stripe Connect, deposit, balance capture, payouts
-- [ ] Stripe webhook handler (Supabase Edge Function) — payment succeeded, payout processed
+- [x] `src/lib/stripe/index.ts` — Stripe Connect, deposit, balance capture, payouts
+- [x] Stripe webhook handler (Supabase Edge Function) — payment succeeded, payout processed
 
 ---
 

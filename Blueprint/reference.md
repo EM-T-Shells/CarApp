@@ -108,3 +108,5 @@
 [src/lib/stripe/index.ts] — Stripe integration module that proxies deposit payment intent creation through the stripe-webhook Edge Function and wraps @stripe/stripe-react-native's confirmPayment for client-side confirmation.
 
 [app/(tabs)/search/book/[providerId].tsx] — Multi-step booking flow screen (Services → Details → Review) that loads the provider's packages and customer vehicles, accumulates selections in the bookingDraft store, creates the booking row, and initiates the 15% deposit payment via Stripe.
+
+[supabase/functions/stripe-webhook/index.ts] — Deno Edge Function handling app-invoked payment intent creation (deposit) and Stripe webhook events (payment_intent.succeeded → confirms booking, payment_intent.payment_failed → marks payment failed).
