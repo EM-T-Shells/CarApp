@@ -68,10 +68,10 @@
 - [x] `src/components/search/LocationSearchBar.tsx`
 - [x] `src/components/search/FiltersSheet.tsx`
 - [x] `src/components/search/ProviderCard.tsx`
-- [ ] `app/(tabs)/search/index.tsx` — search home with location bar
-- [ ] `app/(tabs)/search/results.tsx` — filtered provider list
-- [ ] `app/(tabs)/search/provider/[id].tsx` — provider profile
-- [ ] `app/(tabs)/services/index.tsx` — CarApp service catalog browse
+- [x] `app/(tabs)/search/index.tsx` — search home with location bar
+- [x] `app/(tabs)/search/results.tsx` — filtered provider list
+- [x] `app/(tabs)/search/provider/[id].tsx` — provider profile
+- [x] `app/(tabs)/services/index.tsx` — CarApp service catalog browse
 
 ---
 

@@ -82,3 +82,15 @@
 [src/components/search/FiltersSheet.tsx] — Bottom drawer sheet for refining provider search results; exposes sort-by and minimum-rating filters via a local draft that only applies on Apply, composing Sheet, Rating, and Button UI primitives.
 
 [src/components/search/ProviderCard.tsx] — Elevated card tile displaying a ProviderSearchResult with avatar, name, provider type label, gear rating, job count, kudos count, bio excerpt, and coverage area; tapping navigates to the provider detail screen.
+
+[app/(tabs)/search/_layout.tsx] — Stack navigator layout for the Search tab; hides the header on the home screen and styles Stack headers for results, provider detail, and booking screens.
+
+[app/(tabs)/search/index.tsx] — Search home screen with LocationSearchBar, primary search button, and Detailing/Mechanical category quick-filter tiles that navigate to the results list.
+
+[app/(tabs)/search/results.tsx] — Filtered provider results list rendering ProviderCard tiles in a FlatList with a filter bar, FiltersSheet drawer, and loading/empty/error states.
+
+[app/(tabs)/search/provider/[id].tsx] — Provider profile detail screen showing avatar, bio, gear rating, stats, coverage area, service packages with prices and duration, and a sticky Book Now CTA.
+
+[app/(tabs)/services/_layout.tsx] — Headerless Stack layout for the Services tab so the screen renders its own header content.
+
+[app/(tabs)/services/index.tsx] — Service catalog browse screen that fetches the admin-managed service_catalog table, groups entries by category, and renders them in a SectionList.
