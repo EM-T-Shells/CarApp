@@ -94,3 +94,17 @@
 [app/(tabs)/services/_layout.tsx] — Headerless Stack layout for the Services tab so the screen renders its own header content.
 
 [app/(tabs)/services/index.tsx] — Service catalog browse screen that fetches the admin-managed service_catalog table, groups entries by category, and renders them in a SectionList.
+
+[src/state/bookingDraft.ts] — Zustand store for the in-progress booking draft; tracks selected services (snapshotted with prices in cents), vehicle, address, schedule, and exposes selectors for subtotal, service fee, total, deposit, balance, duration, and readiness.
+
+[src/components/booking/AddressPicker.tsx] — Text-based address input with MapPin icon for the booking flow; wraps TextField with service-address-specific label, placeholder, and hint (no Google Maps for MVP).
+
+[src/components/booking/DateTimePicker.tsx] — Date and time selector rendering two tappable cards that open the native platform picker; merges date and time selections into a single ISO string for the booking draft.
+
+[src/components/booking/PriceBreakdown.tsx] — Itemised price display showing each selected service, the 2% customer service fee, and the computed total; all values rendered from cents via money.ts.
+
+[src/components/booking/DepositSummary.tsx] — Payment summary card showing the 15% deposit due now, remaining balance on completion, total, and the 24-hour cancellation forfeiture policy note.
+
+[src/lib/stripe/index.ts] — Stripe integration module that proxies deposit payment intent creation through the stripe-webhook Edge Function and wraps @stripe/stripe-react-native's confirmPayment for client-side confirmation.
+
+[app/(tabs)/search/book/[providerId].tsx] — Multi-step booking flow screen (Services → Details → Review) that loads the provider's packages and customer vehicles, accumulates selections in the bookingDraft store, creates the booking row, and initiates the 15% deposit payment via Stripe.

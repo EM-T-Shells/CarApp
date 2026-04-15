@@ -76,13 +76,13 @@
 ---
 
 ## Phase 6 — Booking Flow
-- [ ] `src/state/bookingDraft.ts` — in-progress booking builder
-- [ ] `src/components/booking/AddressPicker.tsx`
-- [ ] `src/components/booking/DateTimePicker.tsx`
-- [ ] `src/components/booking/PriceBreakdown.tsx`
-- [ ] `src/components/booking/DepositSummary.tsx`
-- [ ] `src/lib/stripe/index.ts` — payment intents, deposit capture
-- [ ] `app/(tabs)/search/book/[providerId].tsx` — full booking flow
+- [x] `src/state/bookingDraft.ts` — in-progress booking builder
+- [x] `src/components/booking/AddressPicker.tsx`
+- [x] `src/components/booking/DateTimePicker.tsx`
+- [x] `src/components/booking/PriceBreakdown.tsx`
+- [x] `src/components/booking/DepositSummary.tsx`
+- [x] `src/lib/stripe/index.ts` — payment intents, deposit capture
+- [x] `app/(tabs)/search/book/[providerId].tsx` — full booking flow
 
 ---
 
