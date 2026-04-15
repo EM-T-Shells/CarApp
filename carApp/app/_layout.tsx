@@ -9,12 +9,19 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
+import { StripeProvider } from '@stripe/stripe-react-native';
+import Constants from 'expo-constants';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase/client';
 import { useAuthStore } from '../src/state/auth';
 import type { User } from '../src/types/models';
 import tokens from '../src/design/tokens';
+
+const STRIPE_PUBLISHABLE_KEY =
+  Constants.expoConfig?.extra?.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ??
+  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ??
+  '';
 
 // ── User Row Hydration ─────────────────────────────────────────────────
 
@@ -135,7 +142,11 @@ export default function RootLayout(): React.ReactElement {
     );
   }
 
-  return <Slot />;
+  return (
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+      <Slot />
+    </StripeProvider>
+  );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
