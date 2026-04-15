@@ -64,10 +64,10 @@
 ---
 
 ## Phase 5 — Search & Provider Discovery
-- [ ] `src/state/search.ts` — Zustand search store (filters, results)
-- [ ] `src/components/search/LocationSearchBar.tsx`
-- [ ] `src/components/search/FiltersSheet.tsx`
-- [ ] `src/components/search/ProviderCard.tsx`
+- [x] `src/state/search.ts` — Zustand search store (filters, results)
+- [x] `src/components/search/LocationSearchBar.tsx`
+- [x] `src/components/search/FiltersSheet.tsx`
+- [x] `src/components/search/ProviderCard.tsx`
 - [ ] `app/(tabs)/search/index.tsx` — search home with location bar
 - [ ] `app/(tabs)/search/results.tsx` — filtered provider list
 - [ ] `app/(tabs)/search/provider/[id].tsx` — provider profile

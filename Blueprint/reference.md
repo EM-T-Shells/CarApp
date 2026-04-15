@@ -74,3 +74,11 @@
 [src/components/ui/Sheet.tsx] — Bottom drawer modal used for confirmations, filter panels, and action sheets; springs in/out via Reanimated, supports swipe-to-dismiss via gesture handler, backdrop tap, optional title header with close button, keyboard avoidance for form content, and full dark-mode support.
 
 [src/components/ui/Spacer.tsx] — Invisible layout utility that inserts vertical or horizontal blank space between elements using named spacing tokens or exact pixel values; also supports a flex-grow mode to fill remaining space in a flex container.
+
+[src/state/search.ts] — Zustand search store holding location query, provider search filters (sort, min rating, provider type), and fetched results; exposes fetchResults which calls searchProviders from the data layer, plus selectors for active filter count.
+
+[src/components/search/LocationSearchBar.tsx] — Location text input with MapPin icon and clear button that reads/writes the search store's locationQuery; used on the search home screen to capture the customer's service location.
+
+[src/components/search/FiltersSheet.tsx] — Bottom drawer sheet for refining provider search results; exposes sort-by and minimum-rating filters via a local draft that only applies on Apply, composing Sheet, Rating, and Button UI primitives.
+
+[src/components/search/ProviderCard.tsx] — Elevated card tile displaying a ProviderSearchResult with avatar, name, provider type label, gear rating, job count, kudos count, bio excerpt, and coverage area; tapping navigates to the provider detail screen.
