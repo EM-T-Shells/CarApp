@@ -352,7 +352,7 @@ After every code change, write the appropriate tests before considering the task
 - One branch per task — do not bundle unrelated changes
 - After completing a task, do the following in order:
   1. Stage only the files relevant to the task: `git add <file>`
-  2. Commit with a clean, descriptive message: `git commit -m "<type>(<scope>): <short description>"`
+  2. Commit with a clean, descriptive message: `git commit -m "<type>(<scope>): <short description>"` dont mention anything about claude co-authoring
   3. Push the feature branch to GitHub: `git push origin <branch-name>`
   4. Merge the feature branch into `dev`: `git checkout dev && git merge <branch-name>`
   5. Push the updated `dev` branch: `git push origin dev`
