@@ -5,7 +5,7 @@ import type { Database } from '../../types/supabase'
 const ExpoSecureStoreAdapter = {
   getItem: (key: string) => SecureStore.getItem(key),
   setItem: (key: string, value: string) => SecureStore.setItem(key, value),
-  removeItem: (key: string) => SecureStore.deleteItem(key),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
 }
 
 export const supabase = createClient<Database>(
