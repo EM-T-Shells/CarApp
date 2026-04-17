@@ -1,0 +1,136 @@
+# auth-flow.yaml
+#
+# Covers the full unauthenticated → authenticated path via email OTP.
+# Precondition: app is freshly launched with no active session.
+#
+# Run: maestro test e2e/auth-flow.yaml
+#
+# Note: this test requires a real Supabase project configured with a
+# Twilio/SMTP OTP provider. For CI, seed the test user
+# (test@carapp.dev) in advance and intercept the OTP via Supabase's
+# `supabase auth` CLI to inject the code without an email send.
+
+appId: com.emre.carapp
+---
+
+# ── Launch ────────────────────────────────────────────────────────────
+
+- launchApp:
+    clearState: true
+
+# ── Sign-in screen ────────────────────────────────────────────────────
+
+- assertVisible: "Welcome to CarApp"
+- assertVisible: "Book vetted mobile detailers and mechanics, on your terms."
+- assertVisible:
+    text: "Continue with Email or Phone"
+
+# ── Navigate to OTP entry ─────────────────────────────────────────────
+
+- tapOn:
+    text: "Continue with Email or Phone"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Sign in with a code"
+- assertVisible: "We'll send a one-time code to confirm it's you."
+
+# ── Email tab is default — enter test email ───────────────────────────
+
+- tapOn:
+    text: "Email"
+
+- tapOn:
+    accessibilityLabel: "Email address"
+
+- inputText: "test@carapp.dev"
+
+- tapOn:
+    accessibilityLabel: "Send one time code"
+
+# ── Wait for navigation to OTP verify ────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Enter your code"
+    timeout: 8000
+
+- assertVisible: "Verification code"
+
+# ── Enter 6-digit OTP code ────────────────────────────────────────────
+# In a real CI run, retrieve the OTP from Supabase's test hook or
+# seed it via supabase auth otp --email test@carapp.dev
+
+- tapOn:
+    accessibilityLabel: "Verification code"
+
+- inputText: "123456"
+
+- tapOn:
+    accessibilityLabel: "Verify code"
+
+# ── Authenticated — land on tab shell ────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- assertVisible: "Find a Provider"
+
+# ── Resend flow (regression: tapping resend does not crash) ──────────
+# Re-enter sign-in via sign-out is tested in a separate session.
+# Here we just verify the resend path is reachable from verify screen.
+# (Covered in a fresh launch below.)
+
+---
+
+# Sub-flow: verify resend code link is visible on verify screen
+
+- launchApp:
+    clearState: true
+
+- tapOn:
+    text: "Continue with Email or Phone"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    accessibilityLabel: "Email address"
+
+- inputText: "test@carapp.dev"
+
+- tapOn:
+    accessibilityLabel: "Send one time code"
+
+- extendedWaitUntil:
+    visible:
+      text: "Enter your code"
+    timeout: 8000
+
+- assertVisible: "Resend code"
+
+---
+
+# Sub-flow: phone OTP entry path renders correctly
+
+- launchApp:
+    clearState: true
+
+- tapOn:
+    text: "Continue with Email or Phone"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "Phone"
+
+- assertVisible: "Phone number"
+
+- tapOn:
+    accessibilityLabel: "Phone number"
+
+- inputText: "5551234567"
+
+- assertVisible:
+    text: "Send one time code"

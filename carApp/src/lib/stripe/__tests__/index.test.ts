@@ -1,4 +1,4 @@
-import { createDepositPaymentIntent } from '../index';
+import { createDepositPaymentIntent, confirmDepositPayment } from '../index';
 
 // ── Mock supabase.functions.invoke ────────────────────────────────────
 
@@ -12,8 +12,17 @@ jest.mock('../../supabase/client', () => ({
   },
 }));
 
+// ── Mock @stripe/stripe-react-native ──────────────────────────────────
+
+const mockConfirmPayment = jest.fn();
+
+jest.mock('@stripe/stripe-react-native', () => ({
+  confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
+}));
+
 beforeEach(() => {
   mockInvoke.mockReset();
+  mockConfirmPayment.mockReset();
 });
 
 describe('createDepositPaymentIntent', () => {
@@ -76,5 +85,61 @@ describe('createDepositPaymentIntent', () => {
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error!.message).toBe('Network failure');
+  });
+});
+
+describe('confirmDepositPayment', () => {
+  it('returns true on successful payment confirmation', async () => {
+    mockConfirmPayment.mockResolvedValue({ error: null });
+
+    const result = await confirmDepositPayment('pi_secret_abc');
+
+    expect(mockConfirmPayment).toHaveBeenCalledWith('pi_secret_abc', {
+      paymentMethodType: 'Card',
+    });
+    expect(result.error).toBeNull();
+    expect(result.data).toBe(true);
+  });
+
+  it('returns error when Stripe SDK returns a payment error', async () => {
+    mockConfirmPayment.mockResolvedValue({
+      error: { message: 'Your card was declined.' },
+    });
+
+    const result = await confirmDepositPayment('pi_secret_abc');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('Your card was declined.');
+  });
+
+  it('returns a generic error when SDK error has no message', async () => {
+    mockConfirmPayment.mockResolvedValue({ error: {} });
+
+    const result = await confirmDepositPayment('pi_secret_abc');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('Payment confirmation failed');
+  });
+
+  it('handles exceptions thrown by the Stripe SDK', async () => {
+    mockConfirmPayment.mockRejectedValue(new Error('SDK not initialised'));
+
+    const result = await confirmDepositPayment('pi_secret_abc');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('SDK not initialised');
+  });
+
+  it('wraps non-Error exceptions in an Error object', async () => {
+    mockConfirmPayment.mockRejectedValue('unexpected string throw');
+
+    const result = await confirmDepositPayment('pi_secret_abc');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('unexpected string throw');
   });
 });

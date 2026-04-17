@@ -10,6 +10,7 @@
 //   3. captureBalance — called server-side on job completion (not from app).
 //      Listed here for type completeness / reference.
 
+import { confirmPayment as stripeConfirmPayment } from '@stripe/stripe-react-native';
 import { supabase } from '../supabase/client';
 
 // ── Result Types ──────────────────────────────────────────────────────
@@ -88,11 +89,7 @@ export async function confirmDepositPayment(
   clientSecret: string,
 ): Promise<StripeResult<true>> {
   try {
-    // Dynamic import so this module can be loaded without the Stripe
-    // native SDK being initialised (e.g. in tests or server contexts).
-    const { confirmPayment } = await import('@stripe/stripe-react-native');
-
-    const { error } = await confirmPayment(clientSecret, {
+    const { error } = await stripeConfirmPayment(clientSecret, {
       paymentMethodType: 'Card',
     });
 

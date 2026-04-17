@@ -1,0 +1,257 @@
+# booking-flow.yaml
+#
+# Covers the end-to-end customer booking journey:
+#   Search → Results → Provider Profile → Book (3 steps) → Deposit Payment
+#
+# Preconditions:
+#   • User is authenticated (run auth-flow.yaml first, or seed a session)
+#   • At least one approved provider with services exists in the DB
+#   • Stripe is in test mode; use card number 4242 4242 4242 4242
+#
+# Run: maestro test e2e/booking-flow.yaml
+
+appId: com.emre.carapp
+---
+
+# ── Land on Search tab ────────────────────────────────────────────────
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- assertVisible: "Find a Provider"
+
+# ── Search by category: Detailing ─────────────────────────────────────
+
+- tapOn:
+    text: "Detailing"
+
+# Wait for the results list to load
+
+- extendedWaitUntil:
+    visible:
+      text: "provider"
+    timeout: 10000
+
+# ── Tap the first provider card ───────────────────────────────────────
+# ProviderCard accessibilityLabel is "<Name>, <Type>"
+# We rely on the first card appearing; exact name is data-dependent.
+
+- tapOn:
+    index: 0
+    childOf:
+      text: "provider"
+
+- waitForAnimationToEnd
+
+# ── Provider Profile ──────────────────────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Book Now"
+    timeout: 8000
+
+- assertVisible: "Book Now"
+
+- tapOn:
+    text: "Book Now"
+
+- waitForAnimationToEnd
+
+# ── Booking Step 1: Services ──────────────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Select Services"
+    timeout: 8000
+
+- assertVisible: "Select Services"
+- assertVisible: "Choose one or more services for your booking."
+
+# Tap the first available service package (checkbox role)
+- tapOn:
+    index: 0
+    childOf:
+      text: "Select Services"
+
+# Verify step indicator shows step 1 active
+- assertVisible: "Services"
+- assertVisible: "Details"
+- assertVisible: "Review"
+
+# Continue to step 2
+- tapOn:
+    text: "Continue"
+
+- waitForAnimationToEnd
+
+# ── Booking Step 2: Details ───────────────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Your Vehicle"
+    timeout: 5000
+
+- assertVisible: "Your Vehicle"
+
+# Select a vehicle if not auto-selected (radio button role)
+- tapOn:
+    index: 0
+    childOf:
+      text: "Your Vehicle"
+
+# Enter service address
+- tapOn:
+    accessibilityLabel: "Service address"
+
+- clearText
+
+- inputText: "1600 Tysons Blvd, McLean, VA 22102"
+
+# Open the date picker and select first available slot
+- tapOn:
+    text: "Select date & time"
+
+- waitForAnimationToEnd
+
+# Tap the first available day shown in the calendar
+- tapOn:
+    index: 0
+    childOf:
+      text: "Select date & time"
+
+# Confirm the time selection (DateTimePicker confirm button)
+- tapOn:
+    text: "Confirm"
+
+- waitForAnimationToEnd
+
+# Continue to step 3
+- tapOn:
+    text: "Continue"
+
+- waitForAnimationToEnd
+
+# ── Booking Step 3: Review ────────────────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Review Your Booking"
+    timeout: 5000
+
+- assertVisible: "Review Your Booking"
+- assertVisible: "Booking Details"
+
+# Price breakdown and deposit summary should be visible
+- scrollUntilVisible:
+    element:
+      text: "Due today"
+    direction: DOWN
+
+- assertVisible: "Due today"
+- assertVisible: "Due on completion"
+
+# Verify the Pay Deposit CTA is present
+- scrollUntilVisible:
+    element:
+      text: "Deposit"
+    direction: DOWN
+
+- assertVisible:
+    text: "Deposit"
+
+# ── Tap Pay Deposit ───────────────────────────────────────────────────
+
+- tapOn:
+    text: "Deposit"
+
+- waitForAnimationToEnd
+
+# Stripe payment sheet should appear
+- extendedWaitUntil:
+    visible:
+      text: "Pay with"
+    timeout: 10000
+
+# Enter test card details in Stripe sheet
+- tapOn:
+    text: "Card number"
+
+- inputText: "4242424242424242"
+
+- tapOn:
+    text: "MM / YY"
+
+- inputText: "12/28"
+
+- tapOn:
+    text: "CVC"
+
+- inputText: "123"
+
+- tapOn:
+    text: "ZIP"
+
+- inputText: "22102"
+
+# Submit Stripe payment
+- tapOn:
+    text: "Pay"
+
+# ── Booking confirmed — navigate to booking detail ────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Booking confirmed"
+    timeout: 15000
+
+- assertVisible: "Booking confirmed"
+
+---
+
+# Sub-flow: Cancelling the booking flow mid-way resets draft state
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- tapOn:
+    text: "Detailing"
+
+- extendedWaitUntil:
+    visible:
+      text: "provider"
+    timeout: 10000
+
+- tapOn:
+    index: 0
+    childOf:
+      text: "provider"
+
+- extendedWaitUntil:
+    visible:
+      text: "Book Now"
+    timeout: 8000
+
+- tapOn:
+    text: "Book Now"
+
+- extendedWaitUntil:
+    visible:
+      text: "Select Services"
+    timeout: 8000
+
+# Go back without selecting anything
+- tapOn:
+    text: "Back"
+
+- waitForAnimationToEnd
+
+# Should be back on provider profile, not crashed
+- assertVisible: "Book Now"
