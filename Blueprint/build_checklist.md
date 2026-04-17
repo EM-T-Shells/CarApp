@@ -184,7 +184,7 @@
 - [ ] Sentry integration — `@sentry/react-native` wired up
 - [ ] Mixpanel integration — booking funnel events instrumented
 - [ ] `app/+not-found.tsx` — 404 screen
-- [ ] E2E flows — `e2e/auth-flow.yaml`, `e2e/booking-flow.yaml`, `e2e/provider-onboarding.yaml`
+- [x] E2E flows — `e2e/auth-flow.yaml`, `e2e/booking-flow.yaml`, `e2e/provider-onboarding.yaml`
 
 ---
 

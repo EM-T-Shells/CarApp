@@ -110,3 +110,7 @@
 [app/(tabs)/search/book/[providerId].tsx] — Multi-step booking flow screen (Services → Details → Review) that loads the provider's packages and customer vehicles, accumulates selections in the bookingDraft store, creates the booking row, and initiates the 15% deposit payment via Stripe.
 
 [supabase/functions/stripe-webhook/index.ts] — Deno Edge Function handling app-invoked payment intent creation (deposit) and Stripe webhook events (payment_intent.succeeded → confirms booking, payment_intent.payment_failed → marks payment failed).
+[carApp/src/lib/stripe/__tests__/index.test.ts] — Unit tests for the Stripe client module; covers createDepositPaymentIntent (success, edge-function error, missing clientSecret, exception) and confirmDepositPayment (success, card declined, empty error, SDK exception, non-Error throw).
+[carApp/e2e/auth-flow.yaml] — Maestro E2E test for the full email-OTP sign-in path, resend flow, and phone entry path.
+[carApp/e2e/booking-flow.yaml] — Maestro E2E test covering search → provider profile → 3-step booking form → Stripe deposit payment confirmation.
+[carApp/e2e/provider-onboarding.yaml] — Maestro E2E test for provider sign-in, pending-approval screen vetting rows, and sign-out.
