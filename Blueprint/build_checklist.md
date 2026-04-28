@@ -104,7 +104,7 @@
 ---
 
 ## Phase 9 — Bookings Management
-- [ ] `app/(tabs)/bookings/index.tsx` — upcoming bookings list
+- [x] `app/(tabs)/bookings/index.tsx` — upcoming bookings list
 - [ ] `app/(tabs)/bookings/past.tsx` — completed bookings history
 
 ---
