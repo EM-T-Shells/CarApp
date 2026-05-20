@@ -114,3 +114,5 @@
 [carApp/e2e/auth-flow.yaml] — Maestro E2E test for the full email-OTP sign-in path, resend flow, and phone entry path.
 [carApp/e2e/booking-flow.yaml] — Maestro E2E test covering search → provider profile → 3-step booking form → Stripe deposit payment confirmation.
 [carApp/e2e/provider-onboarding.yaml] — Maestro E2E test for provider sign-in, pending-approval screen vetting rows, and sign-out.
+[carApp/app/(tabs)/bookings/_layout.tsx] — Stack navigator layout for the Bookings tab; hides the header on the index screen and provides styled Stack headers for past, detail ([id]), and live tracking sub-screens.
+[carApp/app/(tabs)/bookings/index.tsx] — Upcoming bookings list screen showing pending/confirmed/en_route/in_progress bookings with booking cards (provider, date, vehicle, status pill, price); supports customer/provider tab toggle for dual-role users, pull-to-refresh, and loading/empty/error states.
