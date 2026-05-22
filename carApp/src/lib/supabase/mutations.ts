@@ -27,6 +27,7 @@ import type {
   ServicePackageInsert,
   ServicePackageUpdate,
   User,
+  UserInsert,
   UserUpdate,
   Vehicle,
   VehicleInsert,
@@ -73,6 +74,14 @@ async function runVoid(
 }
 
 // ── Users ──────────────────────────────────────────────────────────────
+
+export function insertUser(
+  user: UserInsert,
+): Promise<MutationResult<User>> {
+  return runMutation<User>(
+    supabase.from('users').insert(user).select().single(),
+  )
+}
 
 export function updateUser(
   userId: string,
