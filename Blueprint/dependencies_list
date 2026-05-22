@@ -51,3 +51,6 @@ Here's the updated dependencies list we produced earlier in this conversation:
 **Utilities**
 - `ioredis` — Redis client (GPS caching, rate limiting, short-lived tokens)
 - `date-fns` — date formatting
+
+**Build Tooling (devDependencies)**
+- `expo-build-properties` — Expo config plugin that injects native build settings (used to set `useFrameworks: "static"` on iOS, required for Firebase pods to install)
