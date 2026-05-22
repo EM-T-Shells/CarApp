@@ -120,3 +120,4 @@
 [carApp/e2e/oauth-flow.yaml] — Maestro E2E smoke test that verifies the Google and Apple sign-in entry points render on the sign-in screen and that tapping each button triggers iOS's ASWebAuthenticationSession permission sheet without crashing the app.
 [carApp/src/lib/supabase/mutations.ts] — Added insertUser mutation so the customer onboarding review step can write the initial users row using the authenticated session id, email/phone, full name, and role.
 [carApp/app/(auth)/onboarding/_layout.tsx] — Headerless Stack layout for the 4-step customer onboarding flow (profile → role → vehicle → review) with swipe-back disabled so users move forward via the screen CTAs only.
+[carApp/app/(auth)/onboarding/profile.tsx] — Onboarding step 1 collecting the new user's full name with inline validation via isValidFullName, writing through useSignUpDraftStore.setProfile and advancing to the role step.
