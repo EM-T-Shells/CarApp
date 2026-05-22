@@ -59,6 +59,8 @@ function useProtectedRoute(): void {
 
     const inAuthGroup = segments[0] === '(auth)';
     const inTabsGroup = segments[0] === '(tabs)';
+    const inOnboarding =
+      inAuthGroup && (segments as readonly string[])[1] === 'onboarding';
 
     if (!session) {
       // Signed out — force into (auth).
@@ -68,12 +70,13 @@ function useProtectedRoute(): void {
       return;
     }
 
-    // Signed in but no `users` row yet — new user, stay in (auth)
-    // so the onboarding flow can run. Each onboarding screen lives
-    // under (auth) until the users row is inserted.
+    // Signed in but no `users` row yet — new user, push them into
+    // the multi-step onboarding flow. Don't bounce them if they are
+    // already inside the onboarding sub-stack so the inner navigation
+    // (profile → role → vehicle → review) can run uninterrupted.
     if (!user) {
-      if (!inAuthGroup) {
-        router.replace('/(auth)/');
+      if (!inOnboarding) {
+        router.replace('/(auth)/onboarding/profile');
       }
       return;
     }
