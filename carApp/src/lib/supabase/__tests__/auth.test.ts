@@ -8,6 +8,7 @@ const mockVerifyOtp = jest.fn()
 const mockSignOut = jest.fn()
 const mockGetUser = jest.fn()
 const mockSetSession = jest.fn()
+const mockExchangeCodeForSession = jest.fn()
 const mockFrom = jest.fn()
 
 jest.mock('../client', () => ({
@@ -19,6 +20,8 @@ jest.mock('../client', () => ({
       signOut: (...args: unknown[]) => mockSignOut(...args),
       getUser: (...args: unknown[]) => mockGetUser(...args),
       setSession: (...args: unknown[]) => mockSetSession(...args),
+      exchangeCodeForSession: (...args: unknown[]) =>
+        mockExchangeCodeForSession(...args),
     },
     from: (...args: unknown[]) => mockFrom(...args),
   },
@@ -133,6 +136,108 @@ describe('signInWithGoogle', () => {
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('Missing tokens in callback URL')
   })
+
+  it('exchanges PKCE code for a session when callback has ?code= param', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp://?code=pkce-code-xyz',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('pkce-code-xyz')
+    expect(mockSetSession).not.toHaveBeenCalled()
+    expect(result.data).toEqual(mockSession)
+    expect(result.error).toBeNull()
+  })
+
+  it('parses PKCE code from custom scheme without // separator', async () => {
+    // Supabase sometimes redirects to `carapp:?code=...` (no //host).
+    // Confirms our URL parser handles that form.
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp:?code=pkce-code-xyz',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('pkce-code-xyz')
+    expect(result.data).toEqual(mockSession)
+  })
+
+  it('surfaces server error_description from query string', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url:
+        'carapp:?error=server_error&error_code=unexpected_failure' +
+        '&error_description=Unable+to+exchange+external+code%3A+4%2F0A',
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe(
+      'Unable to exchange external code: 4/0A',
+    )
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled()
+    expect(mockSetSession).not.toHaveBeenCalled()
+  })
+
+  it('surfaces error_description from URL fragment when present', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'exp://redirect#error_description=Provider+rejected+token',
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Provider rejected token')
+  })
+
+  it('returns error when PKCE code exchange fails', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp://?code=bad-code',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: null },
+      error: new Error('Invalid code'),
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Invalid code')
+  })
 })
 
 describe('signInWithApple', () => {
@@ -155,6 +260,45 @@ describe('signInWithApple', () => {
     expect(mockSignInWithOAuth).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'apple' }),
     )
+  })
+
+  it('exchanges PKCE code for a session on apple callback', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://appleid.apple.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp://?code=apple-pkce-code',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithApple()
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('apple-pkce-code')
+    expect(result.data).toEqual(mockSession)
+    expect(result.error).toBeNull()
+  })
+
+  it('surfaces server error_description from apple callback', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://appleid.apple.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url:
+        'carapp:?error=server_error' +
+        '&error_description=Apple+identity+token+invalid',
+    })
+
+    const result = await signInWithApple()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Apple identity token invalid')
   })
 })
 

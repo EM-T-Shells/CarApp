@@ -45,10 +45,31 @@ async function signInWithOAuth(
 
     const url = new URL(result.url)
 
-    // Supabase returns tokens in the URL fragment (#access_token=...&refresh_token=...)
-    const params = new URLSearchParams(url.hash.substring(1))
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
+    const errorDescription =
+      url.searchParams.get('error_description') ??
+      new URLSearchParams(url.hash.substring(1)).get('error_description')
+    if (errorDescription) {
+      return { data: null, error: new Error(decodeURIComponent(errorDescription)) }
+    }
+
+    const code = url.searchParams.get('code')
+    if (code) {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.exchangeCodeForSession(code)
+
+      if (sessionError || !sessionData.session) {
+        return {
+          data: null,
+          error: sessionError ?? new Error('Failed to exchange code for session'),
+        }
+      }
+
+      return { data: sessionData.session, error: null }
+    }
+
+    const hashParams = new URLSearchParams(url.hash.substring(1))
+    const accessToken = hashParams.get('access_token')
+    const refreshToken = hashParams.get('refresh_token')
 
     if (!accessToken || !refreshToken) {
       return { data: null, error: new Error('Missing tokens in callback URL') }

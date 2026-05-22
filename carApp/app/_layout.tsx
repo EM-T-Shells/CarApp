@@ -63,7 +63,7 @@ function useProtectedRoute(): void {
     if (!session) {
       // Signed out — force into (auth).
       if (!inAuthGroup) {
-        router.replace('/(auth)/sign-in');
+        router.replace('/(auth)/');
       }
       return;
     }
@@ -73,14 +73,14 @@ function useProtectedRoute(): void {
     // under (auth) until the users row is inserted.
     if (!user) {
       if (!inAuthGroup) {
-        router.replace('/(auth)/sign-in');
+        router.replace('/(auth)/');
       }
       return;
     }
 
     // Signed in + hydrated user row — route into (tabs).
     if (!inTabsGroup) {
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/search');
     }
   }, [isHydrating, session, user, segments, router]);
 }

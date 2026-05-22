@@ -18,6 +18,7 @@ export default function AuthLayout(): React.ReactElement {
         animation: 'slide_from_right',
       }}
     >
+      <Stack.Screen name="index" />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="otp-entry" />
       <Stack.Screen name="otp-verify" />
