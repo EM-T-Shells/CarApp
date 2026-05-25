@@ -43,20 +43,20 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Screen | `app/(auth)/sign-in.tsx` | ✅ |
 | Screen | `app/(auth)/otp-entry.tsx` | ✅ |
 | Screen | `app/(auth)/otp-verify.tsx` | ✅ |
-| Screen | `app/(auth)/onboarding/profile.tsx` | ⛔ |
-| Screen | `app/(auth)/onboarding/role.tsx` | ⛔ |
-| Screen | `app/(auth)/onboarding/vehicle.tsx` | ⛔ |
-| Screen | `app/(auth)/onboarding/review.tsx` | ⛔ |
+| Screen | `app/(auth)/onboarding/profile.tsx` | ✅ |
+| Screen | `app/(auth)/onboarding/role.tsx` | ✅ |
+| Screen | `app/(auth)/onboarding/vehicle.tsx` | ✅ |
+| Screen | `app/(auth)/onboarding/review.tsx` | ✅ |
 | Component | `StepIndicator` | ✅ |
 | Component | `RoleSelector` | ✅ |
 | Component | `VehicleForm` | ✅ |
 | State | `signUpDraft` Zustand store | ✅ |
 | Data | `signInWithOtp`, `verifyOtp` | ✅ |
-| Data | `insertUser`, `insertVehicle` mutations | 🟡 (`updateUser` and `insertVehicle` exist; no `insertUser` — need to add or repurpose) |
-| Gate | `app/_layout.tsx` route when session but no `users` row | ✅ routes to `(auth)/` but no onboarding screen to land on |
+| Data | `insertUser`, `insertVehicle` mutations | ✅ |
+| Gate | `app/_layout.tsx` routes session-without-users-row to `/(auth)/onboarding/profile` | ✅ |
 | External | Twilio (phone OTP) | 🔒 needs verification in Supabase dashboard |
 
-**🔴 BLOCKING ISSUE:** Onboarding screens don't exist. New users get a session but no `users` row, so the auth gate loops them back to `(auth)/` with nowhere to go.
+**Pending:** UAT on a real device to confirm the full path (fresh OTP → 4 steps → Search → cold-restart persistence).
 
 **UAT on phone:**
 1. Use a fresh email (no `users` row exists yet)
@@ -85,7 +85,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Lib | `signInWithGoogle` in `auth.ts` | ✅ |
 | External | Google OAuth client configured in Supabase | ✅ |
 | External | Deep link scheme `carapp://` in `app.json` | ✅ |
-| Onboarding screens (same as Flow 1.1) | | ⛔ |
+| Onboarding screens (same as Flow 1.1) | | ✅ |
 
 **UAT on phone:** Same as Flow 1.1 but starting from the Google button.
 
@@ -100,7 +100,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 |---|---|---|
 | Lib | `signInWithApple` in `auth.ts` | ✅ |
 | External | Apple Services ID + .p8 key configured in Supabase | ⛔ blocked on Apple Developer enrollment |
-| Onboarding screens (same as Flow 1.1) | | ⛔ |
+| Onboarding screens (same as Flow 1.1) | | ✅ |
 
 ---
 
