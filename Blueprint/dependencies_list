@@ -13,6 +13,7 @@ Here's the updated dependencies list we produced earlier in this conversation:
 - `expo-notifications` — local notification scheduling
 - `expo-auth-session` — OAuth (Google/Apple)
 - `expo-web-browser` — required by auth-session
+- `expo-apple-authentication` — native Sign in with Apple button and credential flow (iOS only)
 - `expo-image-picker` — before/after photo uploads by provider
 - `expo-file-system` — file handling
 - `expo-camera` — in-app camera for provider photo capture during active job

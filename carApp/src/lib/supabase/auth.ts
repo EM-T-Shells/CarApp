@@ -1,5 +1,7 @@
 import * as WebBrowser from 'expo-web-browser'
 import * as AuthSession from 'expo-auth-session'
+import * as AppleAuthentication from 'expo-apple-authentication'
+import { Platform } from 'react-native'
 import { supabase } from './client'
 import type { Session } from '@supabase/supabase-js'
 
@@ -102,6 +104,51 @@ export async function signInWithGoogle(): Promise<AuthResult<Session>> {
 }
 
 export async function signInWithApple(): Promise<AuthResult<Session>> {
+  // iOS: native Sign in with Apple (required by App Store policy when
+  // other third-party logins are offered)
+  if (Platform.OS === 'ios') {
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      })
+
+      if (!credential.identityToken) {
+        return { data: null, error: new Error('No identity token returned from Apple') }
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+      })
+
+      if (error || !data.session) {
+        return {
+          data: null,
+          error: error ?? new Error('Failed to create session from Apple credential'),
+        }
+      }
+
+      return { data: data.session, error: null }
+    } catch (err) {
+      // User dismissed the native sheet — treat as a soft cancel, not a crash
+      if (
+        err instanceof Error &&
+        (err as Error & { code?: string }).code === 'ERR_REQUEST_CANCELED'
+      ) {
+        return { data: null, error: new Error('Auth session cancelled') }
+      }
+      return {
+        data: null,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }
+    }
+  }
+
+  // Android: fall back to web OAuth (Apple does not provide a native
+  // Android SDK — the web flow is the only option)
   return signInWithOAuth('apple')
 }
 
