@@ -14,7 +14,7 @@ import type { User } from '../types/models';
 
 /**
  * Role values stored in `users.role`. Mirrors the check constraint in
- * Blueprint/schema_policies.sql on the `users` table.
+ * carApp/supabase/schema.sql on the `users` table.
  */
 export type UserRole = 'customer' | 'provider' | 'both';
 

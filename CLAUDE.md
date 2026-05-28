@@ -28,7 +28,7 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 
 ```
 CarApp/                             # Git repo root
-├── Blueprint/                      # Schema, policies, build plan docs
+├── Blueprint/                      # Build plan and product docs
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
 ├── .claudeignore
@@ -52,6 +52,9 @@ CarApp/                             # Git repo root
     │   ├── components/             # Reusable UI components (domain-organized)
     │   └── design/                 # theme.ts, tokens.ts, typography.ts
     ├── supabase/
+    │   ├── schema.sql              # Unified schema + RLS policies + initial seeds
+    │   ├── seeds/                  # Re-runnable, idempotent seed scripts
+    │   │   └── service_catalog.sql
     │   └── functions/              # Edge Functions (Deno runtime — not Node)
     │       ├── stripe-webhook/
     │       ├── checkr-webhook/
@@ -390,7 +393,8 @@ Examples:
 ## Reference Documents
 
 - `ARCHITECTURE.md` — ERD, table decisions, key design patterns. Read before writing any new file.
-- `Blueprint/schema_policies.sql` — Unified merged schema with RLS policies. Source of truth for all table structures.
+- `carApp/supabase/schema.sql` — Unified merged schema with RLS policies and initial seeds. Source of truth for all table structures.
+- `carApp/supabase/seeds/` — Re-runnable, idempotent seed scripts applied on top of the schema (e.g. `service_catalog.sql`).
 - `Blueprint/dependencies_list` — All approved packages. Check before installing anything new.
 - `Blueprint/build_checklist.md` — Phase-by-phase build order. Check before starting any new feature.
 

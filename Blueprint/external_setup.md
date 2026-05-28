@@ -5,7 +5,7 @@ Supabase Dashboard
 Enable Google OAuth provider (requires Google Cloud Console client ID/secret)
 Enable Apple OAuth provider (requires Apple Developer account, Service ID, key)
 Enable Phone OTP with Twilio (Twilio Account SID, Auth Token, Messaging Service SID)
-Ensure RLS is enabled on all tables (per Blueprint/schema_policies.sql)
+Ensure RLS is enabled on all tables (per carApp/supabase/schema.sql)
 
 
 Environment Variables

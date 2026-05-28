@@ -6,8 +6,8 @@
 -- (name, category, provider_type_id) match is not already present.
 --
 -- Run this file in the Supabase SQL editor (or via psql) once the
--- schema in schema_policies.sql has been applied and provider_types
--- has been seeded with the DETAILER and MECHANIC rows.
+-- schema in carApp/supabase/schema.sql has been applied and
+-- provider_types has been seeded with the DETAILER and MECHANIC rows.
 -- ============================================================
 
 WITH seed_data(name, category, type_name) AS (

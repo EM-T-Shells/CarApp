@@ -133,7 +133,7 @@ CarApp/                                   # Git repo root
 
 ## Data Models
 
-Full schema and RLS policies live in `Blueprint/schema_policies.sql` — that is the source of truth.
+Full schema and RLS policies live in `carApp/supabase/schema.sql` — that is the source of truth. Re-runnable seed scripts live in `carApp/supabase/seeds/`.
 
 All tables live in Supabase (PostgreSQL). TypeScript types are in `src/types/models.ts`.
 `src/types/supabase.ts` is auto-generated — never edit manually.
@@ -215,7 +215,7 @@ app/_layout.tsx — onAuthStateChange
 - **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert. Flagged body is replaced with `[Message flagged for review]`. Auto-detection of phone numbers, email addresses, and external payment handles ('Venmo me') triggers flagging.
 - **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).
-- **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `Blueprint/schema_policies.sql` for all policies.
+- **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `carApp/supabase/schema.sql` for all policies.
 - **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses are constrained by a system prompt referencing the CarApp service catalog. Always provides a human escalation path.
 
 ---

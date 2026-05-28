@@ -280,9 +280,9 @@ INSERT INTO provider_types (name, label) VALUES
   ('MECHANIC', 'Mechanic');
 
 -- Service catalog — curated MVP list of mobile detailing and mechanic
--- offerings. Mirrors Blueprint/seeds/service_catalog.sql; update both
--- when adding new services. Inserted here so a fresh DB created from
--- this file alone has a populated catalog.
+-- offerings. Mirrors carApp/supabase/seeds/service_catalog.sql; update
+-- both when adding new services. Inserted here so a fresh DB created
+-- from this file alone has a populated catalog.
 WITH seed_data(name, category, type_name) AS (
   VALUES
     ('Express Wash',            'detailing',  'DETAILER'),
