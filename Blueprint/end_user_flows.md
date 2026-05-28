@@ -191,7 +191,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Component | `ProviderCard` | ✅ |
 | State | `search` Zustand store | ✅ |
 | Data | `searchProviders()` | ✅ |
-| Seed | `provider_profiles` rows | 🔒 must be seeded with verified providers |
+| Seed | `provider_profiles` rows | ✅ seeded via `carApp/supabase/seeds/providers.sql` |
 | Enhancement | Real geocoding for location radius filter | ⛔ post-MVP, currently text-only |
 
 **UAT on phone:** Enter "Reston, VA", tap Search → confirm provider list renders. Open filters, change sort to rating, apply, verify reorder. Empty/error states.
@@ -210,7 +210,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Data | `getServicePackagesByProvider()` | ✅ |
 | Data | `getRatingsForProviderUser()` | ✅ |
 | Data | `getKudosForProviderUser()` | ✅ |
-| Seed | Provider must have at least one `service_package` | 🔒 |
+| Seed | Provider must have at least one `service_package` | ✅ seeded via `carApp/supabase/seeds/provider_content.sql` (also seeds ratings + kudos) |
 
 **UAT on phone:** Tap any provider card. Verify avatar, rating, stats, package list, sticky Book Now button. Tap Book Now → routes to booking flow.
 
