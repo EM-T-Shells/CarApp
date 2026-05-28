@@ -2,23 +2,25 @@
 
 ## Stack
 
+The table below reflects the **target** architecture. Items marked **(planned)** are not yet wired into the app — see [CLAUDE.md §Tech Stack](CLAUDE.md) for the current installed vs. planned breakdown before importing or referencing.
+
 | Layer | Technology | Notes |
 |---|---|---|
 | Mobile Framework | Expo / React Native | Managed workflow |
 | Language | TypeScript (strict) | Strict mode enabled |
 | Routing | Expo Router | File-based, like Next.js |
 | Backend / DB | Supabase (PostgreSQL) | Auth, DB, Storage, Realtime, Edge Functions |
-| Caching / Ephemeral | Redis | Live GPS, rate limiting, short-lived tokens |
+| Caching / Ephemeral | Redis | Live GPS, rate limiting, short-lived tokens **(planned — `ioredis` approved, not yet implemented)** |
 | Auth Storage | Expo Secure Store | Encrypted session persistence |
 | OAuth | Expo Auth Session + Web Browser | Google & Apple SSO |
 | Payments | Stripe Connect | Deposits, split payments, payouts, 1099s |
 | Push Notifications | Firebase Cloud Messaging | iOS + Android push |
-| Maps / Geo | Google Maps SDK + react-native-maps | Live tracking, navigation, radius search |
+| Maps / Geo | _(MVP: address text only)_ | Google Maps is **out for MVP** due to billing; live tracking deferred post-MVP |
 | Global State | Zustand | auth, search, bookingDraft, signUpDraft, providerDraft |
 | Localized State | React Context | Feature-scoped trees only (forms, modals) |
-| Styling | NativeWind + Tailwind CSS | Utility-first styling for React Native |
-| Analytics | Mixpanel | Funnel analysis, retention |
-| Error Monitoring | Sentry | Crash reporting, performance |
+| Styling | React Native `StyleSheet` + design tokens | **(planned: NativeWind + Tailwind CSS — not yet wired)** |
+| Analytics | Mixpanel | **(planned — not yet installed)** Funnel analysis, retention |
+| Error Monitoring | Sentry | **(planned — not yet installed)** Crash reporting, performance |
 | Identity Verification | Persona | Provider identity checks |
 | Background Checks | Checkr | Provider background screening |
 | OTP Auth | Supabase Auth (built-in) | Email and phone one-time password via Supabase's OTP API |

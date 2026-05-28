@@ -31,22 +31,22 @@ Here's the updated dependencies list we produced earlier in this conversation:
 - React Context — built-in, no package required; feature-scoped localized state
 
 **Maps & Location**
-- `react-native-maps` — live GPS map, provider tracking, service location pin
-- `@googlemaps/js-api-loader` — Google Maps SDK integration
+- `react-native-maps` — live GPS map, provider tracking, service location pin _(approved — not yet installed; Maps deferred post-MVP)_
+- `@googlemaps/js-api-loader` — Google Maps SDK integration _(approved — not yet installed; Maps deferred post-MVP)_
 
 **Notifications**
 - `@react-native-firebase/app` — Firebase core (required by FCM)
 - `@react-native-firebase/messaging` — Firebase Cloud Messaging for push
 
 **Analytics & Monitoring**
-- `mixpanel-react-native` — funnel analysis, retention tracking
-- `@sentry/react-native` — crash reporting, performance monitoring
+- `mixpanel-react-native` — funnel analysis, retention tracking _(approved — not yet installed)_
+- `@sentry/react-native` — crash reporting, performance monitoring _(approved — not yet installed)_
 
 **UI & Animation**
 - `react-native-reanimated` — spring-based animations
 - `react-native-gesture-handler` — required by Reanimated and sheets
-- `nativewind` — Tailwind for React Native
-- `tailwindcss` — required by NativeWind
+- `nativewind` — Tailwind for React Native _(approved — not yet installed; current styling uses React Native `StyleSheet` + design tokens)_
+- `tailwindcss` — required by NativeWind _(approved — not yet installed)_
 - `lucide-react-native` — base icon library
 
 **Utilities**
