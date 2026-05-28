@@ -164,7 +164,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 |---|---|---|
 | Screen | `app/(tabs)/services/index.tsx` | ✅ |
 | Data | `getServiceCatalog()` | ✅ |
-| Seed | `service_catalog` rows in DB | 🔒 must be seeded |
+| Seed | `service_catalog` rows in DB | ✅ |
 
 **UAT on phone:** Open Services tab. Verify catalog renders grouped by category. Check loading/empty/error states by toggling network.
 
