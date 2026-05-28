@@ -76,7 +76,7 @@ EXPO_PUBLIC_FIREBASE_APP_ID_ANDROID
 EXPO_PUBLIC_FIREBASE_APP_ID_IOS
 ```
 
-> **Known issue**: [carApp/.env.example](carApp/.env.example) and `.env.local` currently include `EXPO_PUBLIC_STRIPE_SECRET_KEY`. This is unsafe — Stripe secret keys must never carry the `EXPO_PUBLIC_` prefix. Move to Supabase Edge Function secrets (`supabase secrets set STRIPE_SECRET_KEY=...`) and rotate the existing key, since it has likely been bundled into prior builds.
+> **Stripe secrets must never carry `EXPO_PUBLIC_`** — they ship in the client bundle. Use `supabase secrets set STRIPE_SECRET_KEY=...` for the secret key and reference it via `Deno.env.get('STRIPE_SECRET_KEY')` inside Edge Functions only. `.env.example` was previously inaccurate on this point — verified clean as of 2026-05-28; no secret value was ever committed to git history.
 
 **Read pattern**: Always read `EXPO_PUBLIC_*` values via `Constants.expoConfig?.extra?.<KEY> ?? process.env.<KEY>` — the `Constants.extra` path is required for EAS builds where `process.env` may not be populated at runtime. See [app/_layout.tsx](carApp/app/_layout.tsx) for an example.
 

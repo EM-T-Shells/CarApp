@@ -50,8 +50,8 @@ Here's the updated dependencies list we produced earlier in this conversation:
 - `lucide-react-native` — base icon library
 
 **Utilities**
-- `ioredis` — Redis client (GPS caching, rate limiting, short-lived tokens)
-- `date-fns` — date formatting
+- `ioredis` — Redis client (GPS caching, rate limiting, short-lived tokens) _(approved — not yet installed; lib stub at carApp/src/lib/redis/index.ts)_
+- `date-fns` — date formatting _(approved — not yet installed; current code uses native `Date` in carApp/src/utils/date.ts)_
 
 **Build Tooling (devDependencies)**
 - `expo-build-properties` — Expo config plugin that injects native build settings (used to set `useFrameworks: "static"` on iOS, required for Firebase pods to install)
