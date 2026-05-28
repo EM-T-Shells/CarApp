@@ -1,0 +1,103 @@
+# oauth-flow.yaml
+#
+# Smoke test for the OAuth sign-in entry points (Google + Apple).
+# Verifies the buttons render, are tappable, and trigger iOS's
+# ASWebAuthenticationSession permission dialog. Does NOT complete the
+# OAuth handshake — automating Google/Apple's web pages is brittle and
+# requires real test credentials. Completion is covered by manual
+# verification + the unit tests in src/lib/supabase/__tests__/auth.test.ts
+# which mock the entire WebBrowser + Supabase token exchange.
+#
+# Precondition: simulator or device with the app installed; no active
+# session (clearState handles this).
+#
+# Run: maestro test e2e/oauth-flow.yaml
+
+appId: com.emre.carapp
+---
+
+# ── Sub-flow 1: Splash → Sign-in renders both OAuth buttons ───────────
+
+- launchApp:
+    clearState: true
+
+- assertVisible: "CarApp"
+- assertVisible:
+    text: "Get Started"
+
+- tapOn:
+    text: "Get Started"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Welcome to CarApp"
+- assertVisible:
+    text: "Continue with Google"
+- assertVisible:
+    text: "Continue with Apple"
+- assertVisible:
+    text: "Continue with Email or Phone"
+
+---
+
+# ── Sub-flow 2: Continue with Google opens iOS auth permission sheet ─
+
+- launchApp:
+    clearState: true
+
+- tapOn:
+    text: "Get Started"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    accessibilityLabel: "Continue with Google"
+
+# iOS shows the ASWebAuthenticationSession permission prompt:
+#   "CarApp Wants to Use 'supabase.co' to Sign In"
+# with Cancel / Continue buttons. We wait for Cancel as the most
+# reliable system-rendered element, then dismiss to leave the app
+# in a clean state for the next sub-flow.
+- extendedWaitUntil:
+    visible:
+      text: "Cancel"
+    timeout: 8000
+
+- tapOn:
+    text: "Cancel"
+
+- waitForAnimationToEnd
+
+# Back on sign-in screen with no session.
+- assertVisible: "Welcome to CarApp"
+- assertVisible:
+    text: "Continue with Google"
+
+---
+
+# ── Sub-flow 3: Continue with Apple opens iOS auth permission sheet ──
+
+- launchApp:
+    clearState: true
+
+- tapOn:
+    text: "Get Started"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    accessibilityLabel: "Continue with Apple"
+
+- extendedWaitUntil:
+    visible:
+      text: "Cancel"
+    timeout: 8000
+
+- tapOn:
+    text: "Cancel"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Welcome to CarApp"
+- assertVisible:
+    text: "Continue with Apple"

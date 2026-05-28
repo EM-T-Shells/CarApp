@@ -44,5 +44,5 @@ yarn-error.*
 /android
 
 # Firebase config
-google-services.json
-GoogleService-Info.plist
+# google-services.json and GoogleService-Info.plist are intentionally committed
+# — they are project identifiers, not secrets, and are embedded in the app binary

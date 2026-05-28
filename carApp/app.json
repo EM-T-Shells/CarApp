@@ -13,16 +13,21 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportcarappet": false,
+      "supportsTablet": false,
       "bundleIdentifier": "com.emre.carapp",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.emre.carapp",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/adaptive-icon.png"
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
     "web": {
@@ -31,9 +36,34 @@
     "plugins": [
       "expo-secure-store",
       "expo-router",
+      "expo-apple-authentication",
       "expo-web-browser",
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
-    ]
+      "@react-native-firebase/messaging",
+      "@react-native-community/datetimepicker",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.emre.carapp",
+          "enableGooglePay": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "forceStaticLinking": ["RNFBApp", "RNFBMessaging"]
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0ee57d2b-6494-492b-a675-64f892ea5f17"
+      }
+    },
+    "owner": "emre6706"
   }
 }

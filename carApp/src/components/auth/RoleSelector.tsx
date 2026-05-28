@@ -1,6 +1,6 @@
 // RoleSelector — card-based picker used during customer onboarding
 // to choose between "customer", "provider", and "both". Mirrors the
-// three allowed values in users.role (see Blueprint/schema_policies.sql).
+// three allowed values in users.role (see carApp/supabase/schema.sql).
 //
 // Pure controlled component. The caller supplies the current value
 // and an onChange handler; selection persistence lives in the parent

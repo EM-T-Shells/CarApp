@@ -5,7 +5,7 @@ Supabase Dashboard
 Enable Google OAuth provider (requires Google Cloud Console client ID/secret)
 Enable Apple OAuth provider (requires Apple Developer account, Service ID, key)
 Enable Phone OTP with Twilio (Twilio Account SID, Auth Token, Messaging Service SID)
-Ensure RLS is enabled on all tables (per Blueprint/schema_policies.sql)
+Ensure RLS is enabled on all tables (per carApp/supabase/schema.sql)
 
 
 Environment Variables
@@ -18,8 +18,8 @@ EXPO_PUBLIC_MIXPANEL_TOKEN=<mixpanel-token>
 Supabase Edge Function Secrets
 Set via supabase secrets set:
 
-STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET
+STRIPE_SECRET_KEY ✅
+STRIPE_WEBHOOK_SECRET ✅
 CHECKR_API_KEY
 CHECKR_WEBHOOK_SECRET
 PERSONA_API_KEY

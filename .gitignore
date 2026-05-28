@@ -1,0 +1,6 @@
+# Supabase CLI binary (96MB) that used to be checked in at repo root.
+# Anchored to root so this does not block tracking carApp/supabase/.
+/supabase
+
+# Supabase CLI local working state (not the schema/seeds/functions)
+carApp/supabase/.temp/

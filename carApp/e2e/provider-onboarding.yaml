@@ -1,0 +1,134 @@
+# provider-onboarding.yaml
+#
+# Covers the provider onboarding journey:
+#   Sign up → Choose "Offer services" role → Pending Approval screen
+#   → Vetting steps visible → Sign out
+#
+# Note: full vetting flows (identity, background check, insurance,
+# credentials, bank account) are tested in Phase 14 once those screens
+# are built. This file covers the currently-built portion: the
+# sign-up role selection, the pending-approval screen surface, and
+# the sign-out path.
+#
+# Preconditions:
+#   • A test provider account exists: provider@carapp.dev
+#     with verification_status = 'pending' in provider_vetting
+#   • The provider has all vetting steps at 'not_started' (default)
+#
+# Run: maestro test e2e/provider-onboarding.yaml
+
+appId: com.emre.carapp
+---
+
+# ── Launch as provider user ───────────────────────────────────────────
+
+- launchApp:
+    clearState: true
+
+# ── Auth: sign in with OTP as provider ───────────────────────────────
+
+- assertVisible: "Welcome to CarApp"
+
+- tapOn:
+    text: "Continue with Email or Phone"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Sign in with a code"
+
+- tapOn:
+    accessibilityLabel: "Email address"
+
+- inputText: "provider@carapp.dev"
+
+- tapOn:
+    accessibilityLabel: "Send one time code"
+
+- extendedWaitUntil:
+    visible:
+      text: "Enter your code"
+    timeout: 8000
+
+- tapOn:
+    accessibilityLabel: "Verification code"
+
+- inputText: "123456"
+
+- tapOn:
+    accessibilityLabel: "Verify code"
+
+# ── Pending Approval screen ───────────────────────────────────────────
+# Provider with verification_status != 'approved' lands here via the
+# tabs layout's provider guard (implemented in Phase 13).
+# For now, navigate directly for screen-level verification.
+
+- extendedWaitUntil:
+    visible:
+      text: "You're almost there"
+    timeout: 10000
+
+- assertVisible: "You're almost there"
+- assertVisible: "provider application"
+- assertVisible: "0 of 5 approved"
+
+# ── Vetting step rows ─────────────────────────────────────────────────
+
+- assertVisible:
+    accessibilityLabel: "Identity verification: Not started"
+
+- assertVisible:
+    accessibilityLabel: "Background check: Not started"
+
+- assertVisible:
+    accessibilityLabel: "Insurance: Not started"
+
+- assertVisible:
+    accessibilityLabel: "Credentials: Not started"
+
+- assertVisible:
+    accessibilityLabel: "Bank account: Not started"
+
+# ── Help section ──────────────────────────────────────────────────────
+
+- scrollUntilVisible:
+    element:
+      text: "Need help?"
+    direction: DOWN
+
+- assertVisible: "Need help?"
+- assertVisible: "support@carapp.example"
+
+# ── Sign out ──────────────────────────────────────────────────────────
+
+- tapOn:
+    accessibilityLabel: "Sign out"
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome to CarApp"
+    timeout: 8000
+
+- assertVisible: "Welcome to CarApp"
+
+---
+
+# Sub-flow: role selector shows all three role options during sign-up
+#
+# Note: this sub-flow tests the RoleSelector component in isolation.
+# It will be integrated into the full sign-up flow in Phase 13 when
+# the onboarding screen that embeds RoleSelector is built.
+
+- launchApp:
+    clearState: true
+
+- assertVisible: "Welcome to CarApp"
+
+# Verify all three role options are rendered by the RoleSelector.
+# (RoleSelector appears on the onboarding screen — not yet wired
+# into the sign-up navigation. Full wiring tested in Phase 13.)
+- assertVisible:
+    text: "Book services"
+- assertVisible:
+    text: "Offer services"
+- assertVisible:
+    text: "Both"

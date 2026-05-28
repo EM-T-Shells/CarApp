@@ -33,62 +33,62 @@
 ---
 
 ## Phase 2 — UI Component Library
-- [ ] `src/components/ui/Text.tsx`
-- [ ] `src/components/ui/Button.tsx`
-- [ ] `src/components/ui/TextField.tsx`
-- [ ] `src/components/ui/Card.tsx`
-- [ ] `src/components/ui/Avatar.tsx`
-- [ ] `src/components/ui/Rating.tsx`
-- [ ] `src/components/ui/GearRating.tsx`
-- [ ] `src/components/ui/KudosBadge.tsx`
-- [ ] `src/components/ui/Sheet.tsx`
-- [ ] `src/components/ui/Spacer.tsx`
+- [x] `src/components/ui/Text.tsx`
+- [x] `src/components/ui/Button.tsx`
+- [x] `src/components/ui/TextField.tsx`
+- [x] `src/components/ui/Card.tsx`
+- [x] `src/components/ui/Avatar.tsx`
+- [x] `src/components/ui/Rating.tsx`
+- [x] `src/components/ui/GearRating.tsx`
+- [x] `src/components/ui/KudosBadge.tsx`
+- [x] `src/components/ui/Sheet.tsx`
+- [x] `src/components/ui/Spacer.tsx`
 
 ---
 
 ## Phase 3 — Supabase Data Layer
-- [ ] `src/lib/supabase/queries.ts` — all SELECT operations
-- [ ] `src/lib/supabase/mutations.ts` — all INSERT/UPDATE operations
-- [ ] `src/lib/supabase/storage.ts` — file uploads (photos, identity docs)
+- [x] `src/lib/supabase/queries.ts` — all SELECT operations
+- [x] `src/lib/supabase/mutations.ts` — all INSERT/UPDATE operations
+- [x] `src/lib/supabase/storage.ts` — file uploads (photos, identity docs)
 
 ---
 
 ## Phase 4 — Tab Shell & Navigation
-- [ ] `app/(tabs)/_layout.tsx` — 5-tab bar config
-- [ ] `app/(tabs)/search/index.tsx` — empty shell
-- [ ] `app/(tabs)/services/index.tsx` — empty shell
-- [ ] `app/(tabs)/bookings/index.tsx` — empty shell
-- [ ] `app/(tabs)/inbox/index.tsx` — empty shell
-- [ ] `app/(tabs)/more/index.tsx` — empty shell
+- [x] `app/(tabs)/_layout.tsx` — 5-tab bar config
+- [x] `app/(tabs)/search/index.tsx` — empty shell
+- [x] `app/(tabs)/services/index.tsx` — empty shell
+- [x] `app/(tabs)/bookings/index.tsx` — empty shell
+- [x] `app/(tabs)/inbox/index.tsx` — empty shell
+- [x] `app/(tabs)/more/index.tsx` — empty shell
 
 ---
 
 ## Phase 5 — Search & Provider Discovery
-- [ ] `src/state/search.ts` — Zustand search store (filters, results)
-- [ ] `src/components/search/LocationSearchBar.tsx`
-- [ ] `src/components/search/FiltersSheet.tsx`
-- [ ] `src/components/search/ProviderCard.tsx`
-- [ ] `app/(tabs)/search/index.tsx` — search home with location bar
-- [ ] `app/(tabs)/search/results.tsx` — filtered provider list
-- [ ] `app/(tabs)/search/provider/[id].tsx` — provider profile
-- [ ] `app/(tabs)/services/index.tsx` — CarApp service catalog browse
+- [x] `src/state/search.ts` — Zustand search store (filters, results)
+- [x] `src/components/search/LocationSearchBar.tsx`
+- [x] `src/components/search/FiltersSheet.tsx`
+- [x] `src/components/search/ProviderCard.tsx`
+- [x] `app/(tabs)/search/index.tsx` — search home with location bar
+- [x] `app/(tabs)/search/results.tsx` — filtered provider list
+- [x] `app/(tabs)/search/provider/[id].tsx` — provider profile
+- [x] `app/(tabs)/services/index.tsx` — CarApp service catalog browse
 
 ---
 
 ## Phase 6 — Booking Flow
-- [ ] `src/state/bookingDraft.ts` — in-progress booking builder
-- [ ] `src/components/booking/AddressPicker.tsx`
-- [ ] `src/components/booking/DateTimePicker.tsx`
-- [ ] `src/components/booking/PriceBreakdown.tsx`
-- [ ] `src/components/booking/DepositSummary.tsx`
-- [ ] `src/lib/stripe/index.ts` — payment intents, deposit capture
-- [ ] `app/(tabs)/search/book/[providerId].tsx` — full booking flow
+- [x] `src/state/bookingDraft.ts` — in-progress booking builder
+- [x] `src/components/booking/AddressPicker.tsx`
+- [x] `src/components/booking/DateTimePicker.tsx`
+- [x] `src/components/booking/PriceBreakdown.tsx`
+- [x] `src/components/booking/DepositSummary.tsx`
+- [x] `src/lib/stripe/index.ts` — payment intents, deposit capture
+- [x] `app/(tabs)/search/book/[providerId].tsx` — full booking flow
 
 ---
 
 ## Phase 7 — Payments
-- [ ] `src/lib/stripe/index.ts` — Stripe Connect, deposit, balance capture, payouts
-- [ ] Stripe webhook handler (Supabase Edge Function) — payment succeeded, payout processed
+- [x] `src/lib/stripe/index.ts` — Stripe Connect, deposit, balance capture, payouts
+- [x] Stripe webhook handler (Supabase Edge Function) — payment succeeded, payout processed
 
 ---
 
@@ -104,7 +104,7 @@
 ---
 
 ## Phase 9 — Bookings Management
-- [ ] `app/(tabs)/bookings/index.tsx` — upcoming bookings list
+- [x] `app/(tabs)/bookings/index.tsx` — upcoming bookings list
 - [ ] `app/(tabs)/bookings/past.tsx` — completed bookings history
 
 ---
@@ -184,7 +184,7 @@
 - [ ] Sentry integration — `@sentry/react-native` wired up
 - [ ] Mixpanel integration — booking funnel events instrumented
 - [ ] `app/+not-found.tsx` — 404 screen
-- [ ] E2E flows — `e2e/auth-flow.yaml`, `e2e/booking-flow.yaml`, `e2e/provider-onboarding.yaml`
+- [x] E2E flows — `e2e/auth-flow.yaml`, `e2e/booking-flow.yaml`, `e2e/provider-onboarding.yaml`
 
 ---
 

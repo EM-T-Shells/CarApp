@@ -46,3 +46,91 @@
 [app/(auth)/otp-verify.tsx] — 6-digit OTP verify screen that calls verifyOtp, surfaces errors inline, supports resend, and lets the root auth gate handle post-session navigation.
 
 [app/(auth)/pending-approval.tsx] — Provider gating screen shown while provider_vetting is incomplete; lists the five vetting steps with status badges, shows an approved-of-total counter, and exposes sign-out.
+
+[src/components/ui/Text.tsx] — Branded typography wrapper that maps every textStyle variant from design/typography.ts to a React Native Text element with automatic dark-mode color resolution via the design token palette.
+
+[src/lib/supabase/queries.ts] — Centralized SELECT layer for every Supabase read in the app (users, vehicles, providers, bookings, messages, ratings, payouts, notifications, promotions, location cache); wraps each query in try/catch and returns a typed `{ data, error }` tuple so screens never call `supabase.from()` directly.
+
+[src/components/ui/Button.tsx] — Multi-variant accessible button (primary/secondary/success/danger/ghost, sm/md/lg sizes) built with React.forwardRef, Pressable, and design tokens; supports loading/disabled states, left/right icons, dark mode, and meets WCAG 2.1 AA 44dp touch target.
+
+[src/components/ui/TextField.tsx] — Labeled text input with focus/error/disabled border states, inline error and hint text, left/right icon slots, built-in secure-text show/hide toggle, multiline support, dark mode, and WCAG 2.1 AA compliant touch targets.
+
+[src/components/ui/Card.tsx] — Flexible surface container with elevated/outlined/flat variants, optional press interaction (Pressable with disabled/accessibility support), dark mode shadow and background tokens, and 12px card border radius per design spec.
+
+[src/components/ui/Avatar.tsx] — Profile photo component rendering a Supabase Storage image URI or a hash-derived initials fallback; supports xs/sm/md/lg/xl sizes, an optional online/offline presence dot, optional press interaction with WCAG 2.1 AA 44pt hit targets, and full dark-mode support.
+
+[src/lib/supabase/mutations.ts] — Centralized INSERT/UPDATE/DELETE layer for every Supabase write in the app (users, vehicles, providers, vetting, service packages, bookings, photos, ratings, kudos, messages, notifications, promo redemptions); wraps each mutation in try/catch and returns a typed `{ data, error }` tuple, with message content moderation via containsFlaggedContent() before insert.
+
+[src/lib/supabase/storage.ts] — Centralized file upload/download/delete layer for Supabase Storage across three buckets (avatars, booking-photos, vetting-documents); validates mime type and file size, builds deterministic paths, provides convenience wrappers for each bucket, and returns typed `{ data, error }` tuples with signed URL support for private buckets.
+
+[src/components/ui/Rating.tsx] — General-purpose 1–5 star rating widget used across provider cards, booking history, and rating prompts; supports read-only display with fractional half-star rendering, interactive tappable input with WCAG 2.1 AA hit targets, an optional label string, sm/md/lg sizes, and full dark-mode support via the gearGold design token.
+
+[src/components/ui/GearRating.tsx] — 4-dimension gear rating widget (Quality, Timeliness, Communication, Value) that composes the Rating component into independently controlled 1–5 star rows; supports read-only display with fractional rendering, interactive per-dimension input, and an optional Overall row showing the arithmetic mean in gearGold with full dark-mode support.
+
+[src/components/ui/KudosBadge.tsx] — Pill badge for the 6 fixed kudos types (Meticulous, Reliable, Magic Hands, Great Value, Fast Worker, Communicator); renders a Lucide icon + label + optional received-count in display or interactive/selectable mode with gearGold-fill selected state and deepIndigo outlined unselected state, WCAG 2.1 AA 44pt touch targets, and full dark-mode support.
+
+[app/(tabs)/_layout.tsx] — Expo Router Tabs layout configuring the 5-tab bottom navigation bar (Search, Services, Bookings, Inbox, More) with Lucide icons, design token colors, and automatic dark-mode support via useColorScheme.
+
+[src/components/ui/Sheet.tsx] — Bottom drawer modal used for confirmations, filter panels, and action sheets; springs in/out via Reanimated, supports swipe-to-dismiss via gesture handler, backdrop tap, optional title header with close button, keyboard avoidance for form content, and full dark-mode support.
+
+[src/components/ui/Spacer.tsx] — Invisible layout utility that inserts vertical or horizontal blank space between elements using named spacing tokens or exact pixel values; also supports a flex-grow mode to fill remaining space in a flex container.
+
+[src/state/search.ts] — Zustand search store holding location query, provider search filters (sort, min rating, provider type), and fetched results; exposes fetchResults which calls searchProviders from the data layer, plus selectors for active filter count.
+
+[src/components/search/LocationSearchBar.tsx] — Location text input with MapPin icon and clear button that reads/writes the search store's locationQuery; used on the search home screen to capture the customer's service location.
+
+[src/components/search/FiltersSheet.tsx] — Bottom drawer sheet for refining provider search results; exposes sort-by and minimum-rating filters via a local draft that only applies on Apply, composing Sheet, Rating, and Button UI primitives.
+
+[src/components/search/ProviderCard.tsx] — Elevated card tile displaying a ProviderSearchResult with avatar, name, provider type label, gear rating, job count, kudos count, bio excerpt, and coverage area; tapping navigates to the provider detail screen.
+
+[app/(tabs)/search/_layout.tsx] — Stack navigator layout for the Search tab; hides the header on the home screen and styles Stack headers for results, provider detail, and booking screens.
+
+[app/(tabs)/search/index.tsx] — Search home screen with LocationSearchBar, primary search button, and Detailing/Mechanical category quick-filter tiles that navigate to the results list.
+
+[app/(tabs)/search/results.tsx] — Filtered provider results list rendering ProviderCard tiles in a FlatList with a filter bar, FiltersSheet drawer, and loading/empty/error states.
+
+[app/(tabs)/search/provider/[id].tsx] — Provider profile detail screen showing avatar, bio, gear rating, stats, coverage area, service packages with prices and duration, and a sticky Book Now CTA.
+
+[app/(tabs)/services/_layout.tsx] — Headerless Stack layout for the Services tab so the screen renders its own header content.
+
+[app/(tabs)/services/index.tsx] — Service catalog browse screen that fetches the admin-managed service_catalog table, groups entries by category, and renders them in a SectionList.
+
+[src/state/bookingDraft.ts] — Zustand store for the in-progress booking draft; tracks selected services (snapshotted with prices in cents), vehicle, address, schedule, and exposes selectors for subtotal, service fee, total, deposit, balance, duration, and readiness.
+
+[src/components/booking/AddressPicker.tsx] — Text-based address input with MapPin icon for the booking flow; wraps TextField with service-address-specific label, placeholder, and hint (no Google Maps for MVP).
+
+[src/components/booking/DateTimePicker.tsx] — Date and time selector rendering two tappable cards that open the native platform picker; merges date and time selections into a single ISO string for the booking draft.
+
+[src/components/booking/PriceBreakdown.tsx] — Itemised price display showing each selected service, the 2% customer service fee, and the computed total; all values rendered from cents via money.ts.
+
+[src/components/booking/DepositSummary.tsx] — Payment summary card showing the 15% deposit due now, remaining balance on completion, total, and the 24-hour cancellation forfeiture policy note.
+
+[src/lib/stripe/index.ts] — Stripe integration module that proxies deposit payment intent creation through the stripe-webhook Edge Function and wraps @stripe/stripe-react-native's confirmPayment for client-side confirmation.
+
+[app/(tabs)/search/book/[providerId].tsx] — Multi-step booking flow screen (Services → Details → Review) that loads the provider's packages and customer vehicles, accumulates selections in the bookingDraft store, creates the booking row, and initiates the 15% deposit payment via Stripe.
+
+[supabase/functions/stripe-webhook/index.ts] — Deno Edge Function handling app-invoked payment intent creation (deposit) and Stripe webhook events (payment_intent.succeeded → confirms booking, payment_intent.payment_failed → marks payment failed).
+[carApp/src/lib/stripe/__tests__/index.test.ts] — Unit tests for the Stripe client module; covers createDepositPaymentIntent (success, edge-function error, missing clientSecret, exception) and confirmDepositPayment (success, card declined, empty error, SDK exception, non-Error throw).
+[carApp/e2e/auth-flow.yaml] — Maestro E2E test for the full email-OTP sign-in path, resend flow, and phone entry path.
+[carApp/e2e/booking-flow.yaml] — Maestro E2E test covering search → provider profile → 3-step booking form → Stripe deposit payment confirmation.
+[carApp/e2e/provider-onboarding.yaml] — Maestro E2E test for provider sign-in, pending-approval screen vetting rows, and sign-out.
+[carApp/app/(tabs)/bookings/_layout.tsx] — Stack navigator layout for the Bookings tab; hides the header on the index screen and provides styled Stack headers for past, detail ([id]), and live tracking sub-screens.
+[carApp/app/(tabs)/bookings/index.tsx] — Upcoming bookings list screen showing pending/confirmed/en_route/in_progress bookings with booking cards (provider, date, vehicle, status pill, price); supports customer/provider tab toggle for dual-role users, pull-to-refresh, and loading/empty/error states.
+[carApp/app/+not-found.tsx] — Branded fallback screen for unmatched routes (e.g. stale push notification deep links or OAuth callback URLs); renders a spinner while the root auth gate in _layout.tsx redirects the user to (auth) or (tabs) based on session state.
+[carApp/e2e/oauth-flow.yaml] — Maestro E2E smoke test that verifies the Google and Apple sign-in entry points render on the sign-in screen and that tapping each button triggers iOS's ASWebAuthenticationSession permission sheet without crashing the app.
+[carApp/src/lib/supabase/mutations.ts] — Added insertUser mutation so the customer onboarding review step can write the initial users row using the authenticated session id, email/phone, full name, and role.
+[carApp/app/(auth)/onboarding/_layout.tsx] — Headerless Stack layout for the 4-step customer onboarding flow (profile → role → vehicle → review) with swipe-back disabled so users move forward via the screen CTAs only.
+[carApp/app/(auth)/onboarding/profile.tsx] — Onboarding step 1 collecting the new user's full name with inline validation via isValidFullName, writing through useSignUpDraftStore.setProfile and advancing to the role step.
+[carApp/app/(auth)/onboarding/role.tsx] — Onboarding step 2 composing RoleSelector to capture customer / provider / both, defaulting to customer per CLAUDE.md, and routing provider-only signups straight to review (no personal vehicle).
+[carApp/app/(auth)/onboarding/vehicle.tsx] — Onboarding step 3 wrapping VehicleForm to collect the new customer's primary vehicle (year/make/model required, trim/color/plate optional) and gating Continue on selectVehicleComplete.
+[carApp/app/(auth)/onboarding/review.tsx] — Onboarding step 4 summarising the captured profile/role/vehicle, calling insertUser (and insertVehicle for customer/both) using the Supabase session id/email/phone, pushing the new user into useAuthStore so the root gate lands them on (tabs)/search, and resetting the signUpDraft.
+[carApp/app/_layout.tsx] — Updated root auth gate to route sessions that have no users row into the onboarding sub-stack (/(auth)/onboarding/profile) instead of bouncing back to the splash, and to leave users alone while they navigate within onboarding.
+[carApp/app/(auth)/_layout.tsx] — Registered the onboarding sub-stack as a child route of the (auth) group so the onboarding screens render under the shared headerless auth layout.
+[carApp/src/lib/supabase/auth.ts] — Updated signInWithApple to use the native expo-apple-authentication flow on iOS (signInAsync → supabase.auth.signInWithIdToken) with a soft cancel on ERR_REQUEST_CANCELED, falling back to the existing web OAuth flow on Android, per App Store policy requiring native Sign in with Apple when third-party logins are offered.
+[carApp/ios/carapp/carapp.entitlements] — Added the com.apple.developer.applesignin entitlement so the native Apple Sign In sheet can authenticate against the registered App ID com.emre.carapp.
+[carApp/app/(tabs)/more/index.tsx] — Promoted the previously __DEV__-gated sign-out button to a real user-facing affordance on the More tab landing, with a native Alert confirmation before calling signOut; lives here until the Account sub-screen is built in Phase 15.
+[carApp/app/(tabs)/more/_layout.tsx] — Stack layout for the More tab so the account/admin/lug/provider/settings sub-screens stay nested under one bottom-tab entry instead of each becoming its own tab and breaking the declared tab order.
+[carApp/app/(tabs)/inbox/_layout.tsx] — Stack layout for the Inbox tab so the [threadId] message detail screen stays nested under one bottom-tab entry instead of registering as its own tab.
+[Blueprint/seeds/service_catalog.sql] — Idempotent seed inserting the curated MVP service_catalog rows (8 detailer services, 3 detailer add-ons, 12 mechanic services, 2 mechanic add-ons) keyed to provider_types by name; runnable standalone in the Supabase SQL editor and mirrored in schema_policies.sql for fresh-DB provisioning.
+[carApp/supabase/schema.sql] — Relocated and renamed from Blueprint/schema_policies.sql; unified schema, RLS policies, and initial seeds applied once to a fresh Supabase project, now colocated with the Edge Functions and seeds under carApp/supabase/.
+[carApp/supabase/seeds/service_catalog.sql] — Relocated from Blueprint/seeds/service_catalog.sql; same idempotent service_catalog seed, now living alongside the schema under carApp/supabase/seeds/ for re-runnable post-schema seeding.

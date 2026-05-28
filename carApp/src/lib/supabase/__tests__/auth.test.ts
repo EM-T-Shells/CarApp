@@ -8,6 +8,8 @@ const mockVerifyOtp = jest.fn()
 const mockSignOut = jest.fn()
 const mockGetUser = jest.fn()
 const mockSetSession = jest.fn()
+const mockExchangeCodeForSession = jest.fn()
+const mockSignInWithIdToken = jest.fn()
 const mockFrom = jest.fn()
 
 jest.mock('../client', () => ({
@@ -19,6 +21,9 @@ jest.mock('../client', () => ({
       signOut: (...args: unknown[]) => mockSignOut(...args),
       getUser: (...args: unknown[]) => mockGetUser(...args),
       setSession: (...args: unknown[]) => mockSetSession(...args),
+      exchangeCodeForSession: (...args: unknown[]) =>
+        mockExchangeCodeForSession(...args),
+      signInWithIdToken: (...args: unknown[]) => mockSignInWithIdToken(...args),
     },
     from: (...args: unknown[]) => mockFrom(...args),
   },
@@ -31,6 +36,20 @@ jest.mock('expo-web-browser', () => ({
 
 jest.mock('expo-auth-session', () => ({
   makeRedirectUri: jest.fn(() => 'exp://redirect'),
+}))
+
+const mockAppleSignIn = jest.fn()
+jest.mock('expo-apple-authentication', () => ({
+  signInAsync: (...args: unknown[]) => mockAppleSignIn(...args),
+  AppleAuthenticationScope: {
+    FULL_NAME: 0,
+    EMAIL: 1,
+  },
+}))
+
+// Default to iOS for Apple native tests; individual tests can override
+jest.mock('react-native', () => ({
+  Platform: { OS: 'ios' },
 }))
 
 import * as WebBrowser from 'expo-web-browser'
@@ -133,28 +152,208 @@ describe('signInWithGoogle', () => {
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('Missing tokens in callback URL')
   })
+
+  it('exchanges PKCE code for a session when callback has ?code= param', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp://?code=pkce-code-xyz',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('pkce-code-xyz')
+    expect(mockSetSession).not.toHaveBeenCalled()
+    expect(result.data).toEqual(mockSession)
+    expect(result.error).toBeNull()
+  })
+
+  it('parses PKCE code from custom scheme without // separator', async () => {
+    // Supabase sometimes redirects to `carapp:?code=...` (no //host).
+    // Confirms our URL parser handles that form.
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp:?code=pkce-code-xyz',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('pkce-code-xyz')
+    expect(result.data).toEqual(mockSession)
+  })
+
+  it('surfaces server error_description from query string', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url:
+        'carapp:?error=server_error&error_code=unexpected_failure' +
+        '&error_description=Unable+to+exchange+external+code%3A+4%2F0A',
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe(
+      'Unable to exchange external code: 4/0A',
+    )
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled()
+    expect(mockSetSession).not.toHaveBeenCalled()
+  })
+
+  it('surfaces error_description from URL fragment when present', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'exp://redirect#error_description=Provider+rejected+token',
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Provider rejected token')
+  })
+
+  it('returns error when PKCE code exchange fails', async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: 'https://accounts.google.com/auth' },
+      error: null,
+    })
+    ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
+      type: 'success',
+      url: 'carapp://?code=bad-code',
+    })
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: null },
+      error: new Error('Invalid code'),
+    })
+
+    const result = await signInWithGoogle()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Invalid code')
+  })
 })
 
-describe('signInWithApple', () => {
-  it('calls OAuth with apple provider', async () => {
+describe('signInWithApple — iOS native flow', () => {
+  it('returns a session when Apple credential contains an identity token', async () => {
+    mockAppleSignIn.mockResolvedValue({ identityToken: 'apple-id-token' })
+    mockSignInWithIdToken.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    const result = await signInWithApple()
+
+    expect(mockAppleSignIn).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedScopes: expect.any(Array) }),
+    )
+    expect(mockSignInWithIdToken).toHaveBeenCalledWith({
+      provider: 'apple',
+      token: 'apple-id-token',
+    })
+    expect(result.data).toEqual(mockSession)
+    expect(result.error).toBeNull()
+  })
+
+  it('returns an error when Apple credential has no identity token', async () => {
+    mockAppleSignIn.mockResolvedValue({ identityToken: null })
+
+    const result = await signInWithApple()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('No identity token returned from Apple')
+  })
+
+  it('returns an error when Supabase signInWithIdToken fails', async () => {
+    mockAppleSignIn.mockResolvedValue({ identityToken: 'apple-id-token' })
+    mockSignInWithIdToken.mockResolvedValue({
+      data: { session: null },
+      error: new Error('Invalid identity token'),
+    })
+
+    const result = await signInWithApple()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Invalid identity token')
+  })
+
+  it('returns a soft cancel error when the user dismisses the native sheet', async () => {
+    const cancelError = Object.assign(new Error('Cancelled'), {
+      code: 'ERR_REQUEST_CANCELED',
+    })
+    mockAppleSignIn.mockRejectedValue(cancelError)
+
+    const result = await signInWithApple()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Auth session cancelled')
+  })
+
+  it('surfaces unexpected native errors', async () => {
+    mockAppleSignIn.mockRejectedValue(new Error('Biometric failure'))
+
+    const result = await signInWithApple()
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe('Biometric failure')
+  })
+})
+
+describe('signInWithApple — Android web OAuth fallback', () => {
+  beforeEach(() => {
+    // Override Platform.OS to android for this suite
+    const { Platform } = require('react-native') as { Platform: { OS: string } }
+    Platform.OS = 'android'
+  })
+
+  afterEach(() => {
+    const { Platform } = require('react-native') as { Platform: { OS: string } }
+    Platform.OS = 'ios'
+  })
+
+  it('falls back to web OAuth on Android', async () => {
     mockSignInWithOAuth.mockResolvedValue({
       data: { url: 'https://appleid.apple.com/auth' },
       error: null,
     })
     ;(WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
       type: 'success',
-      url: `exp://redirect#access_token=at&refresh_token=rt`,
+      url: 'carapp://?code=apple-pkce-code',
     })
-    mockSetSession.mockResolvedValue({
+    mockExchangeCodeForSession.mockResolvedValue({
       data: { session: mockSession },
       error: null,
     })
 
-    await signInWithApple()
+    const result = await signInWithApple()
 
+    expect(mockAppleSignIn).not.toHaveBeenCalled()
     expect(mockSignInWithOAuth).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'apple' }),
     )
+    expect(result.data).toEqual(mockSession)
   })
 })
 

@@ -9,12 +9,19 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
+import { StripeProvider } from '@stripe/stripe-react-native';
+import Constants from 'expo-constants';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase/client';
 import { useAuthStore } from '../src/state/auth';
 import type { User } from '../src/types/models';
 import tokens from '../src/design/tokens';
+
+const STRIPE_PUBLISHABLE_KEY =
+  Constants.expoConfig?.extra?.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ??
+  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ??
+  '';
 
 // ── User Row Hydration ─────────────────────────────────────────────────
 
@@ -52,28 +59,31 @@ function useProtectedRoute(): void {
 
     const inAuthGroup = segments[0] === '(auth)';
     const inTabsGroup = segments[0] === '(tabs)';
+    const inOnboarding =
+      inAuthGroup && (segments as readonly string[])[1] === 'onboarding';
 
     if (!session) {
       // Signed out — force into (auth).
       if (!inAuthGroup) {
-        router.replace('/(auth)/sign-in');
+        router.replace('/(auth)/');
       }
       return;
     }
 
-    // Signed in but no `users` row yet — new user, stay in (auth)
-    // so the onboarding flow can run. Each onboarding screen lives
-    // under (auth) until the users row is inserted.
+    // Signed in but no `users` row yet — new user, push them into
+    // the multi-step onboarding flow. Don't bounce them if they are
+    // already inside the onboarding sub-stack so the inner navigation
+    // (profile → role → vehicle → review) can run uninterrupted.
     if (!user) {
-      if (!inAuthGroup) {
-        router.replace('/(auth)/sign-in');
+      if (!inOnboarding) {
+        router.replace('/(auth)/onboarding/profile');
       }
       return;
     }
 
     // Signed in + hydrated user row — route into (tabs).
     if (!inTabsGroup) {
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/search');
     }
   }, [isHydrating, session, user, segments, router]);
 }
@@ -135,7 +145,11 @@ export default function RootLayout(): React.ReactElement {
     );
   }
 
-  return <Slot />;
+  return (
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+      <Slot />
+    </StripeProvider>
+  );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
