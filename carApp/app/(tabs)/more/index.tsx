@@ -1,12 +1,12 @@
 // More tab — empty shell. Will be fleshed out in Phase 15.
 //
-// Includes a __DEV__-only "Sign out" affordance so developers can
-// reset the local session during UAT without uninstalling the app or
-// wiping the simulator. The button is stripped from production builds.
+// Hosts the user-facing "Sign out" button until the Account sub-screen
+// is built. Confirmation alert prevents accidental sign-outs.
 
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   View,
@@ -23,8 +23,19 @@ export default function MoreScreen(): React.ReactElement {
 
   const [signingOut, setSigningOut] = useState(false);
 
-  async function handleSignOut(): Promise<void> {
+  function confirmSignOut(): void {
     if (signingOut) return;
+    Alert.alert(
+      'Sign out?',
+      'You will need to sign in again to access your account.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', style: 'destructive', onPress: handleSignOut },
+      ],
+    );
+  }
+
+  async function handleSignOut(): Promise<void> {
     setSigningOut(true);
     await signOut();
     // Root auth gate detects the cleared session and routes back to (auth)/.
@@ -36,29 +47,27 @@ export default function MoreScreen(): React.ReactElement {
         More
       </Text>
 
-      {__DEV__ ? (
-        <Pressable
-          onPress={handleSignOut}
-          disabled={signingOut}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out (dev)"
-          testID="more-dev-sign-out"
-          style={({ pressed }) => [
-            styles.devButton,
-            { borderColor: palette.deepIndigo },
-            pressed && !signingOut && styles.devButtonPressed,
-            signingOut && styles.devButtonDisabled,
-          ]}
-        >
-          {signingOut ? (
-            <ActivityIndicator color={palette.deepIndigo} />
-          ) : (
-            <Text style={[styles.devButtonText, { color: palette.deepIndigo }]}>
-              Sign out (dev)
-            </Text>
-          )}
-        </Pressable>
-      ) : null}
+      <Pressable
+        onPress={confirmSignOut}
+        disabled={signingOut}
+        accessibilityRole="button"
+        accessibilityLabel="Sign out"
+        testID="more-sign-out"
+        style={({ pressed }) => [
+          styles.signOutButton,
+          { borderColor: palette.deepIndigo },
+          pressed && !signingOut && styles.signOutButtonPressed,
+          signingOut && styles.signOutButtonDisabled,
+        ]}
+      >
+        {signingOut ? (
+          <ActivityIndicator color={palette.deepIndigo} />
+        ) : (
+          <Text style={[styles.signOutButtonText, { color: palette.deepIndigo }]}>
+            Sign out
+          </Text>
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -71,7 +80,7 @@ const styles = StyleSheet.create({
     padding: spacing.base,
     gap: spacing.xl,
   },
-  devButton: {
+  signOutButton: {
     minHeight: 44,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
@@ -80,13 +89,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  devButtonPressed: {
+  signOutButtonPressed: {
     opacity: 0.7,
   },
-  devButtonDisabled: {
+  signOutButtonDisabled: {
     opacity: 0.5,
   },
-  devButtonText: {
+  signOutButtonText: {
     ...textStyles.label,
   },
 });

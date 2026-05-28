@@ -19,9 +19,9 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 ---
 
-# Section 1 — Auth & Onboarding
+# ✅ Section 1 — Auth & Onboarding ✅
 
-## Flow 1.1 — First-time user signs up (Email or Phone OTP)
+## Flow 1.1 — First-time user signs up (Email or Phone OTP) ✅
 
 **Goal:** A brand new user opens the app, enters email or phone, verifies OTP, fills out profile + vehicle, and lands on the main navigation (Search tab).
 
@@ -54,9 +54,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Data | `signInWithOtp`, `verifyOtp` | ✅ |
 | Data | `insertUser`, `insertVehicle` mutations | ✅ |
 | Gate | `app/_layout.tsx` routes session-without-users-row to `/(auth)/onboarding/profile` | ✅ |
-| External | Twilio (phone OTP) | 🔒 needs verification in Supabase dashboard |
-
-**Pending:** UAT on a real device to confirm the full path (fresh OTP → 4 steps → Search → cold-restart persistence).
+| External | Twilio (phone OTP configured in Supabase dashboard) | ✅ |
 
 **UAT on phone:**
 1. Use a fresh email (no `users` row exists yet)
@@ -68,7 +66,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 ---
 
-## Flow 1.2 — First-time user signs up (Google OAuth)
+## Flow 1.2 — First-time user signs up (Google OAuth) ✅
 
 **Goal:** New user taps "Continue with Google", completes Google's web auth, and proceeds through the same onboarding as Flow 1.1.
 
@@ -91,20 +89,23 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 ---
 
-## Flow 1.3 — First-time user signs up (Apple OAuth)
+## Flow 1.3 — First-time user signs up (Apple OAuth) ✅
 
 **Goal:** Same as 1.2 but with Apple.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `signInWithApple` in `auth.ts` | ✅ |
-| External | Apple Services ID + .p8 key configured in Supabase | ⛔ blocked on Apple Developer enrollment |
+| Lib | `signInWithApple` in `auth.ts` (native `AppleAuthentication.signInAsync` on iOS, web OAuth fallback on Android) | ✅ |
+| External | Apple Services ID + .p8 key configured in Supabase | ✅ |
+| External | App ID, Services ID, Key, and Sign In with Apple entitlement registered in Apple Developer | ✅ |
 | Onboarding screens (same as Flow 1.1) | | ✅ |
+
+**UAT on phone:** Verified on iPad (iPadOS 26.2) via `expo run:ios --device` — native Apple sheet appears, authentication completes, new user routed into onboarding.
 
 ---
 
-## Flow 1.4 — Returning user signs in
+## Flow 1.4 — Returning user signs in ✅
 
 **Goal:** A user with an existing `users` row signs in and lands on Search tab.
 
@@ -123,7 +124,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 ---
 
-## Flow 1.5 — Persistent session on cold start
+## Flow 1.5 — Persistent session on cold start ✅
 
 **Goal:** A signed-in user closes and re-opens the app and lands directly on Search.
 
@@ -137,7 +138,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 ---
 
-## Flow 1.6 — Sign out
+## Flow 1.6 — Sign out ✅
 
 **Goal:** Signed-in user signs out and returns to splash.
 
@@ -145,10 +146,10 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Type | Item | Status |
 |---|---|---|
 | Lib | `signOut` in `auth.ts` | ✅ |
-| UI | Sign-out button — currently only on `pending-approval.tsx` | 🟡 need one on More tab (account screen) |
+| UI | Sign-out button on More tab (with native confirmation alert); also exists on `pending-approval.tsx` | ✅ |
 | Gate | Auth gate detects no session → routes to `(auth)/` | ✅ |
 
-**UAT on phone:** From pending-approval screen (or future More → Account), tap sign out, verify return to splash.
+**UAT on phone:** From the More tab, tap Sign out → confirm in the native alert → verify return to splash. Will move into More → Account when that screen is built in Phase 15.
 
 ---
 
