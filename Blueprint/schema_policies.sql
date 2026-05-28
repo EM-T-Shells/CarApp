@@ -279,6 +279,43 @@ INSERT INTO provider_types (name, label) VALUES
   ('DETAILER', 'Car Detailer'),
   ('MECHANIC', 'Mechanic');
 
+-- Service catalog — curated MVP list of mobile detailing and mechanic
+-- offerings. Mirrors Blueprint/seeds/service_catalog.sql; update both
+-- when adding new services. Inserted here so a fresh DB created from
+-- this file alone has a populated catalog.
+WITH seed_data(name, category, type_name) AS (
+  VALUES
+    ('Express Wash',            'detailing',  'DETAILER'),
+    ('Exterior Wash & Wax',     'detailing',  'DETAILER'),
+    ('Interior Detail',         'detailing',  'DETAILER'),
+    ('Full Detail',             'detailing',  'DETAILER'),
+    ('Paint Correction',        'detailing',  'DETAILER'),
+    ('Ceramic Coating',         'detailing',  'DETAILER'),
+    ('Headlight Restoration',   'detailing',  'DETAILER'),
+    ('Engine Bay Cleaning',     'detailing',  'DETAILER'),
+    ('Pet Hair Removal',        'addon',      'DETAILER'),
+    ('Odor Removal',            'addon',      'DETAILER'),
+    ('Leather Conditioning',    'addon',      'DETAILER'),
+    ('Oil Change',              'mechanical', 'MECHANIC'),
+    ('Tire Rotation',           'mechanical', 'MECHANIC'),
+    ('Brake Pad Replacement',   'mechanical', 'MECHANIC'),
+    ('Battery Replacement',     'mechanical', 'MECHANIC'),
+    ('Battery Test & Jumpstart','mechanical', 'MECHANIC'),
+    ('Air Filter Replacement',  'mechanical', 'MECHANIC'),
+    ('Cabin Filter Replacement','mechanical', 'MECHANIC'),
+    ('Spark Plug Replacement',  'mechanical', 'MECHANIC'),
+    ('Diagnostic Scan',         'mechanical', 'MECHANIC'),
+    ('Wiper Blade Replacement', 'mechanical', 'MECHANIC'),
+    ('Headlight Bulb Replacement','mechanical','MECHANIC'),
+    ('Pre-Purchase Inspection', 'mechanical', 'MECHANIC'),
+    ('Fluid Top-Up',            'addon',      'MECHANIC'),
+    ('Tire Pressure Check',     'addon',      'MECHANIC')
+)
+INSERT INTO service_catalog (name, category, provider_type_id, is_active)
+SELECT s.name, s.category, pt.id, TRUE
+FROM seed_data s
+LEFT JOIN provider_types pt ON pt.name = s.type_name;
+
 -- ============================================================
 -- RLS — ENABLE ON ALL TABLES
 -- ============================================================
