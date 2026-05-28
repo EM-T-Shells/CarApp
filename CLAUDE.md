@@ -8,23 +8,32 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 
 ## Tech Stack
 
+**Installed and in use today:**
+
 - **Framework**: Expo / React Native
 - **Routing**: Expo Router (file-based, like Next.js)
 - **Backend**: Supabase (PostgreSQL + Auth + Realtime + Storage + Edge Functions)
-- **Caching / Ephemeral Data**: Redis (live GPS caching, rate limiting, short-lived tokens)
 - **Language**: TypeScript (strict mode)
-- **Payments**: Stripe Connect
+- **Payments**: Stripe Connect (via `@stripe/stripe-react-native`)
 - **Push Notifications**: Firebase Cloud Messaging (FCM)
-- **Maps**: Google Maps SDK + react-native-maps
-- **Analytics**: Mixpanel
-- **Error Monitoring**: Sentry
 - **Auth Storage**: Expo Secure Store
 - **SMS Provider**: Twilio (configured at Supabase project level for phone OTP — not in app code)
-- **Styling**: NativeWind + Tailwind CSS
+- **Styling**: React Native `StyleSheet` + design tokens in [carApp/src/design/tokens.ts](carApp/src/design/tokens.ts)
+
+**Planned but not yet wired up — do not import these in current code:**
+
+- **Caching / Ephemeral Data**: Redis (live GPS, rate limiting, short-lived tokens) — `ioredis` approved in [Blueprint/dependencies_list](Blueprint/dependencies_list) but not yet implemented; [src/lib/redis/index.ts](carApp/src/lib/redis/index.ts) is an empty stub
+- **Maps**: No map SDK for MVP — use address text only. Google Maps is explicitly out for MVP due to billing
+- **Analytics**: Mixpanel — not installed; skip the "Logging & Observability" Mixpanel events below until then
+- **Error Monitoring**: Sentry — not installed; do not call Sentry APIs in current code
 
 ---
 
 ## Repository Layout
+
+Only [src/lib/supabase/](carApp/src/lib/supabase/) and [src/lib/stripe/](carApp/src/lib/stripe/) have implementation. The other `src/lib/*` directories exist with empty placeholder files — do not import from them.
+
+The full folder tree lives in [ARCHITECTURE.md §Folder Structure](ARCHITECTURE.md) — refer to it for the complete file inventory. Top-level orientation, with `src/lib/` kept expanded since the stub markers are load-bearing for code generation:
 
 ```
 CarApp/                             # Git repo root
@@ -33,38 +42,18 @@ CarApp/                             # Git repo root
 ├── CLAUDE.md
 ├── .claudeignore
 └── carApp/                         # Expo app root
-    ├── app/                        # Expo Router screens (file = route)
-    │   ├── _layout.tsx             # Root layout — auth gate
-    │   ├── (auth)/                 # Unauthenticated screens (sign-in, otp-entry, otp-verify, pending-approval)
-    │   └── (tabs)/                 # Authenticated tab screens
+    ├── app/                        # Expo Router screens — see ARCHITECTURE.md §Folder Structure
     ├── src/
     │   ├── lib/
     │   │   ├── supabase/           # client.ts, auth.ts, queries.ts, mutations.ts, storage.ts
-    │   │   ├── redis/              # GPS caching, rate limiting, short-lived tokens
+    │   │   ├── redis/              # (stub — empty index.ts) GPS caching, rate limiting, short-lived tokens
     │   │   ├── stripe/             # Stripe Connect integration
-    │   │   ├── checkr/             # Background check webhook handling
-    │   │   ├── persona/            # Identity verification flow
-    │   │   ├── notifications/      # Firebase Cloud Messaging (push.ts)
-    │   │   └── location/           # GPS utilities
-    │   ├── state/                  # Zustand global state slices
-    │   ├── types/                  # models.ts, supabase.ts (generated), navigation.ts
-    │   ├── utils/                  # validators.ts, money.ts, date.ts
-    │   ├── components/             # Reusable UI components (domain-organized)
-    │   └── design/                 # theme.ts, tokens.ts, typography.ts
-    ├── supabase/
-    │   ├── schema.sql              # Unified schema + RLS policies + initial seeds
-    │   ├── seeds/                  # Re-runnable, idempotent seed scripts
-    │   │   └── service_catalog.sql
-    │   └── functions/              # Edge Functions (Deno runtime — not Node)
-    │       ├── stripe-webhook/
-    │       ├── checkr-webhook/
-    │       ├── persona-webhook/
-    │       ├── notify-booking-confirmed/
-    │       ├── notify-provider-enroute/
-    │       ├── notify-job-complete/
-    │       ├── notify-payout-processed/
-    │       ├── notify-kudos-received/
-    │       └── lug-ai/
+    │   │   ├── checkr/             # (stub — empty index.ts) Background check webhook handling
+    │   │   ├── persona/            # (stub — empty index.ts) Identity verification flow
+    │   │   ├── notifications/      # (stub — empty push.ts) Firebase Cloud Messaging
+    │   │   └── location/           # (stub — empty index.ts) GPS utilities
+    │   └── state/, types/, utils/, components/, design/   # see ARCHITECTURE.md
+    ├── supabase/                   # schema.sql, seeds/, functions/ (9 Edge Functions — see §Supabase Edge Functions below)
     ├── e2e/                        # Maestro E2E flows
     └── assets/                     # Fonts, images, icons
 ```
@@ -73,20 +62,23 @@ CarApp/                             # Git repo root
 
 ## Environment Variables
 
-All secrets are stored in environment variables. Never hardcode any of these values in code.
+All secrets are stored in environment variables. Never hardcode any of these values in code. **Anything prefixed `EXPO_PUBLIC_` is bundled into the client JS and ships to every device — only public keys belong here.**
 
 **Mobile app** — stored in `.env.local`, prefixed with `EXPO_PUBLIC_`:
 ```
 EXPO_PUBLIC_SUPABASE_URL
 EXPO_PUBLIC_SUPABASE_KEY
 EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
-EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
-EXPO_PUBLIC_SENTRY_DSN
-EXPO_PUBLIC_MIXPANEL_TOKEN
-EXPO_PUBLIC_FIREBASE_API_KEY
 EXPO_PUBLIC_FIREBASE_PROJECT_ID
-EXPO_PUBLIC_FIREBASE_APP_ID
+EXPO_PUBLIC_FIREBASE_API_KEY_ANDROID
+EXPO_PUBLIC_FIREBASE_API_KEY_IOS
+EXPO_PUBLIC_FIREBASE_APP_ID_ANDROID
+EXPO_PUBLIC_FIREBASE_APP_ID_IOS
 ```
+
+> **Stripe secrets must never carry `EXPO_PUBLIC_`** — they ship in the client bundle. Use `supabase secrets set STRIPE_SECRET_KEY=...` for the secret key and reference it via `Deno.env.get('STRIPE_SECRET_KEY')` inside Edge Functions only. `.env.example` was previously inaccurate on this point — verified clean as of 2026-05-28; no secret value was ever committed to git history.
+
+**Read pattern**: Always read `EXPO_PUBLIC_*` values via `Constants.expoConfig?.extra?.<KEY> ?? process.env.<KEY>` — the `Constants.extra` path is required for EAS builds where `process.env` may not be populated at runtime. See [app/_layout.tsx](carApp/app/_layout.tsx) for an example.
 
 **Supabase Edge Functions** — set via `supabase secrets set`, never in code:
 ```
@@ -100,7 +92,7 @@ ANTHROPIC_API_KEY
 REDIS_URL
 ```
 
-An `.env.example` file lives at the project root with all keys listed but no values — reference this when setting up a new environment.
+An [.env.example](carApp/.env.example) file lives at the carApp root with all client keys listed but no values — reference this when setting up a new environment.
 
 ---
 
@@ -108,7 +100,8 @@ An `.env.example` file lives at the project root with all keys listed but no val
 
 ### Database & Types
 
-- ALL database reads go in `src/lib/supabase/queries.ts`. ALL writes go in `mutations.ts`. Never call `supabase.from(...)` directly in a component or screen.
+- ALL database reads go in [src/lib/supabase/queries.ts](carApp/src/lib/supabase/queries.ts). ALL writes go in [mutations.ts](carApp/src/lib/supabase/mutations.ts). Never call `supabase.from(...)` directly in a component or screen.
+- Data-layer return type is the exported `QueryResult<T>` (from `queries.ts`), `MutationResult<T>` (from `mutations.ts`), or `StripeResult<T>` (from `src/lib/stripe/index.ts`) — do not re-declare `{ data, error }` shapes inline.
 - All new files use TypeScript with explicit types. Never use `any`.
 - Never edit `src/types/supabase.ts` manually — it is auto-generated.
 - Never use `service_role` key in client code — it bypasses RLS.
@@ -117,11 +110,12 @@ An `.env.example` file lives at the project root with all keys listed but no val
 ### Architecture
 
 - Screen-level components live under `app/`. Reusable UI lives under `src/components/`.
+- **Component organization**: Domain folders under `src/components/` (`auth/`, `booking/`, `kudos/`, `lug/`, `provider/`, `search/`, `tracking/`) hold components used by exactly one feature area. `src/components/ui/` holds primitives (`Button`, `Card`, `Input`, etc.) that are domain-agnostic. A component used in 2+ domains either becomes a `ui/` primitive or stays in the first domain that needs it — never duplicated across domain folders.
 - Never install a new package without checking `Blueprint/dependencies_list` first.
 
 ### State Management
 
-- **Global state** (auth session, search filters, booking draft, sign-up draft, provider draft) uses **Zustand**. Slices live in `src/state/`, one file per domain.
+- **Global state** uses **Zustand**. Slices live in `src/state/`, one file per domain. Existing slices: `auth.ts`, `bookingDraft.ts`, `providerDraft.ts`, `signUpDraft.ts`, `search.ts`. New global state goes in a new file named for its domain — do not extend `auth.ts` for unrelated state.
 - **Localized state** scoped to a single feature tree (multi-step forms, modals, a single screen) uses **React Context**.
 - Never use Redux or any state library other than Zustand and React Context. Never use React Context for app-wide state.
 
@@ -134,7 +128,7 @@ An `.env.example` file lives at the project root with all keys listed but no val
 
 - All design values are defined in `src/design/tokens.ts` — never hardcode hex values, font sizes, or spacing in components.
 - Use Inter for UI/body text, Space Grotesk for brand/display, JetBrains Mono for prices and booking IDs. No other fonts.
-- All interactive elements must meet WCAG 2.1 AA — 44x44pt touch target minimum.
+- **Accessibility minimums**: 44×44pt touch targets on all interactive elements, 4.5:1 text contrast against background tokens, `accessibilityLabel` on every `Pressable`, `accessibilityRole` on icon-only buttons. Skip non-essential animations when `useReducedMotion()` (from `react-native-reanimated`) returns true.
 - All components must support dark mode via dynamic color tokens.
 
 ### Security
@@ -173,7 +167,7 @@ Edge Functions run on **Deno**, not Node.js. This matters for imports, syntax, a
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `stripe-webhook` | Stripe event | Payment succeeded, payout processed |
+| `stripe-webhook` | Stripe event **+ app invocation** | Verifies `Stripe-Signature` for webhook events (`payment_intent.succeeded`, `payment_intent.payment_failed`); also handles app-invoked actions called via `supabase.functions.invoke('stripe-webhook', { body: { action: '...' } })` — existing actions include `create_deposit_intent`. See [src/lib/stripe/index.ts](carApp/src/lib/stripe/index.ts) for the client side. |
 | `checkr-webhook` | Checkr event | Background check status update |
 | `persona-webhook` | Persona event | Identity verification status update |
 | `notify-booking-confirmed` | DB insert on bookings | Push to customer + provider |
@@ -265,13 +259,18 @@ Offline resilience is **deferred to post-MVP**. Do not implement offline queuing
 For now, the expected behavior on network failure is:
 - Show an appropriate error state (see Error Handling section)
 - Provide a retry action where possible
-- GPS tracking: if connection drops during active booking, buffer the last known position and resume on reconnect — do not crash or clear the map
 
 ---
 
 ## Key Business Logic
 
-- **Auth gate**: `app/_layout.tsx` listens to `onAuthStateChange` → routes to `(auth)/sign-in` or `(tabs)/`
+- **Auth gate**: [app/_layout.tsx](carApp/app/_layout.tsx) subscribes to `onAuthStateChange` and routes to one of three destinations based on session + `users` row presence: signed-out → `/(auth)/`, signed-in without a `users` row → `/(auth)/onboarding/profile`, signed-in with a `users` row → `/(tabs)/search`. Only `_layout.tsx` should call `supabase.auth.getSession()` directly.
+- **Onboarding flow**: New users (signed in but no `users` row) move through `/(auth)/onboarding/` with the step path branching on role:
+  - Customer or Both: `profile → role → vehicle → review` → `users` + `vehicles` rows inserted on `review` submit → routes to `/(tabs)/search`.
+  - Provider only: `profile → role → review` (vehicle step is **skipped** — see [role.tsx](carApp/app/(auth)/onboarding/role.tsx)) → `users` row inserted (no vehicle) → continues into `providerDraft` → vetting flow → [pending-approval.tsx](carApp/app/(auth)/pending-approval.tsx) until `verification_status = approved`.
+  - State for the shared steps lives in the `signUpDraft` Zustand store; provider-specific vetting state lives in `providerDraft`. Do not insert the `users` row before `review` submit. See [ARCHITECTURE.md §Auth Flow](ARCHITECTURE.md) for the full diagram.
+- **Tab structure**: All authenticated users see the **same 5 tabs** (Search, Services, Bookings, Inbox, More) — tab visibility is **not** role-gated in [(tabs)/_layout.tsx](carApp/app/(tabs)/_layout.tsx). Role-specific UI is rendered at the **screen level**; Provider-specific views live inside `(tabs)/more/provider.tsx`. Do not add role-based tab filtering to the tabs layout.
+- **OAuth**: Google sign-in always uses `expo-auth-session` (PKCE flow). Apple sign-in is platform-split — iOS uses native `expo-apple-authentication` + `signInWithIdToken` (App Store requirement when other third-party logins are offered), Android falls back to `expo-auth-session`. All OAuth result handling lives in [src/lib/supabase/auth.ts](carApp/src/lib/supabase/auth.ts); screens never call `supabase.auth.signInWithOAuth` directly. Successful OAuth navigation is driven by the root layout's `onAuthStateChange` listener, not by the sign-in screen.
 - **OTP auth**: Email and phone OTP are supported via Supabase Auth's built-in OTP API (`signInWithOtp`). No custom token table. Phone OTP requires Twilio configured in Supabase dashboard.
 - **Role model**: All users default to Customer. Provider mode is opt-in post-signup and requires full vetting completion before first booking.
 - **Service snapshots**: Services are snapshotted as JSONB at booking time — price/name changes by providers never alter existing bookings.
@@ -284,7 +283,7 @@ For now, the expected behavior on network failure is:
 - **Gear ratings**: Customers rate on 4 dimensions — Quality, Timeliness, Communication, Value (1–5 each). Overall score is a weighted composite.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review.
 - **RLS**: Every table has Row Level Security enabled. Always verify queries work under the correct Supabase auth role.
-- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses must be constrained by a system prompt referencing the CarApp service catalog. Always provide a human escalation path.
+- **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses must be constrained by a system prompt referencing the CarApp service catalog. **Human escalation**: every Lug surface must show a persistent "Talk to a person" affordance (button or CTA) that opens a support thread in `/(tabs)/inbox/`. The affordance must be visible without scrolling — a footer disclaimer is not sufficient. After two consecutive responses where the user asks for human help, the affordance becomes the primary action.
 - **In-app communications only**: No personal phone numbers, email addresses, or external payment handles may be shared in messages. Auto-detection of patterns like 'Venmo me', phone numbers, or email addresses triggers flagging.
 
 ---
@@ -363,6 +362,7 @@ After every code change, write the appropriate tests before considering the task
      `git branch -d <branch-name>`
      `git push origin --delete <branch-name>`
   7. Return to `dev` as the working branch for the next task
+  8. Append a one-line file note to [Blueprint/reference.md](Blueprint/reference.md) in the format `[path/to/file.ts] — <one sentence describing what this file does and why it exists>`. One entry per completed task — do not batch. Append only — never edit or delete existing entries.
 - Commit messages must be clean and descriptive — do not reference AI, Claude, or automated tooling
 
 ### Commit Message Format
@@ -381,34 +381,22 @@ Examples:
 
 ## Workflow Rules
 
-- At the start of every session, always run `git checkout dev && git pull origin dev` before beginning any task.
 - Before writing code for a new feature, state your approach and confirm it aligns with ARCHITECTURE.md.
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
 - After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
 - Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete with an "x" as you go.
+- Session start (checkout/pull) and post-task (commit/push/merge/delete branch) sequences live in §Git Conventions → Rules for Claude.
 
 ---
 
 ## Reference Documents
 
-- `ARCHITECTURE.md` — ERD, table decisions, key design patterns. Read before writing any new file.
-- `carApp/supabase/schema.sql` — Unified merged schema with RLS policies and initial seeds. Source of truth for all table structures.
-- `carApp/supabase/seeds/` — Re-runnable, idempotent seed scripts applied on top of the schema (e.g. `service_catalog.sql`).
-- `Blueprint/dependencies_list` — All approved packages. Check before installing anything new.
-- `Blueprint/build_checklist.md` — Phase-by-phase build order. Check before starting any new feature.
-
-## File Notes Log
-
-After every completed git cycle, append a concise one-line note about the file that was just built to `Blueprint/reference.md`.
-
-**Format:**
-`[path/to/file.ts] — <one sentence describing what this file does and why it exists in the app>`
-
-**Example:**
-`[src/design/tokens.ts] — Single source of truth for all color, spacing, radius, and typography values; imported by every component to enforce visual consistency.`
-
-**Rules:**
-- One entry per completed task — do not batch multiple files into one note
-- Append only — never edit or delete existing entries
-- Keep the description to one sentence, focused on purpose and role in the app
+| File | Purpose | When to read |
+|---|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | ERD, tables, key design patterns | Before writing any new file |
+| [carApp/supabase/schema.sql](carApp/supabase/schema.sql) | Schema + RLS policies + initial seeds | Before any DB query or mutation |
+| [carApp/supabase/seeds/](carApp/supabase/seeds/) | Re-runnable, idempotent seed scripts | When changing seed data |
+| [Blueprint/dependencies_list](Blueprint/dependencies_list) | All approved packages | Before `npm install <new-package>` |
+| [Blueprint/build_checklist.md](Blueprint/build_checklist.md) | Phase-by-phase build order | Before starting a feature |
+| [Blueprint/reference.md](Blueprint/reference.md) | One-line note per completed file | Appended to — see Git Conventions Step 8 |
