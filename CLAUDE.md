@@ -385,7 +385,8 @@ Examples:
 - When modifying existing code, only touch what is necessary — do not refactor surrounding code.
 - If something is unclear about domain logic, ask rather than assume.
 - After completing a task, update ARCHITECTURE.md if new files, models, or patterns were introduced.
-- Before starting any new feature, check `Blueprint/build_checklist.md` to confirm the correct build order and mark tasks complete with an "x" as you go.
+- **Planning source of truth is [Blueprint/end_user_flows.md](Blueprint/end_user_flows.md).** Before starting any new feature, find the relevant flow there to confirm scope, the required pieces, and current status. Keep its status symbols honest as you finish work (a 🟡 stub is not a ✅).
+- Use [Blueprint/build_checklist.md](Blueprint/build_checklist.md) as the running checkoff tracker — mark items complete with an "x" as you finish them. It records phase-by-phase build order but is no longer the primary planning doc; defer to `end_user_flows.md` when the two disagree on scope.
 - Session start (checkout/pull) and post-task (commit/push/merge/delete branch) sequences live in §Git Conventions → Rules for Claude.
 
 ---
@@ -398,5 +399,6 @@ Examples:
 | [carApp/supabase/schema.sql](carApp/supabase/schema.sql) | Schema + RLS policies + initial seeds | Before any DB query or mutation |
 | [carApp/supabase/seeds/](carApp/supabase/seeds/) | Re-runnable, idempotent seed scripts | When changing seed data |
 | [Blueprint/dependencies_list](Blueprint/dependencies_list) | All approved packages | Before `npm install <new-package>` |
-| [Blueprint/build_checklist.md](Blueprint/build_checklist.md) | Phase-by-phase build order | Before starting a feature |
+| [Blueprint/end_user_flows.md](Blueprint/end_user_flows.md) | **Planning source of truth** — per-flow scope, required pieces, and current status | Before starting any feature |
+| [Blueprint/build_checklist.md](Blueprint/build_checklist.md) | Phase-by-phase build order; running checkoff tracker | Mark items "x" as you complete them |
 | [Blueprint/reference.md](Blueprint/reference.md) | One-line note per completed file | Appended to — see Git Conventions Step 8 |
