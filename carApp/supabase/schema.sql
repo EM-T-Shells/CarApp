@@ -27,6 +27,18 @@ CREATE TABLE users (
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
 
+-- Public-safe projection of users. The `users` table RLS only allows a user
+-- to read their own row (auth.uid() = id), so joins from provider_profiles,
+-- bookings, message_threads, and messages cannot read another user's name or
+-- avatar. This SECURITY DEFINER view exposes ONLY id/full_name/avatar_url
+-- (never email/phone/stripe_customer_id) for all users, so those joins resolve.
+-- Data-layer embeds reference it as `users:users_public(...)`.
+CREATE OR REPLACE VIEW users_public
+  WITH (security_invoker = false) AS
+  SELECT id, full_name, avatar_url FROM users;
+
+GRANT SELECT ON users_public TO anon, authenticated;
+
 -- VEHICLES
 CREATE TABLE vehicles (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

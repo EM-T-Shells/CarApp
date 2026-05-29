@@ -173,11 +173,11 @@ export function getProviderTypes(): Promise<QueryResult<ProviderType[]>> {
 // ── Provider Profiles ──────────────────────────────────────────────────
 
 const PROVIDER_SEARCH_SELECT = `*,
-  users(id, full_name, avatar_url),
+  users:users_public(id, full_name, avatar_url),
   provider_types(id, name, label)`
 
 const PROVIDER_DETAIL_SELECT = `*,
-  users(id, full_name, avatar_url),
+  users:users_public(id, full_name, avatar_url),
   provider_types(id, name, label),
   service_packages(*)`
 
@@ -283,7 +283,7 @@ export function getServicePackagesByProvider(
 const BOOKING_SUMMARY_SELECT = `*,
   provider_profiles(
     id, bio, avg_gear_rating,
-    users(id, full_name, avatar_url)
+    users:users_public(id, full_name, avatar_url)
   ),
   vehicles(id, year, make, model, color)`
 
@@ -489,7 +489,7 @@ const THREAD_SUMMARY_SELECT = `*,
   bookings(id, status, scheduled_at),
   provider_profiles(
     id,
-    users(id, full_name, avatar_url)
+    users:users_public(id, full_name, avatar_url)
   )`
 
 export function getThreadsForCustomer(
@@ -551,7 +551,7 @@ export function getMessages(
   return runList<MessageWithSender>(
     supabase
       .from('messages')
-      .select(`*, sender:users!sender_id(id, full_name, avatar_url)`)
+      .select(`*, sender:users_public!sender_id(id, full_name, avatar_url)`)
       .eq('thread_id', threadId)
       .order('sent_at', { ascending: true })
       .returns<MessageWithSender[]>(),
