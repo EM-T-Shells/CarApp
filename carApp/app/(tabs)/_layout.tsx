@@ -4,7 +4,7 @@
 // automatic dark-mode support via useColorScheme.
 
 import React from 'react';
-import { useColorScheme } from 'react-native';
+import { View, useColorScheme } from 'react-native';
 import { Tabs } from 'expo-router';
 import {
   Search,
@@ -14,6 +14,7 @@ import {
   Menu,
 } from 'lucide-react-native';
 import { colors, spacing } from '../../src/design/tokens';
+import { LugBubble } from '../../src/components/lug/LugBubble';
 
 // ─── Icon size for tab bar ──────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ export default function TabsLayout(): React.ReactElement {
   const palette = scheme === 'dark' ? colors.dark : colors.light;
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -91,5 +93,7 @@ export default function TabsLayout(): React.ReactElement {
         }}
       />
     </Tabs>
+      <LugBubble />
+    </View>
   );
 }

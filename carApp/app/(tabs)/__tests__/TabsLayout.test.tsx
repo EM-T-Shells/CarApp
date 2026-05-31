@@ -32,6 +32,13 @@ jest.mock('lucide-react-native', () => {
   };
 });
 
+// Mock the floating Lug bubble so the layout test doesn't pull in expo-router's
+// useRouter (the bubble is exercised by its own test).
+jest.mock('../../../src/components/lug/LugBubble', () => {
+  const { View } = require('react-native');
+  return { LugBubble: () => <View testID="lug-bubble" /> };
+});
+
 import TabsLayout from '../_layout';
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

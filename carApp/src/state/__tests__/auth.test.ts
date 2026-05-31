@@ -91,14 +91,24 @@ describe('useAuthStore', () => {
     expect(state.isHydrating).toBe(false);
   });
 
+  it('providerVerification starts null and is set independently of the session', () => {
+    expect(useAuthStore.getState().providerVerification).toBeNull();
+    useAuthStore.getState().setProviderVerification('pending');
+    expect(useAuthStore.getState().providerVerification).toBe('pending');
+    useAuthStore.getState().setProviderVerification('approved');
+    expect(useAuthStore.getState().providerVerification).toBe('approved');
+  });
+
   it('clear resets to signed-out state', () => {
     useAuthStore.getState().setSession(baseSession, makeUser());
+    useAuthStore.getState().setProviderVerification('approved');
     useAuthStore.getState().clear();
 
     const state = useAuthStore.getState();
     expect(state.session).toBeNull();
     expect(state.user).toBeNull();
     expect(state.role).toBeNull();
+    expect(state.providerVerification).toBeNull();
     expect(state.isHydrating).toBe(false);
   });
 

@@ -278,6 +278,22 @@ export function getServicePackagesByProvider(
   )
 }
 
+// Owner-facing variant for the provider's own service-menu editor: returns all
+// active packages regardless of approval so the provider can see/manage rows
+// that are still pending admin approval (unlike the public-facing query above).
+export function getProviderOwnServicePackages(
+  providerId: string,
+): Promise<QueryResult<ServicePackage[]>> {
+  return runList<ServicePackage>(
+    supabase
+      .from('service_packages')
+      .select('*')
+      .eq('provider_id', providerId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true }),
+  )
+}
+
 // ── Bookings ───────────────────────────────────────────────────────────
 
 const BOOKING_SUMMARY_SELECT = `*,

@@ -425,84 +425,103 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 
 # Section 3 — Customer Account & Communication
 
-## Flow 3.1 — Manage vehicles
+## Flow 3.1 — Manage vehicles ✅ _(2026-05-31)_
 
 **Goal:** Customer adds, edits, or removes vehicles from their profile.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/account.tsx` (with vehicles section) | ⛔ empty file |
-| Component | `VehicleForm` | ✅ |
+| Screen | `app/(tabs)/more/account.tsx` (with vehicles section) | ✅ list + add / edit / delete / set-primary |
+| Component | `VehicleForm` | ✅ (onboarding-only; account uses its own sheet form so it doesn't couple to `signUpDraft`) |
 | Data | `getVehiclesByUser()`, `insertVehicle()`, `updateVehicle()`, `deleteVehicle()` | ✅ |
+
+**UAT on phone:** Open More → Account. Add a vehicle, edit it, set a second vehicle as primary (the star moves), delete one (confirm alert). Confirm changes survive a tab switch.
 
 ---
 
-## Flow 3.2 — Manage account settings & notifications
+## Flow 3.2 — Manage account settings & notifications ✅ _(2026-05-31)_
 
 **Goal:** Customer edits name, profile photo, notification preferences, contact methods.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/account.tsx` | ⛔ empty file |
-| Screen | `app/(tabs)/more/settings.tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/more/account.tsx` | ✅ editable name (persists to `users`) + avatar via expo-image-picker → `uploadAvatar` → `updateUser`; email/phone shown read-only |
+| Screen | `app/(tabs)/more/settings.tsx` | ✅ notification toggles + legal/about |
 | Storage | `avatars` bucket | ✅ |
 | Lib | `uploadAvatar()` | ✅ |
 | Data | `updateUser()` | ✅ |
+| State | `settings` Zustand store (notif prefs, AsyncStorage-backed) | ✅ NEW — `users` has no prefs columns, so prefs persist locally until Flow 2.9 push + a server column exist |
+
+**Note:** Avatar capture needs the `expo-image-picker` native module → a dev-client / production build (not Expo Go web). The 1920px client resize from CLAUDE.md needs `expo-image-manipulator` (not yet approved) — quality is constrained to 0.8 via the picker for now.
+
+**UAT on phone:** Account → tap avatar → pick a photo → it uploads and shows. Edit name → Save → persists. More → Settings → flip toggles; force-quit + reopen → toggles persisted.
 
 ---
 
-## Flow 3.3 — More tab hub
+## Flow 3.3 — More tab hub ✅ _(2026-05-31)_
 
 **Goal:** Customer opens More tab and sees entry points to Account, Settings, Bookings History, Lug AI, Provider Mode, Sign Out.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/index.tsx` | 🟡 just shows "More" text placeholder |
+| Screen | `app/(tabs)/more/index.tsx` | ✅ profile summary card + Account/Settings/History/Lug/Provider rows + Sign Out; Provider row label adapts to role |
+
+**UAT on phone:** Open More. Confirm the profile card shows your name + email/phone and routes to Account. Tap each row → Account, Settings, Booking history (past bookings), Ask Lug, and Provider (label reads "Become a Provider" as a customer, "Provider Dashboard" once you have a provider role). Tap Sign out → confirm the alert → land on splash.
 
 ---
 
-## Flow 3.4 — Inbox: list message threads
+## Flow 3.4 — Inbox: list message threads ✅ _(2026-05-31)_
 
 **Goal:** Customer opens Inbox tab and sees a list of message threads with providers.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/inbox/index.tsx` | 🟡 placeholder |
+| Screen | `app/(tabs)/inbox/index.tsx` | ✅ thread rows (provider avatar/name + booking context), loading/empty/error, pull-to-refresh |
 | Data | `getThreadsForCustomer()` | ✅ |
+
+**Note:** Customer view only — provider-side inbox is Section 5 (the thread summary query joins the provider's user, not the customer's).
+
+**UAT on phone:** Open Inbox. With a booking that has a thread, confirm the provider's name + booking status/date render and tapping opens the conversation. Empty + pull-to-refresh states.
 
 ---
 
-## Flow 3.5 — Inbox: send and receive messages in a thread
+## Flow 3.5 — Inbox: send and receive messages in a thread ✅ _(2026-05-31)_
 
 **Goal:** Customer opens a thread, sees message history, sends a new message (which passes through content moderation before insert).
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/inbox/[threadId].tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/inbox/[threadId].tsx` | ✅ message bubbles (mine/theirs + flagged style), composer, KeyboardAvoidingView, native header title = provider name |
 | Data | `getMessages()`, `insertMessage()` | ✅ |
 | Lib | `containsFlaggedContent()` in validators | ✅ (already wired into `insertMessage`) |
-| Realtime | Supabase subscription for new messages on this thread | ⛔ (pattern documented in CLAUDE.md but not implemented) |
+| Realtime | Supabase subscription for new messages on this thread | ✅ `thread:{threadId}` channel, INSERT → refetch, cleanup on unmount |
+
+**UAT on phone:** Open a thread → history loads, header shows the provider name. Send a message → it appears and clears the input. Send something with a phone number / "Venmo me" → it posts as `[Message flagged for review]`. With a second device/session, a new message appears live.
 
 ---
 
-## Flow 3.6 — Chat with Lug AI
+## Flow 3.6 — Chat with Lug AI ✅ _(2026-05-31)_ — UI complete; edge fn awaits 🔒 key
 
 **Goal:** Customer taps the floating Lug bubble (visible on every screen) and chats with the AI assistant about car care, services, and recommendations.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `LugBubble` floating button | ⛔ empty file |
-| Component | `LugThread` conversation UI | ⛔ empty file |
-| Screen | `app/(tabs)/more/lug.tsx` (full-screen view) | ⛔ empty file |
-| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ⛔ |
-| External | `ANTHROPIC_API_KEY` set in Supabase secrets | 🔒 |
-| Mount | Floating bubble must mount in `(tabs)/_layout.tsx` to be persistent | ⛔ |
+| Component | `LugBubble` floating button | ✅ FAB, navigates to the full-screen Lug view |
+| Component | `LugThread` conversation UI | ✅ chat + persistent "Talk to a person" CTA that becomes primary after 2 consecutive human-help turns (CLAUDE.md rule) |
+| Screen | `app/(tabs)/more/lug.tsx` (full-screen view) | ✅ hosts LugThread; "Talk to a person" opens a support thread in the inbox |
+| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ✅ written — functional Deno scaffold with the CarApp system prompt; returns 503 until the key is set & it's deployed |
+| External | `ANTHROPIC_API_KEY` set in Supabase secrets | 🔒 _(yours)_ — also `supabase functions deploy lug-ai` |
+| Mount | Floating bubble must mount in `(tabs)/_layout.tsx` to be persistent | ✅ wraps `<Tabs>` so the FAB overlays every tab |
+
+**Note (🔒 your step):** `supabase secrets set ANTHROPIC_API_KEY=…` then `supabase functions deploy lug-ai`. Optional `LUG_MODEL` env overrides the default (`claude-haiku-4-5-20251001`). Until then the UI shows a graceful fallback that points to the escalation CTA.
+
+**UAT on phone:** Tap the gold Lug bubble (any tab) → Lug view. Ask a question → reply (once the key/deploy are in place). Confirm "Talk to a person" is visible without scrolling; ask for a human twice → it turns into a solid primary button; tap it → lands in a support thread.
 
 ---
 
@@ -514,114 +533,134 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 # Section 4 — Provider Onboarding & Vetting
 
-## Flow 4.1 — Existing customer opts in to provider mode
+## Flow 4.1 — Existing customer opts in to provider mode ✅ _(2026-05-31)_
 
 **Goal:** A customer toggles "Become a Provider" and is taken through the vetting flow.
 
 **User journey:**
 1. More tab → "Become a Provider"
 2. Provider intro screen (what's expected, fees, founding program)
-3. Choose provider type(s) (Detailer / Mechanic / Both)
+3. Choose provider type (Detailer / Mechanic — single-select; `provider_profiles` has one `provider_type_id`)
 4. Continue to vetting flow
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/provider.tsx` | ⛔ empty file |
-| Screen | Provider intro / onboarding entry | ⛔ |
+| Screen | `app/(tabs)/more/provider.tsx` | ✅ intro/opt-in + type pick → creates profile, role→both, routes to vetting; in-progress/approved states for existing providers |
+| Screen | Provider intro / onboarding entry | ✅ (the customer state of `provider.tsx`) |
+| Scaffold | `(provider)` route group + `vetting` hub + `VettingStepIndicator` + shared `vettingSteps` config | ✅ NEW — full-screen vetting stack outside the tabs |
 | State | `providerDraft` Zustand store | ✅ |
 | Data | `insertProviderProfile()`, `updateUser({ role: 'both' })` | ✅ |
+| Gate | Root auth gate allows the `(provider)` group for signed-in users | ✅ |
+| Backend | `create_provider_vetting_row` trigger seeds `provider_vetting` on profile insert | ✅ written in `schema.sql` — **🔒 apply migration to live DB** |
+
+**Note (🔒 your step):** apply the new `create_provider_vetting_row` trigger to your Supabase project (it's in `carApp/supabase/schema.sql`). Without it the vetting row won't exist and step statuses stay "Not started".
+
+**UAT on phone:** More → Become a Provider → pick Detailer → Start application → lands on the vetting hub showing 6 steps with statuses. Re-open More → Provider → "Continue application" returns to the hub.
 
 ---
 
-## Flow 4.2 — Complete vetting: Identity (Persona / Stripe Identity)
+## Flow 4.2 — Complete vetting: Identity (Persona / Stripe Identity) ✅ _(2026-05-31)_ — UI done; Persona glue stubbed
 
 **Goal:** Provider verifies government ID + selfie match.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Identity step | ⛔ |
-| Lib | `src/lib/persona/index.ts` | ⛔ empty file |
-| Edge Function | `persona-webhook` | ⛔ |
-| Component | `VettingStepIndicator` | ⛔ empty file |
-| Component | `CredentialUpload` | ⛔ empty file |
-| Data | `updateProviderVetting({ identity_status: 'approved' })` | ✅ |
-| External | Persona API key | 🔒 |
+| Screen | Vetting → Identity step (`app/(provider)/identity.tsx`) | ✅ manual gov-ID photo upload via `VettingUploadStep` → `identity_status: 'submitted'` |
+| Lib | `src/lib/persona/index.ts` | ✅ stub (`startPersonaInquiry` → not configured) |
+| Edge Function | `persona-webhook` | ✅ stub (maps inquiry status → `identity_status`; 503 until secret set) |
+| Component | `VettingStepIndicator` | ✅ |
+| Component | `CredentialUpload` | ✅ |
+| Data | `updateProviderVetting({ identity_status })` | ✅ |
+| External | Persona API key + SDK | 🔒 _(yours)_ — automated verification wires in once set |
 
 ---
 
-## Flow 4.3 — Complete vetting: Background check (Checkr)
+## Flow 4.3 — Complete vetting: Background check (Checkr) ✅ _(2026-05-31)_ — UI done; Checkr glue stubbed
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Background step | ⛔ |
-| Lib | `src/lib/checkr/index.ts` | ⛔ empty file |
-| Edge Function | `checkr-webhook` | ⛔ |
-| Data | `updateProviderVetting({ background_status: 'approved' })` | ✅ |
-| External | Checkr API key | 🔒 |
+| Screen | Vetting → Background step (`app/(provider)/background.tsx`) | ✅ consent → `background_status: 'submitted'` via `VettingActionStep` |
+| Lib | `src/lib/checkr/index.ts` | ✅ stub (`startBackgroundCheck` → not configured) |
+| Edge Function | `checkr-webhook` | ✅ stub (maps report status → `background_status`; 503 until secret set) |
+| Data | `updateProviderVetting({ background_status })` | ✅ |
+| External | Checkr API key | 🔒 _(yours)_ — real report runs server-side once set |
 
 ---
 
-## Flow 4.4 — Complete vetting: Insurance upload
+## Flow 4.4 — Complete vetting: Insurance upload ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Insurance step | ⛔ |
+| Screen | Vetting → Insurance step (`app/(provider)/insurance.tsx`) | ✅ via shared `VettingUploadStep` |
+| Component | `CredentialUpload` (reusable doc uploader) | ✅ |
 | Storage | `vetting-documents` bucket | ✅ |
 | Lib | `uploadVettingDocument()` | ✅ |
-| Data | `updateProviderVetting({ insurance_status: 'approved' })` | ✅ (manual admin approval) |
+| Data | `updateProviderVetting({ insurance_status: 'submitted' })` | ✅ upload → "Under review"; admin approves manually |
+
+**UAT on phone:** Vetting hub → Insurance → Upload insurance photo → step shows "Under review".
 
 ---
 
-## Flow 4.5 — Complete vetting: Credentials (IDA / ASE)
+## Flow 4.5 — Complete vetting: Credentials (IDA / ASE) ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Credentials step | ⛔ |
-| Component | `CredentialUpload` | ⛔ empty file |
-| Storage / Data | (same as 4.4) | ✅ |
+| Screen | Vetting → Credentials step (`app/(provider)/credentials.tsx`) | ✅ via shared `VettingUploadStep` |
+| Component | `CredentialUpload` | ✅ |
+| Storage / Data | (same as 4.4) → `credentials_status: 'submitted'` | ✅ |
+
+**UAT on phone:** Vetting hub → Credentials → upload a cert photo → "Under review".
 
 ---
 
-## Flow 4.6 — Complete vetting: Bank account (Stripe Connect onboarding)
+## Flow 4.6 — Complete vetting: Bank account (Stripe Connect onboarding) ✅ _(2026-05-31)_ — UI done; Connect glue stubbed
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Bank step | ⛔ |
-| Lib | Stripe Connect onboarding link generation | ⛔ (separate from existing `stripe/index.ts`) |
-| Data | `updateProviderProfile({ stripe_connect_id })` | ✅ |
-| External | Stripe Connect platform configured | 🔒 |
+| Screen | Vetting → Bank step (`app/(provider)/bank.tsx`) | ✅ "Connect with Stripe" via `VettingActionStep`; shows "not set up yet" until configured |
+| Lib | Stripe Connect onboarding link generation (`src/lib/stripe/connect.ts`) | ✅ stub, separate from `stripe/index.ts` |
+| Data | `updateProviderProfile({ stripe_account_id })` | ✅ (saved on onboarding return once configured) |
+| External | Stripe Connect platform configured | 🔒 _(yours)_ |
 
 ---
 
-## Flow 4.7 — Complete vetting: Profile (bio, photos, hours, coverage area)
+## Flow 4.7 — Complete vetting: Profile (bio, photos, hours, coverage area) ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Profile step | ⛔ |
-| Component | `ServiceMenuEditor` | ⛔ empty file |
-| Component | `AvailabilityCalendar` | ⛔ empty file |
-| Storage | `avatars` bucket | ✅ |
-| Data | `updateProviderProfile()`, `insertServicePackage()` | ✅ |
+| Screen | Vetting → Profile step (`app/(provider)/profile.tsx`) | ✅ bio/coverage/radius → `updateProviderProfile`; recomputes `profile_completeness` |
+| Component | `ServiceMenuEditor` | ✅ list + add/edit/delete service packages (dollars in, cents stored); surfaces "Pending review" for unapproved |
+| Component | `AvailabilityCalendar` | ✅ weekly day picker (controlled) — **not yet persisted** (no `provider_profiles.availability` column) |
+| Storage | `avatars` bucket | ✅ (provider photo reuses the Account avatar) |
+| Data | `updateProviderProfile()`, `insertServicePackage()`, + new `getProviderOwnServicePackages()` | ✅ |
+
+**Note:** availability is captured locally only; persisting it needs an `availability JSONB` column on `provider_profiles` + a `supabase gen types` regen (deferred, also relevant to Flow 5.2).
+
+**UAT on phone:** Vetting hub → Profile. Write a bio (≥20 chars), coverage area, radius; add a service (enter $150 / 120 min → shows $150.00); pick availability days; Save → hub shows Profile = Approved (completeness ≥ 80).
 
 ---
 
-## Flow 4.8 — Provider awaits approval
+## Flow 4.8 — Provider awaits approval ✅ _(2026-05-31)_
 
 **Goal:** While `verification_status != 'approved'`, provider is held on a pending screen showing each vetting step's status.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(auth)/pending-approval.tsx` | ✅ |
+| Screen | `app/(auth)/pending-approval.tsx` | ✅ + "Continue your application" → `(provider)/vetting` |
 | Data | `getProviderVetting()` | ✅ |
-| Gate | Block provider screens until approved | 🟡 pending-approval lives in `(auth)` group; need gate logic for hybrid users |
+| Gate | Block provider screens until approved | ✅ root gate hydrates `providerVerification` and holds **provider-only** unapproved accounts on pending-approval (while allowing the `(provider)` vetting flow); **hybrid `both` users are never blocked** — they keep customer access and vet at their own pace |
+
+**Note:** closes the "unapproved provider routing gap" — provider-only accounts no longer land on `/(tabs)/search` on cold start; they resume on pending-approval until `verification_status = 'approved'`.
+
+**UAT on phone:** Sign in as a provider-only account with `verification_status = 'pending'` → lands on pending-approval; "Continue your application" opens the vetting hub. Flip the row to `approved` in Supabase → next cold start lands on Search.
 
 ---
 

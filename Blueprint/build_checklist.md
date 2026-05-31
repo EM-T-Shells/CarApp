@@ -120,8 +120,8 @@
 ---
 
 ## Phase 11 — Inbox & Messaging
-- [ ] `app/(tabs)/inbox/index.tsx` — thread list
-- [ ] `app/(tabs)/inbox/[threadId].tsx` — message thread view
+- [x] `app/(tabs)/inbox/index.tsx` — thread list
+- [x] `app/(tabs)/inbox/[threadId].tsx` — message thread view
 
 ---
 
@@ -133,35 +133,35 @@
 ---
 
 ## Phase 13 — Provider Dashboard
-- [ ] `src/components/provider/AvailabilityCalendar.tsx`
-- [ ] `src/components/provider/ServiceMenuEditor.tsx`
+- [x] `src/components/provider/AvailabilityCalendar.tsx`
+- [x] `src/components/provider/ServiceMenuEditor.tsx`
 - [ ] `src/components/provider/EarningsDashboard.tsx`
-- [ ] `src/components/provider/VettingStepIndicator.tsx`
-- [ ] `src/components/provider/CredentialUpload.tsx`
-- [ ] `app/(tabs)/more/provider.tsx` — provider dashboard hub
+- [x] `src/components/provider/VettingStepIndicator.tsx`
+- [x] `src/components/provider/CredentialUpload.tsx`
+- [x] `app/(tabs)/more/provider.tsx` — provider opt-in / status (dashboard is Section 5)
 
 ---
 
 ## Phase 14 — Provider Vetting
-- [ ] `src/lib/persona/index.ts` — identity verification flow
-- [ ] `src/lib/checkr/index.ts` — background check webhook
-- [ ] Checkr webhook handler (Supabase Edge Function)
-- [ ] Persona webhook handler (Supabase Edge Function)
-- [ ] Vetting multi-step flow screens
+- [x] `src/lib/persona/index.ts` — identity verification flow (stub; awaits PERSONA_API_KEY/SDK)
+- [x] `src/lib/checkr/index.ts` — background check (stub; awaits CHECKR_API_KEY)
+- [x] Checkr webhook handler (Supabase Edge Function — stub)
+- [x] Persona webhook handler (Supabase Edge Function — stub)
+- [x] Vetting multi-step flow screens (identity/background/insurance/credentials/bank/profile under (provider))
 
 ---
 
 ## Phase 15 — More Tab & Account
-- [ ] `app/(tabs)/more/account.tsx` — customer profile, vehicles
-- [ ] `app/(tabs)/more/settings.tsx` — preferences, notifications
-- [ ] `app/(tabs)/more/lug.tsx` — Lug AI screen
+- [x] `app/(tabs)/more/account.tsx` — customer profile, vehicles
+- [x] `app/(tabs)/more/settings.tsx` — preferences, notifications
+- [x] `app/(tabs)/more/lug.tsx` — Lug AI screen
 
 ---
 
 ## Phase 16 — Lug AI
-- [ ] `src/components/lug/LugBubble.tsx` — persistent floating chat button
-- [ ] `src/components/lug/LugThread.tsx` — conversation thread UI
-- [ ] Anthropic Claude API integration (Supabase Edge Function with system prompt + catalog context)
+- [x] `src/components/lug/LugBubble.tsx` — persistent floating chat button
+- [x] `src/components/lug/LugThread.tsx` — conversation thread UI
+- [x] Anthropic Claude API integration (Supabase Edge Function — written; awaits ANTHROPIC_API_KEY + deploy)
 
 ---
 

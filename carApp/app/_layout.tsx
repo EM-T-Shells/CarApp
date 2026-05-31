@@ -14,7 +14,8 @@ import Constants from 'expo-constants';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase/client';
-import { useAuthStore } from '../src/state/auth';
+import { getProviderByUserId } from '../src/lib/supabase/queries';
+import { useAuthStore, type ProviderVerificationStatus } from '../src/state/auth';
 import type { User } from '../src/types/models';
 import tokens from '../src/design/tokens';
 
@@ -50,6 +51,8 @@ async function fetchUserRow(userId: string): Promise<User | null> {
 function useProtectedRoute(): void {
   const session = useAuthStore((s) => s.session);
   const user = useAuthStore((s) => s.user);
+  const role = useAuthStore((s) => s.role);
+  const providerVerification = useAuthStore((s) => s.providerVerification);
   const isHydrating = useAuthStore((s) => s.isHydrating);
   const segments = useSegments();
   const router = useRouter();
@@ -59,8 +62,14 @@ function useProtectedRoute(): void {
 
     const inAuthGroup = segments[0] === '(auth)';
     const inTabsGroup = segments[0] === '(tabs)';
-    const inOnboarding =
-      inAuthGroup && (segments as readonly string[])[1] === 'onboarding';
+    // The (provider) group hosts the full-screen vetting flow (opt-in →
+    // identity/background/insurance/credentials/bank/profile). It lives
+    // outside the tab bar like (auth), so authenticated users must be
+    // allowed to stay in it rather than being bounced back to (tabs).
+    const inProviderGroup = segments[0] === '(provider)';
+    const seg1 = (segments as readonly string[])[1];
+    const inOnboarding = inAuthGroup && seg1 === 'onboarding';
+    const onPendingApproval = inAuthGroup && seg1 === 'pending-approval';
 
     if (!session) {
       // Signed out — force into (auth).
@@ -81,17 +90,32 @@ function useProtectedRoute(): void {
       return;
     }
 
-    // Signed in + hydrated user row — route into (tabs).
-    if (!inTabsGroup) {
+    // Provider-only accounts must finish vetting before they reach the app.
+    // (Hybrid 'both' users are also customers, so they are never blocked — they
+    // can use the tabs and complete vetting from More → Provider at their pace.)
+    if (role === 'provider' && providerVerification !== 'approved') {
+      // Wait until the verification status is actually known so we don't flash
+      // the tabs before redirecting.
+      if (providerVerification === null) return;
+      // Let them work through the vetting flow or sit on the pending screen.
+      if (inProviderGroup || onPendingApproval) return;
+      router.replace('/(auth)/pending-approval');
+      return;
+    }
+
+    // Signed in + hydrated user row — route into (tabs), unless the user is
+    // intentionally inside the (provider) vetting flow.
+    if (!inTabsGroup && !inProviderGroup) {
       router.replace('/(tabs)/search');
     }
-  }, [isHydrating, session, user, segments, router]);
+  }, [isHydrating, session, user, role, providerVerification, segments, router]);
 }
 
 // ── Root Layout ────────────────────────────────────────────────────────
 
 export default function RootLayout(): React.ReactElement {
   const setSession = useAuthStore((s) => s.setSession);
+  const setProviderVerification = useAuthStore((s) => s.setProviderVerification);
   const clear = useAuthStore((s) => s.clear);
   const finishHydration = useAuthStore((s) => s.finishHydration);
   const isHydrating = useAuthStore((s) => s.isHydrating);
@@ -106,7 +130,22 @@ export default function RootLayout(): React.ReactElement {
         return;
       }
       const userRow = await fetchUserRow(session.user.id);
-      if (isMounted) setSession(session, userRow);
+      if (!isMounted) return;
+      setSession(session, userRow);
+
+      // Resolve provider verification so the gate can hold provider-only
+      // accounts on pending-approval until they're approved.
+      if (userRow && (userRow.role === 'provider' || userRow.role === 'both')) {
+        const { data } = await getProviderByUserId(userRow.id);
+        if (isMounted) {
+          setProviderVerification(
+            (data?.verification_status as ProviderVerificationStatus | null) ??
+              'pending',
+          );
+        }
+      } else {
+        setProviderVerification(null);
+      }
     }
 
     supabase.auth
@@ -130,7 +169,7 @@ export default function RootLayout(): React.ReactElement {
       isMounted = false;
       subscription.subscription.unsubscribe();
     };
-  }, [setSession, clear, finishHydration]);
+  }, [setSession, setProviderVerification, clear, finishHydration]);
 
   useProtectedRoute();
 

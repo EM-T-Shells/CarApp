@@ -18,6 +18,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import tokens from '../../src/design/tokens';
 import { textStyles } from '../../src/design/typography';
 import { signOut } from '../../src/lib/supabase/auth';
@@ -92,6 +93,7 @@ function statusColor(status: VettingStepStatus): string {
 }
 
 export default function PendingApprovalScreen(): React.ReactElement {
+  const router = useRouter();
   const fullName = useAuthStore((s) => s.user?.full_name ?? null);
   const statuses = useProviderDraftStore((s) => s.statuses);
   const clearAuth = useAuthStore((s) => s.clear);
@@ -175,6 +177,19 @@ export default function PendingApprovalScreen(): React.ReactElement {
         </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.continueButton,
+            pressed && styles.signOutPressed,
+          ]}
+          onPress={() => router.push('/(provider)/vetting')}
+          accessibilityRole="button"
+          accessibilityLabel="Continue your application"
+          testID="pending-continue"
+        >
+          <Text style={styles.continueText}>Continue your application</Text>
+        </Pressable>
 
         <Pressable
           style={({ pressed }) => [
@@ -282,6 +297,17 @@ const styles = StyleSheet.create({
     ...textStyles.bodySmall,
     color: '#D92B2B',
     textAlign: 'center',
+  },
+  continueButton: {
+    minHeight: 48,
+    borderRadius: tokens.borderRadius.button,
+    backgroundColor: tokens.colors.light.electricBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueText: {
+    ...textStyles.subheading,
+    color: tokens.colors.light.offWhite,
   },
   signOutButton: {
     minHeight: 48,

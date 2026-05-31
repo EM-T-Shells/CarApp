@@ -18,6 +18,9 @@ import type { User } from '../types/models';
  */
 export type UserRole = 'customer' | 'provider' | 'both';
 
+/** Mirrors provider_profiles.verification_status. */
+export type ProviderVerificationStatus = 'pending' | 'approved' | 'suspended';
+
 // ── State Shape ─────────────────────────────────────────────────────────
 
 export interface AuthState {
@@ -27,6 +30,13 @@ export interface AuthState {
   user: User | null;
   /** Role string pulled from `user.role`, or null when signed out. */
   role: UserRole | null;
+  /**
+   * The signed-in provider's `provider_profiles.verification_status`, when the
+   * user has a provider role. `null` means "not a provider, or not yet
+   * resolved" — the root gate waits for a non-null value before deciding
+   * whether to hold a provider-only user on the pending-approval screen.
+   */
+  providerVerification: ProviderVerificationStatus | null;
   /**
    * True while the root auth gate is still resolving the initial
    * session from SecureStore. Screens should render a splash while
@@ -41,6 +51,8 @@ export interface AuthState {
    * either clears the store. Also flips `isHydrating` to false.
    */
   setSession: (session: Session | null, user: User | null) => void;
+  /** Set the provider's verification status (or null when not a provider). */
+  setProviderVerification: (status: ProviderVerificationStatus | null) => void;
   /** Clear the store back to signed-out state. */
   clear: () => void;
   /** Mark hydration complete without setting a session. */
@@ -64,6 +76,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   session: null,
   user: null,
   role: null,
+  providerVerification: null,
   isHydrating: true,
 
   setSession: (session, user) =>
@@ -74,11 +87,14 @@ export const useAuthStore = create<AuthState>((set) => ({
       isHydrating: false,
     }),
 
+  setProviderVerification: (status) => set({ providerVerification: status }),
+
   clear: () =>
     set({
       session: null,
       user: null,
       role: null,
+      providerVerification: null,
       isHydrating: false,
     }),
 

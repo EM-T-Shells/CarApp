@@ -92,6 +92,29 @@ CREATE TABLE provider_vetting (
   updated_at            TIMESTAMPTZ DEFAULT now()
 );
 
+-- Auto-create the provider_vetting row whenever a provider_profiles row is
+-- inserted. provider_vetting RLS is UPDATE-only (no client INSERT), so this
+-- SECURITY DEFINER trigger runs as the table owner to seed the row — clients
+-- never insert vetting rows directly, keeping RLS tight. Added for Flow 4.1
+-- (provider opt-in). Apply to existing projects as a migration.
+CREATE OR REPLACE FUNCTION create_provider_vetting_row()
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO provider_vetting (provider_id) VALUES (NEW.id);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_create_provider_vetting ON provider_profiles;
+CREATE TRIGGER trg_create_provider_vetting
+  AFTER INSERT ON provider_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION create_provider_vetting_row();
+
 -- SERVICE CATALOG (admin managed preset list)
 CREATE TABLE service_catalog (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
