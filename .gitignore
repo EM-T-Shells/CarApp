@@ -4,3 +4,6 @@
 
 # Supabase CLI local working state (not the schema/seeds/functions)
 carApp/supabase/.temp/
+
+# MCP config — contains the Supabase Personal Access Token
+.mcp.json

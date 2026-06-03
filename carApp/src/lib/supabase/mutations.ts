@@ -97,6 +97,29 @@ export function updateUser(
   )
 }
 
+// FCM push token write — Flow 2.9. Narrowed view of UserUpdate that only
+// exposes the three FCM columns so the push.ts client can't accidentally
+// overwrite unrelated user fields.
+export interface PushTokenUpdate {
+  fcm_token: string | null
+  fcm_token_platform: 'ios' | 'android' | null
+  fcm_token_updated_at: string
+}
+
+export function updateUserPushToken(
+  userId: string,
+  updates: PushTokenUpdate,
+): Promise<MutationResult<User>> {
+  return runMutation<User>(
+    supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single(),
+  )
+}
+
 // ── Vehicles ───────────────────────────────────────────────────────────
 
 export function insertVehicle(

@@ -108,3 +108,42 @@ export async function confirmDepositPayment(
     };
   }
 }
+
+// ── Refund Deposit (Flow 2.12) ────────────────────────────────────────
+
+export interface RefundDepositResponse {
+  ok: boolean;
+  refund_id?: string;
+  status?: string;
+  skipped?: string;
+}
+
+/**
+ * Calls the stripe-webhook Edge Function to refund the deposit on a
+ * non-forfeit cancellation. The Edge Function is idempotent — repeated
+ * calls return `{ ok: true, skipped: 'no deposit' }` after the refund has
+ * already been issued.
+ */
+export async function refundDeposit(
+  bookingId: string,
+): Promise<StripeResult<RefundDepositResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'stripe-webhook',
+      {
+        body: { action: 'refund_deposit', booking_id: bookingId },
+      },
+    );
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Refund failed') };
+    }
+
+    return { data: data as RefundDepositResponse, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}

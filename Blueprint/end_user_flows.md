@@ -294,9 +294,9 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/past.tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/past.tsx` | ✅ |
 | Data | `getPastBookingsForCustomer()` | ✅ |
-| UI | List with re-book CTA per provider | ⛔ |
+| UI | List with re-book CTA per provider | ✅ "Book Again" pill on completed cards |
 
 **UAT on phone:** Tap "Past" link from header → list of past bookings.
 
@@ -316,16 +316,16 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/tracking/[bookingId].tsx` | ⛔ empty |
-| Component | `LiveMap` (Google Maps + provider pin) | ⛔ empty file |
-| Component | `JobStatusBar` | ⛔ empty file |
-| Component | `ETADisplay` | ⛔ empty file |
-| Lib | `src/lib/location/index.ts` (geocoding, distance, ETA) | ⛔ empty file |
-| Lib | `src/lib/redis/index.ts` (GPS cache reads) | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/tracking/[bookingId].tsx` | ✅ |
+| Component | `LiveMap` (OSM tiles via `react-native-maps` UrlTile — no Google Maps key) | ✅ |
+| Component | `JobStatusBar` | ✅ |
+| Component | `ETADisplay` | ✅ |
+| Lib | `src/lib/location/index.ts` (Haversine distance / bearing / ETA / region helpers) | ✅ |
+| Lib | `src/lib/redis/index.ts` (GPS cache reads) | ⛔ deferred — customer side polls `provider_location_cache` (Postgres) every 5s per CLAUDE.md |
 | Data | `getProviderLocation()` (Postgres fallback) | ✅ |
-| External | Google Maps API key | 🔒 in `.env.local` |
-| External | `react-native-maps` install + config | ⛔ verify package |
-| External | Redis URL set in Supabase secrets | 🔒 |
+| External | ~~Google Maps API key~~ — switched to free OSM tiles | n/a |
+| External | `react-native-maps` install + config | ⛔ user-handled (approved in `dependencies_list`) |
+| External | Redis URL set in Supabase secrets | 🔒 user-handled (only needed for provider-side writes / Flow 5.4) |
 
 **UAT on phone:** With an active booking, tap Track → map renders → provider pin updates. (Requires the provider side to be sending GPS — Flow 5.4.)
 
@@ -338,11 +338,15 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `src/lib/notifications/push.ts` (FCM token registration) | ⛔ empty file |
-| Edge Function | `notify-booking-confirmed` | ⛔ |
-| Edge Function | `notify-provider-enroute` | ⛔ |
-| Edge Function | `notify-job-complete` | ⛔ |
+| Lib | `src/lib/notifications/push.ts` (FCM token registration + refresh + tap routing) | ✅ |
+| Schema | `users.fcm_token`, `users.fcm_token_platform`, `users.fcm_token_updated_at` | ✅ (added to `schema.sql` — apply ALTER + regen types before use) |
+| Mutation | `updateUserPushToken()` | ✅ (interim cast until `gen types` re-runs) |
+| Edge Function | `notify-booking-confirmed` | ✅ |
+| Edge Function | `notify-provider-enroute` | ✅ |
+| Edge Function | `notify-job-complete` | ✅ |
+| Edge Function | shared `_shared/fcm.ts` (Legacy FCM HTTP + in-app `notifications` row) | ✅ |
 | External | FCM credentials in `app.json` | ✅ Firebase configured |
+| External | `FCM_SERVER_KEY` secret in Supabase | 🔒 user-handled (`supabase secrets set FCM_SERVER_KEY=…`) |
 | Deep link routing | Booking-related deep links → relevant screen | ✅ per CLAUDE.md route map |
 
 **UAT on phone:** Make a booking → confirm push appears on lock screen → tap → opens booking detail.
@@ -359,8 +363,8 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Storage bucket | `booking-photos` | ✅ |
 | Lib | `uploadBookingPhoto()` in `storage.ts` | ✅ |
 | Data | `getBookingPhotos()` | ✅ |
-| Component | Photo gallery in booking detail | ⛔ (booking detail screen itself is empty) |
-| Push | "Photos ready" notification | ⛔ |
+| Component | Photo gallery in booking detail | ✅ `src/components/booking/BookingPhotoGallery.tsx` (before/after rows + full-screen lightbox) |
+| Push | "Photos ready" notification | ⛔ deferred — can reuse `_shared/fcm.ts` later |
 
 **UAT on phone:** With a completed job that has photos, open booking detail → see gallery of before/after.
 
@@ -383,11 +387,11 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 |---|---|---|
 | Component | `GearRating` (interactive) | ✅ |
 | Component | `KudosBadge` (interactive) | ✅ |
-| Component | `KudosBadgeSelector` | ⛔ empty file |
-| Component | `KudosDisplay` | ⛔ empty file |
-| Component | Review sheet / modal | ⛔ |
+| Component | `KudosBadgeSelector` | ✅ (plus `kudosToStorage` / `kudosFromStorage` for snake_case enum mapping) |
+| Component | `KudosDisplay` | ✅ accepts raw rows OR pre-aggregated counts |
+| Component | Review sheet / modal | ✅ `src/components/booking/ReviewSheet.tsx` |
 | Data | `insertRating()`, `insertKudos()` | ✅ |
-| Entry point | Triggered from booking detail | ⛔ (booking detail empty) |
+| Entry point | Triggered from booking detail | ✅ "Rate Provider" CTA when status=completed and no rating yet |
 
 **UAT on phone:** Complete a booking → tap Rate → submit gear ratings + kudos → confirm provider's profile shows updated rating.
 
@@ -400,10 +404,10 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | Cancel / Reschedule buttons in booking detail | ⛔ |
-| Logic | 24-hour deposit forfeiture | ⛔ in `utils/date.ts` helpers exist; need wiring |
+| UI | Cancel / Reschedule buttons in booking detail | ✅ (built in Flow 2.6) |
+| Logic | 24-hour deposit forfeiture | ✅ via `isWithin24Hours()` → `deposit_forfeited` flag |
 | Data | `updateBooking({ status: 'cancelled', deposit_forfeited: true })` | ✅ |
-| Stripe | Refund flow for non-forfeit cancellations | ⛔ |
+| Stripe | Refund flow for non-forfeit cancellations | ✅ `stripe-webhook` `refund_deposit` action + `refundDeposit()` client helper |
 
 ---
 
@@ -414,10 +418,10 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | Dispute button in booking detail / rating | ⛔ |
-| Data | `updateRating({ flagged_for_review: true })` | ✅ |
-| Backend | Admin queue + notification | ⛔ |
-| Logic | 48h window check using `utils/date.ts` | ✅ helpers exist; need wiring |
+| UI | Dispute button in booking detail / rating | ✅ "Report an Issue" footer CTA |
+| Data | `updateRating({ is_flagged: true })` | ✅ |
+| Backend | Admin queue + notification | ⛔ deferred — no admin surface yet; flagged rows are queryable via `ratings.is_flagged=true` |
+| Logic | 48h window check using `utils/date.ts` | ✅ via `isWithinDisputeWindow(booking.completed_at \|\| rating.created_at)` |
 
 ---
 
@@ -829,14 +833,14 @@ Based on what unlocks the most UAT coverage with the least new code:
 
 1. **Flow 1.1 onboarding screens** — without these, no real new-user testing is possible. Components and state already exist; only screens + `insertUser` mutation needed.
 2. ~~Flow 2.6 booking detail screen — unblocks the entire post-booking experience (tracking, rating, photos, cancel, message).~~ ✅ Done.
-3. **Flow 2.7 past bookings screen** — small lift, completes the Bookings tab.
+3. ~~Flow 2.7 past bookings screen — small lift, completes the Bookings tab.~~ ✅ Done.
 4. **Flow 3.3 More tab hub** — gives access to Account, Settings, Sign Out, Provider Mode.
 5. **Flow 3.1 / 3.2 account & vehicle management** — small screens with existing data layer.
 6. **Flow 3.4 / 3.5 inbox + thread view** — the data layer + moderation already exist; only UI needed.
-7. **Flow 2.11 rating sheet** — finishes the customer post-service moment.
+7. ~~Flow 2.11 rating sheet — finishes the customer post-service moment.~~ ✅ Done.
 8. **Flow 4.x provider vetting + 5.x provider dashboard** — large body of work; sequence Persona → Checkr → Stripe Connect last.
-9. **Flow 2.8 / 5.4 live tracking** — depends on Redis + location libs + Google Maps view.
-10. **Flow 2.9 push notifications + Edge Functions** — backend-heavy.
+9. ~~Flow 2.8 / 5.4 live tracking — depends on Redis + location libs + Google Maps view.~~ Customer side ✅ Done (OSM tiles, no Google Maps key); provider-side write-path (5.4) remains.
+10. ~~Flow 2.9 push notifications + Edge Functions — backend-heavy.~~ ✅ Done (waiting on `FCM_SERVER_KEY` secret + schema apply).
 11. **Flow 3.6 Lug AI** — Anthropic Edge Function + floating bubble.
 
 ---

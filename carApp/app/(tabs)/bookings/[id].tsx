@@ -4,6 +4,11 @@
 // action buttons for tracking (live GPS), messaging the provider, rescheduling,
 // and cancelling. Cancellations within 24 hours of the scheduled time forfeit
 // the deposit per the policy in CLAUDE.md.
+//
+// Post-service additions (Flows 2.10 / 2.11 / 2.13):
+//   - Before/after photo gallery once the provider uploads photos
+//   - "Rate now" CTA that opens the ReviewSheet
+//   - "Report an issue" CTA (48h dispute window) that flags the rating
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -27,6 +32,8 @@ import {
   CalendarClock,
   XCircle,
   AlertTriangle,
+  Star,
+  Flag,
 } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
@@ -34,26 +41,44 @@ import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { Sheet } from '../../../src/components/ui/Sheet';
+import { GearRating } from '../../../src/components/ui/GearRating';
 import { PriceBreakdown } from '../../../src/components/booking/PriceBreakdown';
 import { DepositSummary } from '../../../src/components/booking/DepositSummary';
 import { DateTimePicker } from '../../../src/components/booking/DateTimePicker';
 import { StatusTimeline } from '../../../src/components/booking/StatusTimeline';
+import { BookingPhotoGallery } from '../../../src/components/booking/BookingPhotoGallery';
+import {
+  ReviewSheet,
+  type ReviewSubmission,
+} from '../../../src/components/booking/ReviewSheet';
+import { kudosToStorage } from '../../../src/components/kudos/KudosBadgeSelector';
 import type { BookingStatus } from '../../../src/components/booking/StatusTimeline';
 import { colors, spacing } from '../../../src/design/tokens';
 import {
   getBookingById,
+  getBookingPhotos,
+  getRatingByBooking,
   getThreadByBooking,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
 import {
   updateBooking,
+  updateRating,
+  insertRating,
+  insertKudos,
   insertMessageThread,
 } from '../../../src/lib/supabase/mutations';
+import { refundDeposit } from '../../../src/lib/stripe';
 import { useAuthStore } from '../../../src/state/auth';
 import { centsToDisplay } from '../../../src/utils/money';
-import { formatDateTime, isWithin24Hours } from '../../../src/utils/date';
+import {
+  formatDateTime,
+  isWithin24Hours,
+  isWithinDisputeWindow,
+} from '../../../src/utils/date';
 import type { BookingDetailParams } from '../../../src/types/navigation';
 import type { ServiceSnapshot } from '../../../src/state/bookingDraft';
+import type { BookingPhoto, Rating } from '../../../src/types/models';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +132,8 @@ export default function BookingDetailScreen(): React.ReactElement {
   const user = useAuthStore((s) => s.user);
 
   const [booking, setBooking] = useState<BookingSummary | null>(null);
+  const [photos, setPhotos] = useState<BookingPhoto[]>([]);
+  const [rating, setRating] = useState<Rating | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -114,6 +141,7 @@ export default function BookingDetailScreen(): React.ReactElement {
   // Action sheets
   const [showCancelSheet, setShowCancelSheet] = useState(false);
   const [showRescheduleSheet, setShowRescheduleSheet] = useState(false);
+  const [showReviewSheet, setShowReviewSheet] = useState(false);
   const [rescheduleAt, setRescheduleAt] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState(false);
 
@@ -125,9 +153,17 @@ export default function BookingDetailScreen(): React.ReactElement {
       if (!refresh) setIsLoading(true);
       setError(null);
 
-      const { data, error: err } = await getBookingById(id);
-      if (err) setError(err);
-      else setBooking(data);
+      const [bookingRes, photosRes, ratingRes] = await Promise.all([
+        getBookingById(id),
+        getBookingPhotos(id),
+        getRatingByBooking(id),
+      ]);
+
+      if (bookingRes.error) setError(bookingRes.error);
+      else setBooking(bookingRes.data);
+
+      if (!photosRes.error) setPhotos(photosRes.data ?? []);
+      if (!ratingRes.error) setRating(ratingRes.data);
 
       setIsLoading(false);
     },
@@ -167,6 +203,19 @@ export default function BookingDetailScreen(): React.ReactElement {
   const withinForfeitWindow = booking
     ? isWithin24Hours(booking.scheduled_at)
     : false;
+
+  const isCompleted = status === 'completed';
+  const canRate = isCompleted && !rating;
+  const completedAtIso =
+    booking?.completed_at ?? rating?.created_at ?? null;
+  const canDispute =
+    isCompleted &&
+    rating !== null &&
+    !rating.is_flagged &&
+    completedAtIso !== null &&
+    isWithinDisputeWindow(completedAtIso);
+
+  const providerUserId = booking?.provider_profiles?.users?.id ?? null;
 
   // Display amounts — DB stores NUMERIC dollars; convert to cents.
   const totalCents = dollarsToCents(booking?.total_amount);
@@ -245,16 +294,116 @@ export default function BookingDetailScreen(): React.ReactElement {
       deposit_forfeited: withinForfeitWindow,
     });
 
-    setIsMutating(false);
-    setShowCancelSheet(false);
-
     if (err) {
+      setIsMutating(false);
+      setShowCancelSheet(false);
       Alert.alert('Cancellation Failed', err.message);
       return;
     }
 
+    // Outside the forfeit window — issue a Stripe refund. If the refund
+    // call fails we still keep the cancellation; surface the error so the
+    // customer can follow up.
+    if (!withinForfeitWindow) {
+      const refundResult = await refundDeposit(booking.id);
+      if (refundResult.error) {
+        Alert.alert(
+          'Refund pending',
+          `The booking is cancelled, but the refund couldn't be processed automatically: ${refundResult.error.message}. Our team will follow up.`,
+        );
+      }
+    }
+
+    setIsMutating(false);
+    setShowCancelSheet(false);
+
     if (data) setBooking((prev) => (prev ? { ...prev, ...data } : prev));
   }, [booking, withinForfeitWindow]);
+
+  // ─── Rating submit (Flow 2.11) ───────────────────────────────────
+
+  const handleRatingSubmit = useCallback(
+    async (submission: ReviewSubmission) => {
+      if (!booking || !user || !providerUserId) return;
+      setIsMutating(true);
+
+      const overall =
+        (submission.ratings.quality +
+          submission.ratings.timeliness +
+          submission.ratings.communication +
+          submission.ratings.value) /
+        4;
+
+      const ratingRes = await insertRating({
+        booking_id: booking.id,
+        reviewer_id: user.id,
+        reviewee_id: providerUserId,
+        quality_score: submission.ratings.quality,
+        timeliness_score: submission.ratings.timeliness,
+        communication_score: submission.ratings.communication,
+        value_score: submission.ratings.value,
+        overall_score: Number(overall.toFixed(2)),
+        review_text: submission.reviewText.length > 0 ? submission.reviewText : null,
+      });
+
+      if (ratingRes.error) {
+        setIsMutating(false);
+        Alert.alert('Rating Failed', ratingRes.error.message);
+        return;
+      }
+
+      // Insert one kudos row per selected badge (best-effort; individual
+      // failures don't roll back the rating).
+      await Promise.all(
+        submission.kudos.map((badge) =>
+          insertKudos({
+            booking_id: booking.id,
+            giver_id: user.id,
+            receiver_id: providerUserId,
+            badge: kudosToStorage(badge),
+          }),
+        ),
+      );
+
+      setRating(ratingRes.data);
+      setShowReviewSheet(false);
+      setIsMutating(false);
+    },
+    [booking, user, providerUserId],
+  );
+
+  // ─── Dispute (Flow 2.13) ─────────────────────────────────────────
+
+  const handleDispute = useCallback(() => {
+    if (!rating) return;
+    Alert.alert(
+      'Report this rating?',
+      'Our team will review the booking and rating within 48 hours. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report',
+          style: 'destructive',
+          onPress: async () => {
+            setIsMutating(true);
+            const { data, error: err } = await updateRating(rating.id, {
+              is_flagged: true,
+            });
+            setIsMutating(false);
+            if (err) {
+              Alert.alert('Report Failed', err.message);
+              return;
+            }
+            if (data) setRating(data);
+            Alert.alert(
+              'Reported',
+              "Thanks — we'll be in touch if we need more info.",
+            );
+          },
+        },
+      ],
+    );
+  }, [rating]);
 
   // ─── Loading ─────────────────────────────────────────────────────────
 
@@ -444,6 +593,52 @@ export default function BookingDetailScreen(): React.ReactElement {
 
           <Spacer size="lg" />
 
+          {/* Before/after photos (Flow 2.10) */}
+          {photos.length > 0 && (
+            <>
+              <BookingPhotoGallery photos={photos} />
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {/* Existing rating (Flow 2.11) */}
+          {rating && (
+            <>
+              <Card variant="outlined">
+                <Text variant="label" color="charcoal">
+                  Your rating
+                </Text>
+                <Spacer size="md" />
+                <GearRating
+                  values={{
+                    quality: rating.quality_score ?? 0,
+                    timeliness: rating.timeliness_score ?? 0,
+                    communication: rating.communication_score ?? 0,
+                    value: rating.value_score ?? 0,
+                  }}
+                  size="sm"
+                />
+                {rating.review_text && (
+                  <>
+                    <Spacer size="md" />
+                    <Text variant="body" color="charcoal">
+                      {rating.review_text}
+                    </Text>
+                  </>
+                )}
+                {rating.is_flagged && (
+                  <>
+                    <Spacer size="md" />
+                    <Text variant="caption" color="midGray">
+                      This rating has been flagged for review.
+                    </Text>
+                  </>
+                )}
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
           {/* Price breakdown */}
           {services.length > 0 && (
             <>
@@ -503,6 +698,25 @@ export default function BookingDetailScreen(): React.ReactElement {
               </>
             )}
 
+            {canRate && (
+              <>
+                <Button
+                  label="Rate Provider"
+                  variant="primary"
+                  size="lg"
+                  onPress={() => setShowReviewSheet(true)}
+                  leftIcon={
+                    <Star
+                      size={18}
+                      color={palette.offWhite}
+                      strokeWidth={2}
+                    />
+                  }
+                />
+                <Spacer size="sm" />
+              </>
+            )}
+
             <View style={styles.actionRow}>
               <Button
                 label="Message"
@@ -547,6 +761,25 @@ export default function BookingDetailScreen(): React.ReactElement {
                   onPress={() => setShowCancelSheet(true)}
                   leftIcon={
                     <XCircle
+                      size={16}
+                      color={palette.midGray}
+                      strokeWidth={2}
+                    />
+                  }
+                />
+              </>
+            )}
+
+            {canDispute && (
+              <>
+                <Spacer size="sm" />
+                <Button
+                  label="Report an Issue"
+                  variant="ghost"
+                  size="md"
+                  onPress={handleDispute}
+                  leftIcon={
+                    <Flag
                       size={16}
                       color={palette.midGray}
                       strokeWidth={2}
@@ -640,6 +873,15 @@ export default function BookingDetailScreen(): React.ReactElement {
             />
           </View>
         </Sheet>
+
+        {/* Review / rating sheet (Flow 2.11) */}
+        <ReviewSheet
+          visible={showReviewSheet}
+          onClose={() => setShowReviewSheet(false)}
+          onSubmit={handleRatingSubmit}
+          providerName={providerName}
+          submitting={isMutating}
+        />
       </View>
     </>
   );

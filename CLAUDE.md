@@ -19,11 +19,11 @@ CarApp is a React Native (Expo) mobile app — a two-sided marketplace connectin
 - **Auth Storage**: Expo Secure Store
 - **SMS Provider**: Twilio (configured at Supabase project level for phone OTP — not in app code)
 - **Styling**: React Native `StyleSheet` + design tokens in [carApp/src/design/tokens.ts](carApp/src/design/tokens.ts)
+- **Maps**: `react-native-maps` with **OpenStreetMap raster tiles** rendered via `<UrlTile>` — no Google Maps API key, no per-tile billing. Used by [carApp/src/components/tracking/LiveMap.tsx](carApp/src/components/tracking/LiveMap.tsx) for the customer live-tracking screen. Distance / ETA math lives in [carApp/src/lib/location/index.ts](carApp/src/lib/location/index.ts) (Haversine + naive constant-speed ETA — swap in a real routing API later without touching callers). OSM's tile-usage policy is fine for MVP traffic; before scale, move to a hosted tile provider (MapTiler / Stadia / self-host).
 
 **Planned but not yet wired up — do not import these in current code:**
 
-- **Caching / Ephemeral Data**: Redis (live GPS, rate limiting, short-lived tokens) — `ioredis` approved in [Blueprint/dependencies_list](Blueprint/dependencies_list) but not yet implemented; [src/lib/redis/index.ts](carApp/src/lib/redis/index.ts) is an empty stub
-- **Maps**: No map SDK for MVP — use address text only. Google Maps is explicitly out for MVP due to billing
+- **Caching / Ephemeral Data**: Redis (live GPS, rate limiting, short-lived tokens) — `ioredis` approved in [Blueprint/dependencies_list](Blueprint/dependencies_list) but not yet implemented; [src/lib/redis/index.ts](carApp/src/lib/redis/index.ts) is an empty stub. The customer-side tracking screen reads `provider_location_cache` via Postgres polling (5s) per CLAUDE.md; Redis is only needed for the provider-side GPS write path (Flow 5.4).
 - **Analytics**: Mixpanel — not installed; skip the "Logging & Observability" Mixpanel events below until then
 - **Error Monitoring**: Sentry — not installed; do not call Sentry APIs in current code
 
@@ -105,7 +105,13 @@ An [.env.example](carApp/.env.example) file lives at the carApp root with all cl
 - All new files use TypeScript with explicit types. Never use `any`.
 - Never edit `src/types/supabase.ts` manually — it is auto-generated.
 - Never use `service_role` key in client code — it bypasses RLS.
-- After any schema change run: `supabase gen types typescript --project-id <id> > src/types/supabase.ts`
+- **Schema changes go through the Supabase MCP server, in this exact order, so code and DB never drift:**
+  1. `mcp__supabase__list_tables` (verify the current shape, avoid colliding columns)
+  2. `mcp__supabase__apply_migration` with a `snake_case` name and an idempotent SQL query (e.g. `ALTER TABLE … ADD COLUMN IF NOT EXISTS …`) — this both runs the DDL and records the migration server-side
+  3. `mcp__supabase__generate_typescript_types` → write the result to [src/types/supabase.ts](carApp/src/types/supabase.ts) (overwrite, do not hand-edit)
+  4. Update `schema.sql` to match (it's still the in-repo documentation source), and add/clean up the corresponding mutation in [mutations.ts](carApp/src/lib/supabase/mutations.ts) — drop any interim `as never` casts once the regenerated types include the new columns.
+- Fallback when MCP is unavailable: `supabase gen types typescript --project-id <id> > src/types/supabase.ts` from the CLI, plus apply the same SQL via the Supabase dashboard SQL editor.
+- The MCP server config lives in [.mcp.json](.mcp.json) at the repo root and is **gitignored** — it holds a Supabase Personal Access Token; never commit it, never paste the token into chat / code / docs. If it ever leaks, rotate it at https://supabase.com/dashboard/account/tokens.
 
 ### Architecture
 

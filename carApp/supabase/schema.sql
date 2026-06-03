@@ -23,6 +23,10 @@ CREATE TABLE users (
   stripe_customer_id TEXT,
   email_verified     BOOLEAN DEFAULT FALSE,
   phone_verified     BOOLEAN DEFAULT FALSE,
+  -- Single-device FCM token (one device per user for MVP). Flow 2.9.
+  fcm_token              TEXT,
+  fcm_token_platform     VARCHAR CHECK (fcm_token_platform IN ('ios', 'android')),
+  fcm_token_updated_at   TIMESTAMPTZ,
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );

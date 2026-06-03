@@ -1040,6 +1040,9 @@ export type Database = {
           created_at: string | null
           email: string | null
           email_verified: boolean | null
+          fcm_token: string | null
+          fcm_token_platform: string | null
+          fcm_token_updated_at: string | null
           full_name: string | null
           id: string
           is_verified: boolean | null
@@ -1054,6 +1057,9 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
+          fcm_token?: string | null
+          fcm_token_platform?: string | null
+          fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
@@ -1068,6 +1074,9 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
+          fcm_token?: string | null
+          fcm_token_platform?: string | null
+          fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
@@ -1117,7 +1126,7 @@ export type Database = {
           trim?: string | null
           user_id?: string | null
           vin?: string | null
-          year?: string
+          year: string
         }
         Relationships: [
           {

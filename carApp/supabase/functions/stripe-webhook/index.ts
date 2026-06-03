@@ -68,6 +68,8 @@ async function handleAppAction(req: Request): Promise<Response> {
   switch (body.action) {
     case 'create_deposit_intent':
       return await createDepositIntent(body as { action: string; booking_id: string; amount: number });
+    case 'refund_deposit':
+      return await refundDeposit(body as { action: string; booking_id: string });
     default:
       return new Response(JSON.stringify({ error: `Unknown action: ${body.action}` }), {
         status: 400,
@@ -175,6 +177,88 @@ async function createDepositIntent(body: {
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
     }),
+    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  );
+}
+
+// ── Refund (Flow 2.12) ────────────────────────────────────────────────
+//
+// Issues a full refund of the deposit payment for the booking. Called by
+// the client cancel handler when the cancellation falls OUTSIDE the
+// 24-hour forfeit window. Idempotent against the payments table — if the
+// deposit row is already `refunded` the function short-circuits with ok.
+
+async function refundDeposit(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const { booking_id } = body;
+
+  // Locate the successful deposit payment for this booking.
+  const { data: deposit, error: depositError } = await supabase
+    .from('payments')
+    .select('id, stripe_payment_intent_id, amount, status, user_id')
+    .eq('booking_id', booking_id)
+    .eq('payment_type', 'deposit')
+    .eq('status', 'succeeded')
+    .maybeSingle();
+
+  if (depositError) {
+    return new Response(JSON.stringify({ error: depositError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!deposit) {
+    // Nothing succeeded yet — treat as already-refunded so the client
+    // cancel flow can proceed without erroring.
+    return new Response(JSON.stringify({ ok: true, skipped: 'no deposit' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!deposit.stripe_payment_intent_id) {
+    return new Response(
+      JSON.stringify({ error: 'Deposit has no Stripe PaymentIntent id' }),
+      { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
+  let refund: Stripe.Refund;
+  try {
+    refund = await stripe.refunds.create({
+      payment_intent: deposit.stripe_payment_intent_id,
+      reason: 'requested_by_customer',
+      metadata: { booking_id, payment_id: deposit.id },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Stripe refund failed';
+    return new Response(JSON.stringify({ error: message }), {
+      status: 502,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Mark the original deposit as refunded and record a separate refund row
+  // so the payments history shows both transactions.
+  await supabase
+    .from('payments')
+    .update({ status: 'refunded' })
+    .eq('id', deposit.id);
+
+  await supabase.from('payments').insert({
+    booking_id,
+    user_id: deposit.user_id,
+    stripe_payment_intent_id: deposit.stripe_payment_intent_id,
+    payment_type: 'refund',
+    amount: deposit.amount,
+    status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
+  });
+
+  return new Response(
+    JSON.stringify({ ok: true, refund_id: refund.id, status: refund.status }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   );
 }
