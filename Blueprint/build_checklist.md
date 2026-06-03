@@ -98,7 +98,7 @@
 - [ ] `src/components/tracking/LiveMap.tsx`
 - [ ] `src/components/tracking/JobStatusBar.tsx`
 - [ ] `src/components/tracking/ETADisplay.tsx`
-- [ ] `app/(tabs)/bookings/[id].tsx` — active booking detail
+- [x] `app/(tabs)/bookings/[id].tsx` — active booking detail (+ `src/components/booking/StatusTimeline.tsx`)
 - [ ] `app/(tabs)/bookings/tracking/[bookingId].tsx` — live GPS map screen
 
 ---

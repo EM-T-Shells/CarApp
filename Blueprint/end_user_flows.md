@@ -56,7 +56,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Gate | `app/_layout.tsx` routes session-without-users-row to `/(auth)/onboarding/profile` | ✅ |
 | External | Twilio (phone OTP configured in Supabase dashboard) | ✅ |
 
-**UAT on phone:**
+**UAT on phone:** ✅
 1. Use a fresh email (no `users` row exists yet)
 2. Send OTP, verify
 3. Confirm you land on Profile step (not back on splash)
@@ -85,7 +85,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | External | Deep link scheme `carapp://` in `app.json` | ✅ |
 | Onboarding screens (same as Flow 1.1) | | ✅ |
 
-**UAT on phone:** Same as Flow 1.1 but starting from the Google button.
+**UAT on phone:** Same as Flow 1.1 but starting from the Google button. ✅
 
 ---
 
@@ -101,7 +101,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | External | App ID, Services ID, Key, and Sign In with Apple entitlement registered in Apple Developer | ✅ |
 | Onboarding screens (same as Flow 1.1) | | ✅ |
 
-**UAT on phone:** Verified on iPad (iPadOS 26.2) via `expo run:ios --device` — native Apple sheet appears, authentication completes, new user routed into onboarding.
+**UAT on phone:** Verified on iPad (iPadOS 26.2) via `expo run:ios --device` — native Apple sheet appears, authentication completes, new user routed into onboarding. ✅
 
 ---
 
@@ -120,7 +120,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Auth gate | `useProtectedRoute` in `_layout.tsx` | ✅ |
 | `fetchUserRow` hydration | ✅ |
 
-**UAT on phone:** Sign in with an account that already exists in `users` table → confirm direct route to Search.
+**UAT on phone:** Sign in with an account that already exists in `users` table → confirm direct route to Search. ✅
 
 ---
 
@@ -134,7 +134,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Storage | `expo-secure-store` adapter for Supabase auth | ✅ |
 | Hydration | `supabase.auth.getSession()` on mount | ✅ |
 
-**UAT on phone:** Sign in, force-quit, re-open. Should land on Search without showing sign-in.
+**UAT on phone:** Sign in, force-quit, re-open. Should land on Search without showing sign-in. ✅
 
 ---
 
@@ -149,7 +149,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | UI | Sign-out button on More tab (with native confirmation alert); also exists on `pending-approval.tsx` | ✅ |
 | Gate | Auth gate detects no session → routes to `(auth)/` | ✅ |
 
-**UAT on phone:** From the More tab, tap Sign out → confirm in the native alert → verify return to splash. Will move into More → Account when that screen is built in Phase 15.
+**UAT on phone:** From the More tab, tap Sign out → confirm in the native alert → verify return to splash. Will move into More → Account when that screen is built in Phase 15. ✅
 
 ---
 
@@ -242,7 +242,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Edge Function | `stripe-webhook` (creates intent + handles success/failure) | ✅ deployed |
 | External | Stripe test keys in `.env.local` | 🔒 |
 | External | `@stripe/stripe-react-native` `StripeProvider` wraps root | ✅ |
-| Post-success | Route to booking detail screen | 🟡 booking detail screen is an empty stub |
+| Post-success | Route to booking detail screen | ✅ routes to `bookings/[id].tsx` (built — see Flow 2.6) |
 
 **UAT on phone (with Stripe test mode):**
 1. Pick a provider → Book Now
@@ -276,14 +276,12 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/[id].tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/[id].tsx` | ✅ |
 | Data | `getBookingById()` | ✅ |
-| Data | `getBookingPhotos()` | ✅ |
-| Component | Status timeline (pending → confirmed → en_route → in_progress → completed) | ⛔ |
-| Component | Action buttons (Cancel, Reschedule, Message) | ⛔ |
-| Logic | Cancel-within-24h forfeits 15% deposit (per CLAUDE.md) | ⛔ |
-
-**🔴 BLOCKING ISSUE:** Tapping a booking from the list goes to a blank screen.
+| Data | `getBookingPhotos()` | ✅ (not yet rendered — gallery deferred to Flow 3.2) |
+| Component | Status timeline (pending → confirmed → en_route → in_progress → completed) | ✅ `src/components/booking/StatusTimeline.tsx` |
+| Component | Action buttons (Cancel, Reschedule, Message) | ✅ Track / Message / Reschedule / Cancel wired |
+| Logic | Cancel-within-24h forfeits 15% deposit (per CLAUDE.md) | ✅ via `isWithin24Hours()` → `deposit_forfeited` |
 
 **UAT on phone:** From bookings list, tap a card → see full detail. Tap Track → opens live map. Tap Message → opens thread.
 
@@ -830,7 +828,7 @@ Per CLAUDE.md, no offline queueing; show error + retry CTA.
 Based on what unlocks the most UAT coverage with the least new code:
 
 1. **Flow 1.1 onboarding screens** — without these, no real new-user testing is possible. Components and state already exist; only screens + `insertUser` mutation needed.
-2. **Flow 2.6 booking detail screen** — unblocks the entire post-booking experience (tracking, rating, photos, cancel, message).
+2. ~~Flow 2.6 booking detail screen — unblocks the entire post-booking experience (tracking, rating, photos, cancel, message).~~ ✅ Done.
 3. **Flow 2.7 past bookings screen** — small lift, completes the Bookings tab.
 4. **Flow 3.3 More tab hub** — gives access to Account, Settings, Sign Out, Provider Mode.
 5. **Flow 3.1 / 3.2 account & vehicle management** — small screens with existing data layer.
