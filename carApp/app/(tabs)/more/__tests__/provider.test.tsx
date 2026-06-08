@@ -41,8 +41,12 @@ jest.mock('lucide-react-native', () => {
   const icon = (n: string) => () => <View testID={`icon-${n}`} />;
   return {
     BadgeCheck: icon('BadgeCheck'),
+    Briefcase: icon('Briefcase'),
     Check: icon('Check'),
+    ChevronRight: icon('ChevronRight'),
     ShieldCheck: icon('ShieldCheck'),
+    SlidersHorizontal: icon('SlidersHorizontal'),
+    Wallet: icon('Wallet'),
     Wrench: icon('Wrench'),
   };
 });
@@ -126,13 +130,21 @@ describe('ProviderScreen', () => {
       expect(mockPush).toHaveBeenCalledWith('/(provider)/vetting');
     });
 
-    it('shows the approved state when verification_status is approved', async () => {
+    it('shows the dashboard hub when verification_status is approved', async () => {
       mockGetProviderByUserId.mockResolvedValue({
         data: { id: 'pp-1', verification_status: 'approved' },
         error: null,
       });
       render(<ProviderScreen />);
-      expect(await screen.findByText("You're a CarApp Provider")).toBeTruthy();
+      expect(await screen.findByText('Provider Dashboard')).toBeTruthy();
+
+      // Dashboard rows route into the provider sub-screens.
+      fireEvent.press(screen.getByTestId('dashboard-manage'));
+      expect(mockPush).toHaveBeenCalledWith('/(tabs)/more/provider-manage');
+      fireEvent.press(screen.getByTestId('dashboard-earnings'));
+      expect(mockPush).toHaveBeenCalledWith('/(tabs)/more/provider-earnings');
+      fireEvent.press(screen.getByTestId('dashboard-jobs'));
+      expect(mockPush).toHaveBeenCalledWith('/(tabs)/bookings');
     });
   });
 });

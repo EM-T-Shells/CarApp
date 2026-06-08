@@ -34,6 +34,7 @@ jest.mock('../../../src/components/provider/AvailabilityCalendar', () => {
   return {
     AvailabilityCalendar: () => <View testID="availability-calendar" />,
     DEFAULT_AVAILABILITY: { mon: true },
+    availabilityFromJson: () => ({ mon: true }),
   };
 });
 jest.mock('../../../src/components/ui/Text', () => {
@@ -98,6 +99,7 @@ describe('ProfileStep', () => {
       bio: 'Seasoned detailer with a decade of experience.',
       coverage_area: 'Reston, Vienna',
       mile_radius: 25,
+      availability: { mon: true },
     });
     // 20 (type) + 20 (bio) + 20 (coverage) + 10 (radius) + 30 (has services) = 100
     expect(mockUpdateVetting).toHaveBeenCalledWith('pp-1', { profile_completeness: 100 });
