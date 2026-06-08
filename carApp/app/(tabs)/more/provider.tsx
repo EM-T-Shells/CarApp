@@ -7,8 +7,8 @@
 //     seeds provider_vetting), flips the user's role to 'both', seeds the
 //     providerDraft, and routes into the (provider) vetting flow.
 //   • Provider, not yet approved: a short status card → "Continue application".
-//   • Approved provider: a minimal confirmation (the full jobs/earnings
-//     dashboard is Section 5).
+//   • Approved provider: the provider dashboard hub (Flow 5.1) with rows into
+//     My Jobs, Services & Availability, Earnings & Kudos, and the application.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -21,7 +21,16 @@ import {
   useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { BadgeCheck, Check, ShieldCheck, Wrench } from 'lucide-react-native';
+import {
+  BadgeCheck,
+  Briefcase,
+  Check,
+  ChevronRight,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wallet,
+  Wrench,
+} from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
@@ -191,52 +200,152 @@ function ProviderIntro({ palette, onStarted }: IntroProps): React.ReactElement {
 
 interface StatusProps {
   palette: Palette;
-  approved: boolean;
   onOpen: () => void;
-  onManage: () => void;
 }
 
-function ProviderStatus({ palette, approved, onOpen, onManage }: StatusProps): React.ReactElement {
+function ProviderStatus({ palette, onOpen }: StatusProps): React.ReactElement {
   return (
     <ScrollView
       style={{ backgroundColor: palette.offWhite }}
       contentContainerStyle={styles.content}
     >
       <View style={styles.heroIcon}>
-        {approved ? (
-          <BadgeCheck size={30} color={palette.emeraldGreen} strokeWidth={2} />
-        ) : (
-          <ShieldCheck size={30} color={palette.deepIndigo} strokeWidth={2} />
-        )}
+        <ShieldCheck size={30} color={palette.deepIndigo} strokeWidth={2} />
       </View>
       <Spacer size="md" />
       <Text variant="heading" color="charcoal">
-        {approved ? "You're a CarApp Provider" : 'Your application'}
+        Your application
       </Text>
       <Spacer size="sm" />
       <Text variant="body" color="midGray">
-        {approved
-          ? 'Your account is approved. Manage your services and availability below; the full jobs & earnings dashboard is coming soon.'
-          : 'Pick up where you left off and complete the remaining steps to go live.'}
+        Pick up where you left off and complete the remaining steps to go live.
       </Text>
       <Spacer size="xl" />
-      {approved && (
-        <>
-          <Button
-            label="Manage services & availability"
-            variant="primary"
-            size="lg"
-            onPress={onManage}
-            testID="provider-manage"
-          />
-          <Spacer size="sm" />
-        </>
-      )}
       <Button
-        label={approved ? 'View application' : 'Continue application'}
-        variant={approved ? 'secondary' : 'primary'}
+        label="Continue application"
+        variant="primary"
         size="lg"
         onPress={onOpen}
+        testID="provider-continue"
+      />
+    </ScrollView>
+  );
+}
+
+// ── Dashboard (approved provider) — Flow 5.1 ────────────────────────────────
+
+interface DashboardRowProps {
+  palette: Palette;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  testID: string;
+}
+
+function DashboardRow({
+  palette,
+  icon,
+  title,
+  subtitle,
+  onPress,
+  testID,
+}: DashboardRowProps): React.ReactElement {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      testID={testID}
+      style={styles.rowPressable}
+    >
+      <Card>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>{icon}</View>
+          <Spacer size="md" horizontal />
+          <View style={styles.flex}>
+            <Text variant="label" color="charcoal">
+              {title}
+            </Text>
+            <Spacer size="xs" />
+            <Text variant="caption" color="midGray">
+              {subtitle}
+            </Text>
+          </View>
+          <ChevronRight size={20} color={palette.midGray} strokeWidth={2} />
+        </View>
+      </Card>
+    </Pressable>
+  );
+}
+
+interface DashboardProps {
+  palette: Palette;
+  onJobs: () => void;
+  onManage: () => void;
+  onEarnings: () => void;
+  onOpenApplication: () => void;
+}
+
+function ProviderDashboard({
+  palette,
+  onJobs,
+  onManage,
+  onEarnings,
+  onOpenApplication,
+}: DashboardProps): React.ReactElement {
+  return (
+    <ScrollView
+      style={{ backgroundColor: palette.offWhite }}
+      contentContainerStyle={styles.content}
+    >
+      <View style={styles.heroIcon}>
+        <BadgeCheck size={30} color={palette.emeraldGreen} strokeWidth={2} />
+      </View>
+      <Spacer size="md" />
+      <Text variant="heading" color="charcoal">
+        Provider Dashboard
+      </Text>
+      <Spacer size="sm" />
+      <Text variant="body" color="midGray">
+        You&apos;re approved and ready for work. Manage your jobs, menu, and
+        earnings here.
+      </Text>
+
+      <Spacer size="lg" />
+      <View style={styles.rowList}>
+        <DashboardRow
+          palette={palette}
+          icon={<Briefcase size={20} color={palette.deepIndigo} strokeWidth={2} />}
+          title="My Jobs"
+          subtitle="View and manage your scheduled jobs"
+          onPress={onJobs}
+          testID="dashboard-jobs"
+        />
+        <DashboardRow
+          palette={palette}
+          icon={<SlidersHorizontal size={20} color={palette.deepIndigo} strokeWidth={2} />}
+          title="Services & Availability"
+          subtitle="Edit your menu, prices, and weekly availability"
+          onPress={onManage}
+          testID="dashboard-manage"
+        />
+        <DashboardRow
+          palette={palette}
+          icon={<Wallet size={20} color={palette.deepIndigo} strokeWidth={2} />}
+          title="Earnings & Kudos"
+          subtitle="Track payouts and the kudos customers gave you"
+          onPress={onEarnings}
+          testID="dashboard-earnings"
+        />
+      </View>
+
+      <Spacer size="lg" />
+      <Button
+        label="View application"
+        variant="ghost"
+        size="md"
+        onPress={onOpenApplication}
         testID="provider-continue"
       />
     </ScrollView>
@@ -281,6 +390,14 @@ export default function ProviderScreen(): React.ReactElement {
     router.push('/(tabs)/more/provider-manage');
   }, [router]);
 
+  const openEarnings = useCallback(() => {
+    router.push('/(tabs)/more/provider-earnings');
+  }, [router]);
+
+  const openJobs = useCallback(() => {
+    router.push('/(tabs)/bookings');
+  }, [router]);
+
   if (loading) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.offWhite }]}>
@@ -289,16 +406,22 @@ export default function ProviderScreen(): React.ReactElement {
     );
   }
 
-  // Provider with a profile → status / dashboard.
-  if (isProvider && profile) {
+  // Approved provider → dashboard hub (Flow 5.1).
+  if (isProvider && profile && profile.verification_status === 'approved') {
     return (
-      <ProviderStatus
+      <ProviderDashboard
         palette={palette}
-        approved={profile.verification_status === 'approved'}
-        onOpen={openVetting}
+        onJobs={openJobs}
         onManage={openManage}
+        onEarnings={openEarnings}
+        onOpenApplication={openVetting}
       />
     );
+  }
+
+  // Provider with a profile but not yet approved → application status.
+  if (isProvider && profile) {
+    return <ProviderStatus palette={palette} onOpen={openVetting} />;
   }
 
   // Customer (or provider role flagged but profile not yet created) → intro.
@@ -330,4 +453,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   finePrint: { textAlign: 'center' },
+  rowList: { gap: spacing.md },
+  rowPressable: { borderRadius: borderRadius.card },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  rowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.input,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(61,59,142,0.08)',
+  },
 });

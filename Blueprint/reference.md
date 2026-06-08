@@ -220,3 +220,8 @@
 [carApp/src/lib/location/tracking.ts] — sendProviderLocation (Flow 5.4): client GPS sender that invokes the update-provider-location Edge Function (keeps the app off provider_location_cache directly).
 [carApp/supabase/functions/update-provider-location/index.ts] — Edge Function (Flow 5.4): verifies the caller owns the provider profile, then upserts provider_location_cache with the service role.
 [carApp/supabase/functions/stripe-webhook/index.ts] — Added capture_balance action (Flow 5.6): off-session charge of the remaining 85%, records a balance payment, completes the booking, queues the provider payout; deposit intent now saves the card via setup_future_usage.
+[carApp/src/components/provider/EarningsDashboard.tsx] — Provider earnings summary (Flow 5.7): paid + pending payout totals and a dated payout history list from getPayoutsByProvider.
+[carApp/app/(tabs)/more/provider-earnings.tsx] — Provider earnings + kudos screen (Flows 5.7/5.8): hosts EarningsDashboard and a KudosDisplay history of customer kudos.
+[carApp/app/(tabs)/more/provider.tsx] — Approved providers now get a dashboard hub (Flow 5.1) with rows into My Jobs, Services & Availability, and Earnings & Kudos.
+[carApp/supabase/functions/notify-payout-processed/index.ts] — Edge Function (Flow 5.7): pushes "Payout sent" to the provider when a payout is paid.
+[carApp/supabase/functions/notify-kudos-received/index.ts] — Edge Function (Flow 5.8): pushes "You earned a kudos" to the provider on kudos insert; deep-links to More → Provider.

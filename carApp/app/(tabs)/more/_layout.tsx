@@ -27,6 +27,7 @@ export default function MoreLayout(): React.ReactElement {
       <Stack.Screen name="lug" options={{ title: 'Lug' }} />
       <Stack.Screen name="provider" options={{ title: 'Provider' }} />
       <Stack.Screen name="provider-manage" options={{ title: 'Services & Availability' }} />
+      <Stack.Screen name="provider-earnings" options={{ title: 'Earnings' }} />
       <Stack.Screen name="settings" options={{ title: 'Settings' }} />
     </Stack>
   );

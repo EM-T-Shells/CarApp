@@ -666,19 +666,24 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 ---
 
-# Section 5 — Provider Active Use
+# ✅ Section 5 — Provider Active Use ✅
 
-## Flow 5.1 — Provider sees incoming booking requests & accepts/declines
+_All flows built as of 2026-06-08. Remaining items are 🔒 external steps (yours): deploy the new Edge Functions (`update-provider-location`, `notify-payout-processed`, `notify-kudos-received`) + redeploy `stripe-webhook`, and `npx expo install expo-location`._
 
-**Goal:** Provider sees pending bookings in their dashboard and can accept, decline, or counter-offer.
+## Flow 5.1 — Provider sees & manages their jobs (dashboard hub) ✅ _(2026-06-08)_
+
+**Goal:** Provider has a dashboard hub and sees their upcoming jobs. (Per the deposit model the booking is auto-`confirmed` when the 15% deposit clears, so there is no separate accept/decline step — the provider drives the job forward via the active-job lifecycle in Flow 5.4/5.6.)
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/provider.tsx` (provider dashboard hub) | ⛔ empty file |
+| Screen | `app/(tabs)/more/provider.tsx` — approved providers get a dashboard hub: My Jobs, Services & Availability, Earnings & Kudos, application | ✅ |
+| List | Provider job list via the Bookings tab "My Jobs" toggle → routes to the active-job screen | ✅ (built Flow 2.5; routing added in Flow 5.4) |
 | Data | `getUpcomingBookingsForProvider()` | ✅ |
-| Data | `updateBooking({ status: 'confirmed' })` | ✅ |
-| Push | "New booking request" notification | ⛔ |
+| Data | `updateBooking({ status })` lifecycle transitions | ✅ (Flow 5.4/5.6) |
+| Push | "Booking confirmed" push to provider | ✅ via existing `notify-booking-confirmed` (Flow 2.9) |
+
+**Note:** accept/decline/counter-offer was dropped — it doesn't fit the deposit-auto-confirm model or the schema. Decided 2026-06-08.
 
 ---
 
@@ -756,24 +761,25 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 ---
 
-## Flow 5.7 — Provider views earnings & payouts
+## Flow 5.7 — Provider views earnings & payouts ✅ _(2026-06-08)_ — UI done; payout notify deploy awaiting 🔒
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `EarningsDashboard` | ⛔ empty file |
-| Data | `getPayoutsByProvider()`, `getPaymentsByUser()` | ✅ |
-| Edge Function | `notify-payout-processed` | ⛔ |
+| Component | `EarningsDashboard` (paid + pending totals, dated payout list) | ✅ NEW — reads `payouts` (the provider's earnings source; `getPaymentsByUser` is customer-side) |
+| Screen | `app/(tabs)/more/provider-earnings.tsx` (hosts EarningsDashboard + kudos history) | ✅ NEW |
+| Data | `getPayoutsByProvider()` | ✅ |
+| Edge Function | `notify-payout-processed` (push when a payout → paid) | ✅ written — **🔒 `supabase functions deploy notify-payout-processed`**; invoke when a payout flips to paid |
 
 ---
 
-## Flow 5.8 — Provider receives kudos / rating notifications
+## Flow 5.8 — Provider receives kudos / rating notifications ✅ _(2026-06-08)_ — UI done; kudos notify deploy awaiting 🔒
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Edge Function | `notify-kudos-received` | ⛔ |
-| UI | Kudos history view on provider dashboard | ⛔ |
+| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ written — **🔒 `supabase functions deploy notify-kudos-received`**; invoke on kudos insert |
+| UI | Kudos history on the earnings screen via `KudosDisplay` | ✅ `app/(tabs)/more/provider-earnings.tsx` |
 | Data | `getKudosForProviderUser()` | ✅ |
 
 ---
