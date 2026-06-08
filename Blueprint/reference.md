@@ -214,3 +214,4 @@
 [carApp/src/lib/supabase/mutations.ts] — Added updateUserPushToken (Flow 2.9) — typed FCM token writer; uses a localized `as never` cast until generated supabase.ts types include the new columns.
 [carApp/src/lib/stripe/index.ts] — Added refundDeposit() (Flow 2.12) — invokes the stripe-webhook `refund_deposit` action so the cancel flow can refund the deposit on non-forfeit cancellations.
 [carApp/supabase/functions/stripe-webhook/index.ts] — Added `refund_deposit` action (Flow 2.12): looks up the succeeded deposit payment, issues a Stripe refund, marks the original payment refunded and inserts a refund row; idempotent.
+[carApp/app/(tabs)/more/provider-manage.tsx] — Provider profile management screen (Flows 5.2/5.3): edits bio/coverage/radius, persists weekly availability, and hosts ServiceMenuEditor for approved providers; reached from More → Provider.

@@ -27,6 +27,7 @@ import { ServiceMenuEditor } from '../../src/components/provider/ServiceMenuEdit
 import {
   AvailabilityCalendar,
   DEFAULT_AVAILABILITY,
+  availabilityFromJson,
   type WeeklyAvailability,
 } from '../../src/components/provider/AvailabilityCalendar';
 import { colors, spacing } from '../../src/design/tokens';
@@ -66,6 +67,7 @@ export default function ProfileStep(): React.ReactElement {
         setBio(res.data.bio ?? '');
         setCoverage(res.data.coverage_area ?? '');
         setRadius(res.data.mile_radius != null ? String(res.data.mile_radius) : '');
+        setAvailability(availabilityFromJson(res.data.availability));
       }
       setLoading(false);
     });
@@ -83,6 +85,7 @@ export default function ProfileStep(): React.ReactElement {
       bio: bio.trim() || null,
       coverage_area: coverage.trim() || null,
       mile_radius: Number.isFinite(radiusNum) ? radiusNum : null,
+      availability,
     });
     if (profileRes.error) {
       setSaving(false);
@@ -151,7 +154,7 @@ export default function ProfileStep(): React.ReactElement {
       </Text>
       <Spacer size="xs" />
       <Text variant="caption" color="midGray">
-        Which days do you accept jobs? (Saved when scheduling launches.)
+        Which days do you accept jobs?
       </Text>
       <Spacer size="sm" />
       <AvailabilityCalendar value={availability} onChange={setAvailability} />

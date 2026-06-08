@@ -2,10 +2,11 @@
 // picker. Day-level for MVP (which days you accept jobs); a future iteration
 // can add per-day time windows.
 //
-// NOTE: provider_profiles has no availability column yet, so callers currently
-// hold this in local state only. Persisting it needs a schema column (e.g.
-// `availability JSONB`) + a `supabase gen types` regen before it can be written
-// through updateProviderProfile.
+// Persistence: provider_profiles.availability is a JSONB column (added in
+// Flow 5.2). The value maps 1:1 to WeeklyAvailability, so callers write it
+// straight through updateProviderProfile({ availability }); read it back with
+// availabilityFromJson() to coerce a stored Json value into a full
+// WeeklyAvailability (filling any missing days from DEFAULT_AVAILABILITY).
 
 import React from 'react';
 import { Pressable, StyleSheet, View, useColorScheme } from 'react-native';
@@ -81,6 +82,25 @@ export function AvailabilityCalendar({
       })}
     </View>
   );
+}
+
+/**
+ * Coerce a stored `provider_profiles.availability` value (Json | null) into a
+ * full WeeklyAvailability. Missing or malformed days fall back to
+ * DEFAULT_AVAILABILITY so the picker always renders a complete week.
+ */
+export function availabilityFromJson(value: unknown): WeeklyAvailability {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...DEFAULT_AVAILABILITY };
+  }
+  const record = value as Record<string, unknown>;
+  const result: WeeklyAvailability = { ...DEFAULT_AVAILABILITY };
+  for (const { key } of DAYS) {
+    if (typeof record[key] === 'boolean') {
+      result[key] = record[key] as boolean;
+    }
+  }
+  return result;
 }
 
 export default AvailabilityCalendar;

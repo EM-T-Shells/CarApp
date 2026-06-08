@@ -682,23 +682,30 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 ---
 
-## Flow 5.2 — Provider manages availability calendar
+## Flow 5.2 — Provider manages availability calendar ✅ _(2026-06-08)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `AvailabilityCalendar` | ⛔ empty file |
-| Data | Availability fields on `provider_profiles` | 🟡 schema check needed |
+| Component | `AvailabilityCalendar` | ✅ controlled weekly picker (built Flow 4.7) |
+| Data | `availability JSONB` column on `provider_profiles` | ✅ migration `add_availability_to_provider_profiles` applied + types regenerated + `schema.sql` updated |
+| Lib | `availabilityFromJson()` (coerces stored Json → `WeeklyAvailability`, fills missing days) | ✅ |
+| Screen | `app/(tabs)/more/provider-manage.tsx` (persists via `updateProviderProfile({ availability })`) | ✅ also persisted in the vetting `(provider)/profile.tsx` step |
+
+**UAT on phone:** More → Provider (approved) → Manage services & availability → toggle days → Save → force-quit/reopen → confirm the chosen days persist.
 
 ---
 
-## Flow 5.3 — Provider edits service menu
+## Flow 5.3 — Provider edits service menu ✅ _(2026-06-08)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `ServiceMenuEditor` | ⛔ empty file |
+| Component | `ServiceMenuEditor` | ✅ list + add/edit/delete (built Flow 4.7) |
 | Data | `insertServicePackage()`, `updateServicePackage()`, `deleteServicePackage()` | ✅ |
+| Screen | Surfaced in `app/(tabs)/more/provider-manage.tsx` (post-approval) + vetting `(provider)/profile.tsx` | ✅ |
+
+**UAT on phone:** More → Provider (approved) → Manage services & availability → add a service ($150 / 120 min) → it appears with price; edit/delete it.
 
 ---
 

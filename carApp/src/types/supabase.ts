@@ -618,6 +618,7 @@ export type Database = {
       provider_profiles: {
         Row: {
           approved_at: string | null
+          availability: Json | null
           avg_gear_rating: number | null
           bio: string | null
           coverage_area: string | null
@@ -635,6 +636,7 @@ export type Database = {
         }
         Insert: {
           approved_at?: string | null
+          availability?: Json | null
           avg_gear_rating?: number | null
           bio?: string | null
           coverage_area?: string | null
@@ -652,6 +654,7 @@ export type Database = {
         }
         Update: {
           approved_at?: string | null
+          availability?: Json | null
           avg_gear_rating?: number | null
           bio?: string | null
           coverage_area?: string | null
@@ -1126,7 +1129,7 @@ export type Database = {
           trim?: string | null
           user_id?: string | null
           vin?: string | null
-          year: string
+          year?: string
         }
         Relationships: [
           {

@@ -26,6 +26,7 @@ export default function MoreLayout(): React.ReactElement {
       <Stack.Screen name="admin" options={{ title: 'Admin' }} />
       <Stack.Screen name="lug" options={{ title: 'Lug' }} />
       <Stack.Screen name="provider" options={{ title: 'Provider' }} />
+      <Stack.Screen name="provider-manage" options={{ title: 'Services & Availability' }} />
       <Stack.Screen name="settings" options={{ title: 'Settings' }} />
     </Stack>
   );

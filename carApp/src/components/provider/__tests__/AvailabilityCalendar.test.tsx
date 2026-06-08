@@ -11,6 +11,7 @@ jest.mock('../../ui/Text', () => {
 import {
   AvailabilityCalendar,
   DEFAULT_AVAILABILITY,
+  availabilityFromJson,
 } from '../AvailabilityCalendar';
 
 describe('AvailabilityCalendar', () => {
@@ -33,5 +34,42 @@ describe('AvailabilityCalendar', () => {
     render(<AvailabilityCalendar value={DEFAULT_AVAILABILITY} onChange={onChange} />);
     fireEvent.press(screen.getByTestId('availability-sat'));
     expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_AVAILABILITY, sat: true });
+  });
+});
+
+describe('availabilityFromJson', () => {
+  it('returns the default week for null / undefined', () => {
+    expect(availabilityFromJson(null)).toEqual(DEFAULT_AVAILABILITY);
+    expect(availabilityFromJson(undefined)).toEqual(DEFAULT_AVAILABILITY);
+  });
+
+  it('returns the default week for non-object values (string, array)', () => {
+    expect(availabilityFromJson('mon')).toEqual(DEFAULT_AVAILABILITY);
+    expect(availabilityFromJson(['mon', 'tue'])).toEqual(DEFAULT_AVAILABILITY);
+  });
+
+  it('round-trips a full stored week', () => {
+    const stored = {
+      mon: false,
+      tue: false,
+      wed: true,
+      thu: true,
+      fri: false,
+      sat: true,
+      sun: true,
+    };
+    expect(availabilityFromJson(stored)).toEqual(stored);
+  });
+
+  it('fills missing days from the default and ignores non-boolean values', () => {
+    // Only weekend keys provided; weekdays should fall back to DEFAULT.
+    const result = availabilityFromJson({ sat: true, sun: true, mon: 'yes' });
+    expect(result).toEqual({
+      ...DEFAULT_AVAILABILITY,
+      sat: true,
+      sun: true,
+    });
+    // 'mon' was a non-boolean → falls back to the default (true).
+    expect(result.mon).toBe(true);
   });
 });

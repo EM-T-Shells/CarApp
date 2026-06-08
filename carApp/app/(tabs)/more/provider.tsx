@@ -193,9 +193,10 @@ interface StatusProps {
   palette: Palette;
   approved: boolean;
   onOpen: () => void;
+  onManage: () => void;
 }
 
-function ProviderStatus({ palette, approved, onOpen }: StatusProps): React.ReactElement {
+function ProviderStatus({ palette, approved, onOpen, onManage }: StatusProps): React.ReactElement {
   return (
     <ScrollView
       style={{ backgroundColor: palette.offWhite }}
@@ -215,13 +216,25 @@ function ProviderStatus({ palette, approved, onOpen }: StatusProps): React.React
       <Spacer size="sm" />
       <Text variant="body" color="midGray">
         {approved
-          ? 'Your account is approved. The jobs & earnings dashboard is coming soon.'
+          ? 'Your account is approved. Manage your services and availability below; the full jobs & earnings dashboard is coming soon.'
           : 'Pick up where you left off and complete the remaining steps to go live.'}
       </Text>
       <Spacer size="xl" />
+      {approved && (
+        <>
+          <Button
+            label="Manage services & availability"
+            variant="primary"
+            size="lg"
+            onPress={onManage}
+            testID="provider-manage"
+          />
+          <Spacer size="sm" />
+        </>
+      )}
       <Button
         label={approved ? 'View application' : 'Continue application'}
-        variant="primary"
+        variant={approved ? 'secondary' : 'primary'}
         size="lg"
         onPress={onOpen}
         testID="provider-continue"
@@ -264,6 +277,10 @@ export default function ProviderScreen(): React.ReactElement {
     router.push('/(provider)/vetting');
   }, [router]);
 
+  const openManage = useCallback(() => {
+    router.push('/(tabs)/more/provider-manage');
+  }, [router]);
+
   if (loading) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.offWhite }]}>
@@ -279,6 +296,7 @@ export default function ProviderScreen(): React.ReactElement {
         palette={palette}
         approved={profile.verification_status === 'approved'}
         onOpen={openVetting}
+        onManage={openManage}
       />
     );
   }
