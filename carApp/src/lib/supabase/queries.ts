@@ -54,6 +54,13 @@ export type BookingSummary = Booking & {
   vehicles: Pick<Vehicle, 'id' | 'year' | 'make' | 'model' | 'color'> | null
 }
 
+// Provider-facing view of a booking — same as BookingSummary but also joins
+// the customer's public profile (the provider needs the customer's name on
+// the active-job screen). Used by getProviderJobById (Flows 5.4–5.6).
+export type ProviderJobSummary = BookingSummary & {
+  customer: ProviderSummary | null
+}
+
 export type MessageThreadSummary = MessageThread & {
   bookings: Pick<Booking, 'id' | 'status' | 'scheduled_at'> | null
   provider_profiles:
@@ -322,6 +329,30 @@ export function getBookingById(
       .eq('id', bookingId)
       .single()
       .returns<BookingSummary>(),
+  )
+}
+
+// Provider job detail — joins the customer's public profile in addition to
+// the provider + vehicle, so the active-job screen can show who the job is
+// for. Reached from the Bookings "My Jobs" tab (Flows 5.4–5.6).
+const PROVIDER_JOB_SELECT = `*,
+  provider_profiles(
+    id, bio, avg_gear_rating,
+    users:users_public(id, full_name, avatar_url)
+  ),
+  vehicles(id, year, make, model, color),
+  customer:users_public!customer_id(id, full_name, avatar_url)`
+
+export function getProviderJobById(
+  bookingId: string,
+): Promise<QueryResult<ProviderJobSummary>> {
+  return runSingle<ProviderJobSummary>(
+    supabase
+      .from('bookings')
+      .select(PROVIDER_JOB_SELECT)
+      .eq('id', bookingId)
+      .single()
+      .returns<ProviderJobSummary>(),
   )
 }
 

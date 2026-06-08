@@ -709,45 +709,50 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 ---
 
-## Flow 5.4 — Provider navigates to a job + sends live GPS
+## Flow 5.4 — Provider navigates to a job + sends live GPS ✅ _(2026-06-08)_ — code done; deploy + installs awaiting 🔒
 
-**Goal:** When a booking goes `en_route`, the provider app pushes GPS updates every 5 seconds to Redis (and periodically to Postgres for last-known fallback).
+**Goal:** When a booking goes `en_route`/`in_progress`, the provider app streams GPS every 5s so the customer tracking screen (Flow 2.8) updates.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `src/lib/location/index.ts` | ⛔ empty file |
-| Lib | `src/lib/redis/index.ts` | ⛔ empty file |
-| Component | `LiveMap` (provider-side view with directions to customer) | ⛔ empty file |
-| External | `expo-location` background permission | ⛔ verify config |
-| External | Redis URL in Supabase secrets | 🔒 |
+| Lib | `src/lib/location/index.ts` (distance/ETA math) | ✅ (built Flow 2.8) |
+| Lib | `src/lib/location/tracking.ts` (`sendProviderLocation` → Edge Function) | ✅ NEW |
+| Edge Function | `update-provider-location` (verifies ownership, upserts `provider_location_cache` with service role — app never writes it directly per CLAUDE.md) | ✅ written — **🔒 `supabase functions deploy update-provider-location`** |
+| Screen | `app/(tabs)/bookings/job/[bookingId].tsx` runs the `expo-location` watcher while active + "Open in Maps" hand-off for real turn-by-turn | ✅ |
+| Component | `LiveMap` (customer-facing OSM map) | ✅ reused; provider directions use the native maps hand-off (no routing API per CLAUDE.md OSM note) |
+| Lib | `src/lib/redis/index.ts` | ⛔ deferred — Postgres `provider_location_cache` is the write target for now; Redis swaps in behind the same Edge Function later |
+| External | `expo-location` install + foreground permission | 🔒 _(yours)_ — `npx expo install expo-location` (approved, not yet installed) |
+| External | Redis URL in Supabase secrets | 🔒 deferred |
 
 ---
 
-## Flow 5.5 — Provider uploads before/after photos
+## Flow 5.5 — Provider uploads before/after photos ✅ _(2026-06-08)_
 
-**Goal:** Provider uses in-app camera to capture and upload required before/after photos (4 minimum to complete a job).
+**Goal:** Provider captures before/after photos during an active job (≥4 to complete).
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `uploadBookingPhoto()` | ✅ |
+| Lib | `uploadBookingPhoto()`, `getSignedUrl()` | ✅ |
 | Data | `insertBookingPhoto()` | ✅ |
-| UI | Camera screen + gallery in active-booking provider view | ⛔ |
-| External | `expo-camera` permissions | ⛔ verify package |
+| Component | `JobPhotoCapture` (camera/library via `expo-image-picker`; stores a signed URL so the private-bucket photo renders in the existing gallery) | ✅ NEW |
+| UI | Photo capture in the provider active-job screen + ≥4-photo gate on "Complete Job" | ✅ |
+| External | `expo-camera` | n/a — uses the already-installed `expo-image-picker` camera source |
 
 ---
 
-## Flow 5.6 — Provider marks job complete → Stripe captures remainder
+## Flow 5.6 — Provider marks job complete → Stripe captures remainder ✅ _(2026-06-08)_ — code done; deploy awaiting 🔒
 
-**Goal:** Provider taps "Complete Job" → backend captures remaining 85% via Stripe → payout queued.
+**Goal:** Provider taps "Complete Job" → backend captures remaining 85% via Stripe → booking completed + payout queued.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | "Complete Job" button in provider's active booking view | ⛔ |
-| Edge Function | `stripe-webhook` extended to handle balance capture | 🟡 only deposit creation today |
-| Data | `updateBooking({ status: 'completed' })` | ✅ |
+| UI | "Complete Job" button in `bookings/job/[bookingId].tsx` | ✅ |
+| Lib | `captureBalance()` client helper | ✅ NEW |
+| Edge Function | `stripe-webhook` `capture_balance` action — off-session charge of the 85% balance, records `balance` payment, sets booking `completed`, queues a `pending` payout, bumps `total_jobs`. Deposit intent now sets `setup_future_usage: 'off_session'` so the card is reusable. | ✅ — **🔒 `supabase functions deploy stripe-webhook`** |
+| Data | `updateBooking({ status })` for en_route/in_progress transitions | ✅ |
 
 ---
 

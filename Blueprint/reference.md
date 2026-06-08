@@ -215,3 +215,8 @@
 [carApp/src/lib/stripe/index.ts] — Added refundDeposit() (Flow 2.12) — invokes the stripe-webhook `refund_deposit` action so the cancel flow can refund the deposit on non-forfeit cancellations.
 [carApp/supabase/functions/stripe-webhook/index.ts] — Added `refund_deposit` action (Flow 2.12): looks up the succeeded deposit payment, issues a Stripe refund, marks the original payment refunded and inserts a refund row; idempotent.
 [carApp/app/(tabs)/more/provider-manage.tsx] — Provider profile management screen (Flows 5.2/5.3): edits bio/coverage/radius, persists weekly availability, and hosts ServiceMenuEditor for approved providers; reached from More → Provider.
+[carApp/app/(tabs)/bookings/job/[bookingId].tsx] — Provider active-job screen (Flows 5.4/5.5/5.6): job lifecycle buttons (Start Travel → Arrived → Complete), 5s GPS streaming, before/after photo capture, and balance capture on completion.
+[carApp/src/components/provider/JobPhotoCapture.tsx] — Before/after photo capture (Flow 5.5): expo-image-picker camera/library → uploadBookingPhoto → signed URL → insertBookingPhoto.
+[carApp/src/lib/location/tracking.ts] — sendProviderLocation (Flow 5.4): client GPS sender that invokes the update-provider-location Edge Function (keeps the app off provider_location_cache directly).
+[carApp/supabase/functions/update-provider-location/index.ts] — Edge Function (Flow 5.4): verifies the caller owns the provider profile, then upserts provider_location_cache with the service role.
+[carApp/supabase/functions/stripe-webhook/index.ts] — Added capture_balance action (Flow 5.6): off-session charge of the remaining 85%, records a balance payment, completes the booking, queues the provider payout; deposit intent now saves the card via setup_future_usage.

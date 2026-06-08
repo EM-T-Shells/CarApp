@@ -36,6 +36,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 // ── Entry point ───────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -68,6 +75,8 @@ async function handleAppAction(req: Request): Promise<Response> {
   switch (body.action) {
     case 'create_deposit_intent':
       return await createDepositIntent(body as { action: string; booking_id: string; amount: number });
+    case 'capture_balance':
+      return await captureBalance(body as { action: string; booking_id: string });
     case 'refund_deposit':
       return await refundDeposit(body as { action: string; booking_id: string });
     default:
@@ -145,6 +154,9 @@ async function createDepositIntent(body: {
     currency: 'usd',
     customer: stripeCustomerId,
     automatic_payment_methods: { enabled: true },
+    // Save the card so the remaining 85% balance can be charged off-session
+    // when the provider completes the job (Flow 5.6 capture_balance).
+    setup_future_usage: 'off_session',
     metadata: {
       booking_id,
       payment_type: 'deposit',
@@ -261,6 +273,186 @@ async function refundDeposit(body: {
     JSON.stringify({ ok: true, refund_id: refund.id, status: refund.status }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   );
+}
+
+// ── Capture balance (Flow 5.6) ────────────────────────────────────────
+//
+// Called when a provider marks a job complete. Charges the customer's saved
+// card for the remaining 85% off-session, records a `balance` payment row,
+// transitions the booking to `completed`, and queues the provider payout.
+// Idempotent: a second call after the balance already succeeded re-completes
+// the booking (if needed) and returns ok without double-charging.
+
+async function captureBalance(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const { booking_id } = body;
+
+  const { data: booking, error: bookingError } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status, total_amount, deposit_amount, provider_payout')
+    .eq('id', booking_id)
+    .single();
+
+  if (bookingError || !booking) {
+    return jsonResponse({ error: 'Booking not found' }, 404);
+  }
+
+  if (booking.status === 'cancelled') {
+    return jsonResponse({ error: 'Booking is cancelled' }, 409);
+  }
+
+  // Idempotency — if a balance payment already succeeded, just finish.
+  const { data: existingBalance } = await supabase
+    .from('payments')
+    .select('id, status')
+    .eq('booking_id', booking_id)
+    .eq('payment_type', 'balance')
+    .eq('status', 'succeeded')
+    .maybeSingle();
+
+  if (existingBalance) {
+    await completeAndQueuePayout(booking);
+    return jsonResponse({ ok: true, skipped: 'already captured' }, 200);
+  }
+
+  const total = Number(booking.total_amount ?? 0);
+  const deposit = Number(booking.deposit_amount ?? 0);
+  const balanceCents = Math.round(Math.max(total - deposit, 0) * 100);
+
+  // No remaining balance — complete the job and queue payout without a charge.
+  if (balanceCents <= 0) {
+    await completeAndQueuePayout(booking);
+    return jsonResponse({ ok: true, skipped: 'no balance' }, 200);
+  }
+
+  // Resolve the customer's saved payment method from the deposit PaymentIntent.
+  const { data: depositPayment } = await supabase
+    .from('payments')
+    .select('stripe_payment_intent_id')
+    .eq('booking_id', booking_id)
+    .eq('payment_type', 'deposit')
+    .eq('status', 'succeeded')
+    .maybeSingle();
+
+  let paymentMethodId: string | null = null;
+  let customerId: string | null = null;
+
+  if (depositPayment?.stripe_payment_intent_id) {
+    const depositIntent = await stripe.paymentIntents.retrieve(
+      depositPayment.stripe_payment_intent_id,
+    );
+    paymentMethodId =
+      typeof depositIntent.payment_method === 'string'
+        ? depositIntent.payment_method
+        : depositIntent.payment_method?.id ?? null;
+    customerId =
+      typeof depositIntent.customer === 'string'
+        ? depositIntent.customer
+        : depositIntent.customer?.id ?? null;
+  }
+
+  // Fallback: the user's stored Stripe customer id.
+  if (!customerId) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('stripe_customer_id')
+      .eq('id', booking.customer_id)
+      .single();
+    customerId = user?.stripe_customer_id ?? null;
+  }
+
+  if (!customerId || !paymentMethodId) {
+    return jsonResponse(
+      { error: 'No saved payment method on file to charge the balance' },
+      422,
+    );
+  }
+
+  let balanceIntent: Stripe.PaymentIntent;
+  try {
+    balanceIntent = await stripe.paymentIntents.create({
+      amount: balanceCents,
+      currency: 'usd',
+      customer: customerId,
+      payment_method: paymentMethodId,
+      off_session: true,
+      confirm: true,
+      metadata: { booking_id, payment_type: 'balance' },
+    });
+  } catch (err) {
+    // Off-session charges can require customer authentication (3DS) or be
+    // declined; surface the message so the provider can ask the customer.
+    const message = err instanceof Error ? err.message : 'Balance charge failed';
+    return jsonResponse({ error: message }, 402);
+  }
+
+  await supabase.from('payments').insert({
+    booking_id,
+    user_id: booking.customer_id,
+    stripe_payment_intent_id: balanceIntent.id,
+    payment_type: 'balance',
+    amount: balanceCents / 100,
+    status: balanceIntent.status === 'succeeded' ? 'succeeded' : 'pending',
+  });
+
+  await completeAndQueuePayout(booking);
+
+  return jsonResponse(
+    { ok: true, payment_intent_id: balanceIntent.id, status: balanceIntent.status },
+    200,
+  );
+}
+
+// Transition a booking to completed and queue the provider's payout. Both
+// writes are guarded so repeated calls are safe.
+async function completeAndQueuePayout(booking: {
+  id: string;
+  provider_id: string | null;
+  provider_payout: number | null;
+}): Promise<void> {
+  const now = new Date().toISOString();
+
+  await supabase
+    .from('bookings')
+    .update({ status: 'completed', completed_at: now, updated_at: now })
+    .eq('id', booking.id)
+    .neq('status', 'completed');
+
+  if (!booking.provider_id) return;
+
+  const payoutAmount = Number(booking.provider_payout ?? 0);
+
+  // One payout row per booking.
+  const { data: existingPayout } = await supabase
+    .from('payouts')
+    .select('id')
+    .eq('booking_id', booking.id)
+    .maybeSingle();
+
+  if (!existingPayout && payoutAmount > 0) {
+    await supabase.from('payouts').insert({
+      provider_id: booking.provider_id,
+      booking_id: booking.id,
+      amount: payoutAmount,
+      status: 'pending',
+    });
+  }
+
+  // Bump the provider's completed-job count.
+  const { data: profile } = await supabase
+    .from('provider_profiles')
+    .select('total_jobs')
+    .eq('id', booking.provider_id)
+    .single();
+
+  if (profile) {
+    await supabase
+      .from('provider_profiles')
+      .update({ total_jobs: (profile.total_jobs ?? 0) + 1 })
+      .eq('id', booking.provider_id);
+  }
 }
 
 // ── Stripe webhook events ─────────────────────────────────────────────
