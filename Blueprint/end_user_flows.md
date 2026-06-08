@@ -668,7 +668,7 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 # ✅ Section 5 — Provider Active Use ✅
 
-_All flows built as of 2026-06-08. Remaining items are 🔒 external steps (yours): deploy the new Edge Functions (`update-provider-location`, `notify-payout-processed`, `notify-kudos-received`) + redeploy `stripe-webhook`, and `npx expo install expo-location`._
+_All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook` v3, `update-provider-location`, `notify-payout-processed`, `notify-kudos-received`). Remaining 🔒 items (yours): `npx expo install expo-location` (provider GPS screen), set `FCM_SERVER_KEY` for push, and wire invocation of the notify functions (DB trigger/webhook or client call) — the notify functions are deployed but nothing auto-calls them yet._
 
 ## Flow 5.1 — Provider sees & manages their jobs (dashboard hub) ✅ _(2026-06-08)_
 
@@ -723,7 +723,7 @@ _All flows built as of 2026-06-08. Remaining items are 🔒 external steps (your
 |---|---|---|
 | Lib | `src/lib/location/index.ts` (distance/ETA math) | ✅ (built Flow 2.8) |
 | Lib | `src/lib/location/tracking.ts` (`sendProviderLocation` → Edge Function) | ✅ NEW |
-| Edge Function | `update-provider-location` (verifies ownership, upserts `provider_location_cache` with service role — app never writes it directly per CLAUDE.md) | ✅ written — **🔒 `supabase functions deploy update-provider-location`** |
+| Edge Function | `update-provider-location` (verifies ownership, upserts `provider_location_cache` with service role — app never writes it directly per CLAUDE.md) | ✅ deployed (v1, 2026-06-08) |
 | Screen | `app/(tabs)/bookings/job/[bookingId].tsx` runs the `expo-location` watcher while active + "Open in Maps" hand-off for real turn-by-turn | ✅ |
 | Component | `LiveMap` (customer-facing OSM map) | ✅ reused; provider directions use the native maps hand-off (no routing API per CLAUDE.md OSM note) |
 | Lib | `src/lib/redis/index.ts` | ⛔ deferred — Postgres `provider_location_cache` is the write target for now; Redis swaps in behind the same Edge Function later |
@@ -756,7 +756,7 @@ _All flows built as of 2026-06-08. Remaining items are 🔒 external steps (your
 |---|---|---|
 | UI | "Complete Job" button in `bookings/job/[bookingId].tsx` | ✅ |
 | Lib | `captureBalance()` client helper | ✅ NEW |
-| Edge Function | `stripe-webhook` `capture_balance` action — off-session charge of the 85% balance, records `balance` payment, sets booking `completed`, queues a `pending` payout, bumps `total_jobs`. Deposit intent now sets `setup_future_usage: 'off_session'` so the card is reusable. | ✅ — **🔒 `supabase functions deploy stripe-webhook`** |
+| Edge Function | `stripe-webhook` `capture_balance` action — off-session charge of the 85% balance, records `balance` payment, sets booking `completed`, queues a `pending` payout, bumps `total_jobs`. Deposit intent now sets `setup_future_usage: 'off_session'` so the card is reusable. | ✅ deployed (v3, 2026-06-08) |
 | Data | `updateBooking({ status })` for en_route/in_progress transitions | ✅ |
 
 ---
@@ -769,7 +769,7 @@ _All flows built as of 2026-06-08. Remaining items are 🔒 external steps (your
 | Component | `EarningsDashboard` (paid + pending totals, dated payout list) | ✅ NEW — reads `payouts` (the provider's earnings source; `getPaymentsByUser` is customer-side) |
 | Screen | `app/(tabs)/more/provider-earnings.tsx` (hosts EarningsDashboard + kudos history) | ✅ NEW |
 | Data | `getPayoutsByProvider()` | ✅ |
-| Edge Function | `notify-payout-processed` (push when a payout → paid) | ✅ written — **🔒 `supabase functions deploy notify-payout-processed`**; invoke when a payout flips to paid |
+| Edge Function | `notify-payout-processed` (push when a payout → paid) | ✅ deployed (v1, 2026-06-08); needs to be invoked when a payout flips to paid + `FCM_SERVER_KEY` for push |
 
 ---
 
@@ -778,7 +778,7 @@ _All flows built as of 2026-06-08. Remaining items are 🔒 external steps (your
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ written — **🔒 `supabase functions deploy notify-kudos-received`**; invoke on kudos insert |
+| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ deployed (v1, 2026-06-08); needs to be invoked on kudos insert + `FCM_SERVER_KEY` for push |
 | UI | Kudos history on the earnings screen via `KudosDisplay` | ✅ `app/(tabs)/more/provider-earnings.tsx` |
 | Data | `getKudosForProviderUser()` | ✅ |
 
