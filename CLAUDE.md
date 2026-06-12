@@ -336,6 +336,8 @@ After every code change, write the appropriate tests before considering the task
 | Supabase queries / mutations | Integration | Jest + mocked Supabase client | `__tests__/` adjacent to file |
 | Complete user flows | E2E | Maestro | `e2e/` at project root |
 
+**Regression rule — run the saved suite after every source change.** All unit and integration tests are committed under `__tests__/` folders and run via `npm test` (Jest) from `carApp/`. After making any change to source code, run the full suite with `npm test` and confirm it passes before considering the task complete. New tests you write must be saved in the appropriate `__tests__/` folder so they become part of this regression suite — never leave tests unsaved or excluded from the default `npm test` run.
+
 ---
 
 ## Git Conventions

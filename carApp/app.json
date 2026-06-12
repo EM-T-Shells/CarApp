@@ -42,6 +42,12 @@
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CarApp uses your location to share your live position with the customer during an active job."
+        }
+      ],
+      [
         "@stripe/stripe-react-native",
         {
           "merchantIdentifier": "merchant.com.emre.carapp",
