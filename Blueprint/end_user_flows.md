@@ -324,7 +324,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Lib | `src/lib/redis/index.ts` (GPS cache reads) | ⛔ deferred — customer side polls `provider_location_cache` (Postgres) every 5s per CLAUDE.md |
 | Data | `getProviderLocation()` (Postgres fallback) | ✅ |
 | External | ~~Google Maps API key~~ — switched to free OSM tiles | n/a |
-| External | `react-native-maps` install + config | ⛔ user-handled (approved in `dependencies_list`) |
+| External | `react-native-maps` install + config | ✅ installed (OSM tiles, no API key/config needed) |
 | External | Redis URL set in Supabase secrets | 🔒 user-handled (only needed for provider-side writes / Flow 5.4) |
 
 **UAT on phone:** With an active booking, tap Track → map renders → provider pin updates. (Requires the provider side to be sending GPS — Flow 5.4.)
@@ -339,11 +339,11 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Type | Item | Status |
 |---|---|---|
 | Lib | `src/lib/notifications/push.ts` (FCM token registration + refresh + tap routing) | ✅ |
-| Schema | `users.fcm_token`, `users.fcm_token_platform`, `users.fcm_token_updated_at` | ✅ (added to `schema.sql` — apply ALTER + regen types before use) |
-| Mutation | `updateUserPushToken()` | ✅ (interim cast until `gen types` re-runs) |
-| Edge Function | `notify-booking-confirmed` | ✅ |
-| Edge Function | `notify-provider-enroute` | ✅ |
-| Edge Function | `notify-job-complete` | ✅ |
+| Schema | `users.fcm_token`, `users.fcm_token_platform`, `users.fcm_token_updated_at` | ✅ migration `fcm_token_columns` applied + types regenerated |
+| Mutation | `updateUserPushToken()` | ✅ |
+| Edge Function | `notify-booking-confirmed` | ✅ deployed (v1, 2026-06-15); invoked server-side from `stripe-webhook` on deposit→confirmed |
+| Edge Function | `notify-provider-enroute` | ✅ deployed (v1, 2026-06-15); invoked client-side from `updateBooking` on status→en_route |
+| Edge Function | `notify-job-complete` | ✅ deployed (v1, 2026-06-15); invoked server-side from `stripe-webhook` on job→completed |
 | Edge Function | shared `_shared/fcm.ts` (Legacy FCM HTTP + in-app `notifications` row) | ✅ |
 | External | FCM credentials in `app.json` | ✅ Firebase configured |
 | External | `FCM_SERVER_KEY` secret in Supabase | 🔒 user-handled (`supabase secrets set FCM_SERVER_KEY=…`) |
@@ -517,7 +517,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Component | `LugBubble` floating button | ✅ FAB, navigates to the full-screen Lug view |
 | Component | `LugThread` conversation UI | ✅ chat + persistent "Talk to a person" CTA that becomes primary after 2 consecutive human-help turns (CLAUDE.md rule) |
 | Screen | `app/(tabs)/more/lug.tsx` (full-screen view) | ✅ hosts LugThread; "Talk to a person" opens a support thread in the inbox |
-| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ✅ written — functional Deno scaffold with the CarApp system prompt; returns 503 until the key is set & it's deployed |
+| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ✅ deployed (v1, 2026-06-15); returns 503 until `ANTHROPIC_API_KEY` is set |
 | External | `ANTHROPIC_API_KEY` set in Supabase secrets | 🔒 _(yours)_ — also `supabase functions deploy lug-ai` |
 | Mount | Floating bubble must mount in `(tabs)/_layout.tsx` to be persistent | ✅ wraps `<Tabs>` so the FAB overlays every tab |
 
@@ -554,9 +554,7 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 | State | `providerDraft` Zustand store | ✅ |
 | Data | `insertProviderProfile()`, `updateUser({ role: 'both' })` | ✅ |
 | Gate | Root auth gate allows the `(provider)` group for signed-in users | ✅ |
-| Backend | `create_provider_vetting_row` trigger seeds `provider_vetting` on profile insert | ✅ written in `schema.sql` — **🔒 apply migration to live DB** |
-
-**Note (🔒 your step):** apply the new `create_provider_vetting_row` trigger to your Supabase project (it's in `carApp/supabase/schema.sql`). Without it the vetting row won't exist and step statuses stay "Not started".
+| Backend | `create_provider_vetting_row` trigger seeds `provider_vetting` on profile insert | ✅ migration `create_provider_vetting_row_trigger` applied to live DB (verified 2026-06-15) |
 
 **UAT on phone:** More → Become a Provider → pick Detailer → Start application → lands on the vetting hub showing 6 steps with statuses. Re-open More → Provider → "Continue application" returns to the hub.
 
@@ -571,7 +569,7 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 |---|---|---|
 | Screen | Vetting → Identity step (`app/(provider)/identity.tsx`) | ✅ manual gov-ID photo upload via `VettingUploadStep` → `identity_status: 'submitted'` |
 | Lib | `src/lib/persona/index.ts` | ✅ stub (`startPersonaInquiry` → not configured) |
-| Edge Function | `persona-webhook` | ✅ stub (maps inquiry status → `identity_status`; 503 until secret set) |
+| Edge Function | `persona-webhook` | ✅ deployed (v1, 2026-06-15, `verify_jwt: false`); maps inquiry status → `identity_status`; 503 until secret set |
 | Component | `VettingStepIndicator` | ✅ |
 | Component | `CredentialUpload` | ✅ |
 | Data | `updateProviderVetting({ identity_status })` | ✅ |
@@ -586,7 +584,7 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 |---|---|---|
 | Screen | Vetting → Background step (`app/(provider)/background.tsx`) | ✅ consent → `background_status: 'submitted'` via `VettingActionStep` |
 | Lib | `src/lib/checkr/index.ts` | ✅ stub (`startBackgroundCheck` → not configured) |
-| Edge Function | `checkr-webhook` | ✅ stub (maps report status → `background_status`; 503 until secret set) |
+| Edge Function | `checkr-webhook` | ✅ deployed (v1, 2026-06-15, `verify_jwt: false`); maps report status → `background_status`; 503 until secret set |
 | Data | `updateProviderVetting({ background_status })` | ✅ |
 | External | Checkr API key | 🔒 _(yours)_ — real report runs server-side once set |
 
@@ -668,7 +666,7 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 # ✅ Section 5 — Provider Active Use ✅
 
-_All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook` v3, `update-provider-location`, `notify-payout-processed`, `notify-kudos-received`). Remaining 🔒 items (yours): `npx expo install expo-location` (provider GPS screen), set `FCM_SERVER_KEY` for push, and wire invocation of the notify functions (DB trigger/webhook or client call) — the notify functions are deployed but nothing auto-calls them yet._
+_All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook` v4, `update-provider-location`, `notify-payout-processed`, `notify-kudos-received`, plus the Section 2/3/4 functions deployed 2026-06-15). Notify invocation is now wired: `notify-booking-confirmed` + `notify-job-complete` fire server-side from `stripe-webhook`; `notify-provider-enroute` + `notify-kudos-received` fire client-side from `updateBooking`/`insertKudos`. `expo-location` + `react-native-maps` are installed. Remaining 🔒 items (yours): set `FCM_SERVER_KEY` for the actual push send, and decide an invocation source for `notify-payout-processed` (no payout→paid event exists in-app yet — fires when you settle Connect payouts)._
 
 ## Flow 5.1 — Provider sees & manages their jobs (dashboard hub) ✅ _(2026-06-08)_
 
@@ -727,7 +725,7 @@ _All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook`
 | Screen | `app/(tabs)/bookings/job/[bookingId].tsx` runs the `expo-location` watcher while active + "Open in Maps" hand-off for real turn-by-turn | ✅ |
 | Component | `LiveMap` (customer-facing OSM map) | ✅ reused; provider directions use the native maps hand-off (no routing API per CLAUDE.md OSM note) |
 | Lib | `src/lib/redis/index.ts` | ⛔ deferred — Postgres `provider_location_cache` is the write target for now; Redis swaps in behind the same Edge Function later |
-| External | `expo-location` install + foreground permission | 🔒 _(yours)_ — `npx expo install expo-location` (approved, not yet installed) |
+| External | `expo-location` install + foreground permission | ✅ installed; `app.json` has the `locationWhenInUsePermission` string |
 | External | Redis URL in Supabase secrets | 🔒 deferred |
 
 ---
@@ -778,7 +776,7 @@ _All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook`
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ deployed (v1, 2026-06-08); needs to be invoked on kudos insert + `FCM_SERVER_KEY` for push |
+| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ deployed (v1, 2026-06-08); now invoked from `insertKudos`; needs `FCM_SERVER_KEY` for the push send |
 | UI | Kudos history on the earnings screen via `KudosDisplay` | ✅ `app/(tabs)/more/provider-earnings.tsx` |
 | Data | `getKudosForProviderUser()` | ✅ |
 

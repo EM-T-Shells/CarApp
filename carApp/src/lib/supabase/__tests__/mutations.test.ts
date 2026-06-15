@@ -30,10 +30,14 @@ function makeBuilder(
 }
 
 const mockFrom = jest.fn()
+const mockInvoke = jest.fn(() => Promise.resolve({ data: null, error: null }))
 
 jest.mock('../client', () => ({
   supabase: {
     from: (...args: unknown[]) => mockFrom(...args),
+    functions: {
+      invoke: (...args: unknown[]) => mockInvoke(...args),
+    },
   },
 }))
 
@@ -266,6 +270,20 @@ describe('updateBooking', () => {
 
     expect(result.data).toEqual(booking)
     expect(builder.eq).toHaveBeenCalledWith('id', 'b1')
+    // confirmed/completed pushes fire server-side, not from this mutation.
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  it('fires the en-route push when status transitions to en_route', async () => {
+    const booking = { id: 'b1', status: 'en_route' }
+    const builder = makeBuilder({ data: booking, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await updateBooking('b1', { status: 'en_route' })
+
+    expect(mockInvoke).toHaveBeenCalledWith('notify-provider-enroute', {
+      body: { booking_id: 'b1' },
+    })
   })
 })
 
@@ -342,6 +360,9 @@ describe('insertKudos', () => {
 
     expect(result.data).toEqual(kudos)
     expect(mockFrom).toHaveBeenCalledWith('kudos')
+    expect(mockInvoke).toHaveBeenCalledWith('notify-kudos-received', {
+      body: { kudos_id: 'k1' },
+    })
   })
 })
 

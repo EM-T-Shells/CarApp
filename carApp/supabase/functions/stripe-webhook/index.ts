@@ -43,6 +43,20 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
+// Fire-and-forget invocation of a notify-* Edge Function. Pushes are
+// best-effort, so a failure here must never roll back the payment / booking
+// writes that triggered it.
+async function fireNotify(
+  fn: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await supabase.functions.invoke(fn, { body });
+  } catch (err) {
+    console.warn(`${fn} invoke failed`, err);
+  }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -414,11 +428,18 @@ async function completeAndQueuePayout(booking: {
 }): Promise<void> {
   const now = new Date().toISOString();
 
-  await supabase
+  const { data: justCompleted } = await supabase
     .from('bookings')
     .update({ status: 'completed', completed_at: now, updated_at: now })
     .eq('id', booking.id)
-    .neq('status', 'completed');
+    .neq('status', 'completed')
+    .select('id');
+
+  // Send the "rate your provider" push only on the real transition to
+  // completed (not on idempotent re-runs of capture_balance).
+  if (justCompleted && justCompleted.length > 0) {
+    await fireNotify('notify-job-complete', { booking_id: booking.id });
+  }
 
   if (!booking.provider_id) return;
 
@@ -509,11 +530,18 @@ async function onPaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent): Pr
 
   // Deposit success → transition the booking from pending → confirmed.
   if (payment_type === 'deposit' && booking_id) {
-    await supabase
+    const { data: confirmed } = await supabase
       .from('bookings')
       .update({ status: 'confirmed', updated_at: new Date().toISOString() })
       .eq('id', booking_id)
-      .eq('status', 'pending'); // Guard: only move forward if still pending.
+      .eq('status', 'pending') // Guard: only move forward if still pending.
+      .select('id');
+
+    // Only notify on the real pending → confirmed transition so retried
+    // webhook deliveries don't double-send.
+    if (confirmed && confirmed.length > 0) {
+      await fireNotify('notify-booking-confirmed', { booking_id });
+    }
   }
 }
 
