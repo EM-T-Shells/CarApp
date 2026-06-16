@@ -225,3 +225,5 @@
 [carApp/app/(tabs)/more/provider.tsx] — Approved providers now get a dashboard hub (Flow 5.1) with rows into My Jobs, Services & Availability, and Earnings & Kudos.
 [carApp/supabase/functions/notify-payout-processed/index.ts] — Edge Function (Flow 5.7): pushes "Payout sent" to the provider when a payout is paid.
 [carApp/supabase/functions/notify-kudos-received/index.ts] — Edge Function (Flow 5.8): pushes "You earned a kudos" to the provider on kudos insert; deep-links to More → Provider.
+[carApp/src/components/auth/OnboardingHeader.tsx] — Shared dark-indigo header for the account-creation flow: brand wordmark, optional back chevron, and progress dots; owns the top safe-area inset.
+[carApp/src/state/signUpSubmit.ts] — Single onboarding write path: inserts the users row (+ primary vehicle for customer/both), pushes the new row into the auth store, and resets the draft so the root gate routes into the app.
