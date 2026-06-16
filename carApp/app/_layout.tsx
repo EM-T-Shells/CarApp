@@ -85,7 +85,7 @@ function useProtectedRoute(): void {
     // (profile → role → vehicle → review) can run uninterrupted.
     if (!user) {
       if (!inOnboarding) {
-        router.replace('/(auth)/onboarding/profile');
+        router.replace('/(auth)/onboarding/role');
       }
       return;
     }

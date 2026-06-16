@@ -14,13 +14,15 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Hourglass } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import tokens from '../../src/design/tokens';
 import { textStyles } from '../../src/design/typography';
+import { OnboardingHeader } from '../../src/components/auth/OnboardingHeader';
 import { signOut } from '../../src/lib/supabase/auth';
 import { useAuthStore } from '../../src/state/auth';
 import {
@@ -120,10 +122,14 @@ export default function PendingApprovalScreen(): React.ReactElement {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <OnboardingHeader />
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>You&apos;re almost there</Text>
+          <View style={styles.iconCircle}>
+            <Hourglass size={34} color={tokens.colors.light.gearGold} />
+          </View>
+          <Text style={styles.title}>You&apos;re on the list!</Text>
           <Text style={styles.subtitle}>
             {fullName ? `Hi ${fullName}, ` : ''}we&apos;re reviewing your
             provider application. You&apos;ll be able to accept bookings once
@@ -227,15 +233,29 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: tokens.spacing.md,
-    marginTop: tokens.spacing.xl,
+    marginTop: tokens.spacing.lg,
+    alignItems: 'center',
+  },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: tokens.colors.light.offWhite,
+    borderWidth: 1,
+    borderColor: tokens.colors.light.gearGold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: tokens.spacing.xs,
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
+    textAlign: 'center',
   },
   subtitle: {
     ...textStyles.body,
     color: tokens.colors.light.midGray,
+    textAlign: 'center',
   },
   progress: {
     ...textStyles.label,
@@ -299,9 +319,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   continueButton: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: tokens.borderRadius.button,
-    backgroundColor: tokens.colors.light.electricBlue,
+    backgroundColor: tokens.colors.light.deepIndigo,
     alignItems: 'center',
     justifyContent: 'center',
   },

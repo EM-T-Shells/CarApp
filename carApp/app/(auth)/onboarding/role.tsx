@@ -18,7 +18,7 @@ import { useRouter } from 'expo-router';
 
 import tokens from '../../../src/design/tokens';
 import { textStyles } from '../../../src/design/typography';
-import { StepIndicator } from '../../../src/components/auth/StepIndicator';
+import { OnboardingHeader } from '../../../src/components/auth/OnboardingHeader';
 import { RoleSelector } from '../../../src/components/auth/RoleSelector';
 import {
   SIGN_UP_STEPS,
@@ -26,7 +26,7 @@ import {
 } from '../../../src/state/signUpDraft';
 import type { UserRole } from '../../../src/state/auth';
 
-const STEP_INDEX = 1;
+const STEP_INDEX = 0;
 
 export default function OnboardingRoleScreen(): React.ReactElement {
   const router = useRouter();
@@ -44,33 +44,29 @@ export default function OnboardingRoleScreen(): React.ReactElement {
     setRole(next);
   }
 
-  function handleBack(): void {
-    setStep('profile');
-    router.back();
-  }
-
   function handleContinue(): void {
     if (role === null) return;
-
-    // Provider-only signups have no personal vehicle to add — jump
-    // straight to the review step where the vehicle insert is skipped.
-    if (role === 'provider') {
-      setStep('review');
-      router.push('/(auth)/onboarding/review');
-      return;
-    }
-
-    setStep('vehicle');
-    router.push('/(auth)/onboarding/vehicle');
+    // Role is the first step; everyone moves to the profile step next.
+    // Provider-only accounts branch to the review screen from there.
+    setStep('profile');
+    router.push('/(auth)/onboarding/profile');
   }
 
   const canSubmit = role !== null;
+  const continueLabel =
+    role === 'customer'
+      ? 'Continue as Customer  →'
+      : role === 'provider'
+        ? 'Continue as Provider  →'
+        : role === 'both'
+          ? 'Continue  →'
+          : 'Continue  →';
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <StepIndicator
-        totalSteps={SIGN_UP_STEPS.length}
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <OnboardingHeader
         currentStep={STEP_INDEX}
+        totalSteps={SIGN_UP_STEPS.length}
       />
       <ScrollView
         contentContainerStyle={styles.container}
@@ -87,18 +83,6 @@ export default function OnboardingRoleScreen(): React.ReactElement {
 
         <View style={styles.footer}>
           <Pressable
-            onPress={handleBack}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            style={({ pressed }) => [
-              styles.secondary,
-              pressed && styles.secondaryPressed,
-            ]}
-            testID="onboarding-role-back"
-          >
-            <Text style={styles.secondaryText}>Back</Text>
-          </Pressable>
-          <Pressable
             onPress={handleContinue}
             disabled={!canSubmit}
             accessibilityRole="button"
@@ -110,7 +94,7 @@ export default function OnboardingRoleScreen(): React.ReactElement {
             ]}
             testID="onboarding-role-continue"
           >
-            <Text style={styles.primaryText}>Continue</Text>
+            <Text style={styles.primaryText}>{continueLabel}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -137,38 +121,19 @@ const styles = StyleSheet.create({
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
   },
   subtitle: {
     ...textStyles.bodyLarge,
     color: tokens.colors.light.midGray,
   },
   footer: {
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
     marginTop: 'auto',
   },
-  secondary: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: tokens.borderRadius.button,
-    borderWidth: 1,
-    borderColor: tokens.colors.light.deepIndigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryPressed: {
-    opacity: 0.7,
-  },
-  secondaryText: {
-    ...textStyles.subheading,
-    color: tokens.colors.light.deepIndigo,
-  },
   primary: {
-    flex: 2,
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: tokens.borderRadius.button,
-    backgroundColor: tokens.colors.light.electricBlue,
+    backgroundColor: tokens.colors.light.deepIndigo,
     alignItems: 'center',
     justifyContent: 'center',
   },

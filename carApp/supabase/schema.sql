@@ -12,6 +12,10 @@ CREATE TABLE provider_types (
 );
 
 -- USERS
+-- NOTE: the public.users row is inserted by the app at the end of onboarding
+-- (insertUser() on the review step), NOT by a trigger on auth.users. Do not
+-- add an on_auth_user_created / handle_new_user trigger here — it would create
+-- the row at signup time and the auth gate would skip onboarding entirely.
 CREATE TABLE users (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email              TEXT UNIQUE,
@@ -19,6 +23,14 @@ CREATE TABLE users (
   full_name          TEXT,
   role               VARCHAR NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'provider', 'both')),
   avatar_url         TEXT,
+  -- Customer mailing address (structured), captured on the onboarding
+  -- profile step. Used to match customers with nearby providers.
+  -- Added by migration add_user_address_columns.
+  address_line1      TEXT,
+  address_line2      TEXT,
+  city               TEXT,
+  state              TEXT,
+  postal_code        TEXT,
   is_verified        BOOLEAN DEFAULT FALSE,
   stripe_customer_id TEXT,
   email_verified     BOOLEAN DEFAULT FALSE,

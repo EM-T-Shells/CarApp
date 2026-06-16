@@ -16,8 +16,8 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import tokens from '../../src/design/tokens';
 import { textStyles } from '../../src/design/typography';
@@ -45,16 +45,26 @@ export default function SignInScreen(): React.ReactElement {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Welcome to CarApp</Text>
-          <Text style={styles.subtitle}>
-            Book vetted mobile detailers and mechanics, on your terms.
-          </Text>
-        </View>
+    <View style={styles.root}>
+      <View style={styles.hero}>
+        <SafeAreaView edges={['top']}>
+          <View style={styles.heroContent}>
+            <Text style={styles.brand}>CarApp</Text>
+            <Text style={styles.tagline}>Your car, cared for.</Text>
+          </View>
+        </SafeAreaView>
+      </View>
 
-        <View style={styles.actions}>
+      <SafeAreaView style={styles.cardSafe} edges={['bottom']}>
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Welcome back</Text>
+            <Text style={styles.subtitle}>
+              Sign in or create an account to get started.
+            </Text>
+          </View>
+
+          <View style={styles.actions}>
           <Pressable
             style={({ pressed }) => [
               styles.button,
@@ -113,23 +123,46 @@ export default function SignInScreen(): React.ReactElement {
             </Text>
           </Pressable>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        </View>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </View>
 
-        <Text style={styles.legal}>
-          By continuing, you agree to our Terms of Service and Privacy Policy.
-        </Text>
-      </View>
-    </SafeAreaView>
+          <Text style={styles.legal}>
+            By continuing, you agree to our Terms of Service and Privacy Policy.
+          </Text>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: {
+  root: {
     flex: 1,
     backgroundColor: tokens.colors.light.offWhite,
+  },
+  hero: {
+    backgroundColor: tokens.colors.light.deepIndigo,
+    paddingHorizontal: tokens.spacing.xl,
+    paddingBottom: tokens.spacing['3xl'],
+  },
+  heroContent: {
+    marginTop: tokens.spacing['3xl'],
+    gap: tokens.spacing.xs,
+  },
+  brand: {
+    ...textStyles.displayLarge,
+    color: tokens.colors.light.offWhite,
+    letterSpacing: 0.5,
+  },
+  tagline: {
+    ...textStyles.bodyLarge,
+    color: tokens.colors.light.offWhite,
+    opacity: 0.85,
+  },
+  cardSafe: {
+    flex: 1,
   },
   container: {
     flex: 1,
@@ -138,12 +171,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   header: {
-    marginTop: tokens.spacing['4xl'],
+    marginTop: tokens.spacing.xl,
     gap: tokens.spacing.md,
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
   },
   subtitle: {
     ...textStyles.bodyLarge,

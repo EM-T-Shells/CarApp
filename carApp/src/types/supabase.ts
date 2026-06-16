@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       booking_photos: {
@@ -1039,7 +1064,10 @@ export type Database = {
       }
       users: {
         Row: {
+          address_line1: string | null
+          address_line2: string | null
           avatar_url: string | null
+          city: string | null
           created_at: string | null
           email: string | null
           email_verified: boolean | null
@@ -1051,12 +1079,17 @@ export type Database = {
           is_verified: boolean | null
           phone: string | null
           phone_verified: boolean | null
+          postal_code: string | null
           role: string
+          state: string | null
           stripe_customer_id: string | null
           updated_at: string | null
         }
         Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
           avatar_url?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
@@ -1068,12 +1101,17 @@ export type Database = {
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
+          postal_code?: string | null
           role?: string
+          state?: string | null
           stripe_customer_id?: string | null
           updated_at?: string | null
         }
         Update: {
+          address_line1?: string | null
+          address_line2?: string | null
           avatar_url?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
@@ -1085,7 +1123,9 @@ export type Database = {
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
+          postal_code?: string | null
           role?: string
+          state?: string | null
           stripe_customer_id?: string | null
           updated_at?: string | null
         }
@@ -1299,6 +1339,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

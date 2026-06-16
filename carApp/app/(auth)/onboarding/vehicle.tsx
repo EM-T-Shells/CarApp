@@ -1,17 +1,19 @@
-// Onboarding step 3 — Vehicle.
+// Onboarding step 3 — Vehicle (final step for customer / both).
 //
 // Customer or both-role user enters their primary vehicle (year, make,
 // model, optional trim/color/plate). The shared VehicleForm writes
-// directly into useSignUpDraftStore. Continue advances to the review
-// step once year/make/model are filled. Provider-only signups skip
-// this screen entirely (they're routed straight from role → review).
+// directly into useSignUpDraftStore. "Finish" runs submitSignUp() to
+// create the users + vehicle rows; the root auth gate then routes the
+// new customer into the main nav. Provider-only signups never reach this
+// screen — they branch from the profile step to the review screen.
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   Pressable,
   StyleSheet,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -21,13 +23,14 @@ import { useRouter } from 'expo-router';
 
 import tokens from '../../../src/design/tokens';
 import { textStyles } from '../../../src/design/typography';
-import { StepIndicator } from '../../../src/components/auth/StepIndicator';
+import { OnboardingHeader } from '../../../src/components/auth/OnboardingHeader';
 import { VehicleForm } from '../../../src/components/auth/VehicleForm';
 import {
   SIGN_UP_STEPS,
   selectVehicleComplete,
   useSignUpDraftStore,
 } from '../../../src/state/signUpDraft';
+import { submitSignUp } from '../../../src/state/signUpSubmit';
 import {
   isValidVehicleMake,
   isValidVehicleModel,
@@ -42,33 +45,49 @@ export default function OnboardingVehicleScreen(): React.ReactElement {
   const setStep = useSignUpDraftStore((s) => s.setStep);
   const isComplete = useSignUpDraftStore(selectVehicleComplete);
 
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   function handleBack(): void {
-    setStep('role');
+    setStep('profile');
     router.back();
   }
 
-  function handleContinue(): void {
+  async function handleFinish(): Promise<void> {
+    if (submitting) return;
     // Final guard — the form already enforces these on blur, but check
-    // again before advancing in case the user never blurred a field.
+    // again before submitting in case the user never blurred a field.
     const year = isValidVehicleYear(vehicle.year);
     const make = isValidVehicleMake(vehicle.make);
     const model = isValidVehicleModel(vehicle.model);
     if (!year.valid || !make.valid || !model.valid) return;
 
-    setStep('review');
-    router.push('/(auth)/onboarding/review');
+    setError(null);
+    setSubmitting(true);
+    const result = await submitSignUp();
+    if (!result.ok) {
+      setSubmitting(false);
+      setError(result.error ?? 'Could not finish setup. Please try again.');
+      return;
+    }
+    // On success the auth store now holds the new users row, so the root
+    // gate routes into the main nav. Leave submitting true so the button
+    // stays disabled through the transition.
   }
 
+  const canSubmit = isComplete && !submitting;
+
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <OnboardingHeader
+        onBack={handleBack}
+        currentStep={STEP_INDEX}
+        totalSteps={SIGN_UP_STEPS.length}
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <StepIndicator
-          totalSteps={SIGN_UP_STEPS.length}
-          currentStep={STEP_INDEX}
-        />
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
@@ -83,32 +102,26 @@ export default function OnboardingVehicleScreen(): React.ReactElement {
 
           <VehicleForm />
 
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
           <View style={styles.footer}>
             <Pressable
-              onPress={handleBack}
+              onPress={handleFinish}
+              disabled={!canSubmit}
               accessibilityRole="button"
-              accessibilityLabel="Go back"
-              style={({ pressed }) => [
-                styles.secondary,
-                pressed && styles.secondaryPressed,
-              ]}
-              testID="onboarding-vehicle-back"
-            >
-              <Text style={styles.secondaryText}>Back</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleContinue}
-              disabled={!isComplete}
-              accessibilityRole="button"
-              accessibilityLabel="Continue to review"
+              accessibilityLabel="Finish and create account"
               style={({ pressed }) => [
                 styles.primary,
-                !isComplete && styles.primaryDisabled,
-                pressed && isComplete && styles.primaryPressed,
+                !canSubmit && styles.primaryDisabled,
+                pressed && canSubmit && styles.primaryPressed,
               ]}
               testID="onboarding-vehicle-continue"
             >
-              <Text style={styles.primaryText}>Continue</Text>
+              {submitting ? (
+                <ActivityIndicator color={tokens.colors.light.offWhite} />
+              ) : (
+                <Text style={styles.primaryText}>Finish  →</Text>
+              )}
             </Pressable>
           </View>
         </ScrollView>
@@ -139,38 +152,23 @@ const styles = StyleSheet.create({
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
   },
   subtitle: {
     ...textStyles.bodyLarge,
     color: tokens.colors.light.midGray,
   },
+  errorText: {
+    ...textStyles.bodySmall,
+    color: '#D92B2B',
+  },
   footer: {
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
     marginTop: 'auto',
   },
-  secondary: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: tokens.borderRadius.button,
-    borderWidth: 1,
-    borderColor: tokens.colors.light.deepIndigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryPressed: {
-    opacity: 0.7,
-  },
-  secondaryText: {
-    ...textStyles.subheading,
-    color: tokens.colors.light.deepIndigo,
-  },
   primary: {
-    flex: 2,
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: tokens.borderRadius.button,
-    backgroundColor: tokens.colors.light.electricBlue,
+    backgroundColor: tokens.colors.light.deepIndigo,
     alignItems: 'center',
     justifyContent: 'center',
   },

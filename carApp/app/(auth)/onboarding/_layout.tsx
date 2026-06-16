@@ -1,9 +1,10 @@
-// Onboarding stack layout — wraps the 4-step customer signup flow
-// (profile → role → vehicle → review) that runs after a successful
-// OTP or OAuth sign-in when no users row exists yet.
+// Onboarding stack layout — wraps the customer signup flow
+// (role → profile → vehicle) that runs after a successful OTP or OAuth
+// sign-in when no users row exists yet. Provider-only signups branch
+// from the profile step to the terminal `review` screen.
 //
 // The root auth gate in app/_layout.tsx routes brand-new sessions
-// into /(auth)/onboarding/profile; from there each screen uses the
+// into /(auth)/onboarding/role; from there each screen uses the
 // shared useSignUpDraftStore to accumulate state and pushes forward
 // with router.push.
 
@@ -23,8 +24,8 @@ export default function OnboardingLayout(): React.ReactElement {
         animation: 'slide_from_right',
       }}
     >
-      <Stack.Screen name="profile" />
       <Stack.Screen name="role" />
+      <Stack.Screen name="profile" />
       <Stack.Screen name="vehicle" />
       <Stack.Screen name="review" />
     </Stack>

@@ -4,12 +4,15 @@
 // an OAuth sign-in.
 //
 // The flow is:
-//   1. profile       — full name, optional avatar (users row prep)
-//   2. role          — customer / provider / both (RoleSelector)
+//   1. role          — customer / provider / both (RoleSelector)
+//   2. profile       — full name, phone, address (customer/both)
 //   3. vehicle       — primary vehicle details    (VehicleForm)
-//   4. review        — confirm and submit (inserts users + vehicles)
 //
-// On successful submit, mutations.ts writes the rows and calls
+// Customer/both submit at the end of the vehicle step and the root auth
+// gate routes them into the main nav. Provider-only signups skip the
+// vehicle step and submit on the (untracked) review screen instead.
+//
+// On successful submit, signUpSubmit.ts writes the rows and calls
 // `reset()` on this store. On cancel (user backs out entirely) the
 // root auth gate also calls reset to avoid leaking stale state.
 
@@ -18,7 +21,10 @@ import type { UserRole } from './auth';
 
 // ── Step Definition ────────────────────────────────────────────────────
 
-export const SIGN_UP_STEPS = ['profile', 'role', 'vehicle', 'review'] as const;
+// The three tracked, indicator-backed steps. The provider-only "review"
+// screen is a terminal screen reached by explicit navigation and is not
+// part of this list (it shares step index 2 with the vehicle step).
+export const SIGN_UP_STEPS = ['role', 'profile', 'vehicle'] as const;
 export type SignUpStep = (typeof SIGN_UP_STEPS)[number];
 
 // ── Draft Shape ────────────────────────────────────────────────────────
@@ -32,6 +38,18 @@ export interface VehicleDraft {
   licensePlate: string | null;
 }
 
+/** Editable profile fields captured on the profile step. */
+export interface ProfileFields {
+  fullName: string;
+  avatarUrl: string | null;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+}
+
 export interface SignUpDraftState {
   // Step tracking
   currentStep: SignUpStep;
@@ -39,6 +57,12 @@ export interface SignUpDraftState {
   // Profile (maps to users row)
   fullName: string;
   avatarUrl: string | null;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
 
   // Role (maps to users.role)
   role: UserRole | null;
@@ -52,7 +76,8 @@ export interface SignUpDraftState {
   nextStep: () => void;
   prevStep: () => void;
 
-  setProfile: (input: { fullName: string; avatarUrl?: string | null }) => void;
+  /** Merge a partial profile patch (name, phone, address fields). */
+  setProfile: (patch: Partial<ProfileFields>) => void;
   setRole: (role: UserRole) => void;
   setVehicle: (patch: Partial<VehicleDraft>) => void;
 
@@ -72,9 +97,15 @@ const emptyVehicle: VehicleDraft = {
 };
 
 const initialState = {
-  currentStep: 'profile' as SignUpStep,
+  currentStep: 'role' as SignUpStep,
   fullName: '',
   avatarUrl: null as string | null,
+  phone: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  postalCode: '',
   role: null as UserRole | null,
   vehicle: { ...emptyVehicle },
 };
@@ -96,11 +127,7 @@ export const useSignUpDraftStore = create<SignUpDraftState>((set) => ({
   nextStep: () => set((s) => ({ currentStep: advance(s.currentStep, 1) })),
   prevStep: () => set((s) => ({ currentStep: advance(s.currentStep, -1) })),
 
-  setProfile: ({ fullName, avatarUrl }) =>
-    set({
-      fullName,
-      avatarUrl: avatarUrl ?? null,
-    }),
+  setProfile: (patch) => set((s) => ({ ...s, ...patch })),
 
   setRole: (role) => set({ role }),
 
@@ -116,9 +143,20 @@ export const useSignUpDraftStore = create<SignUpDraftState>((set) => ({
 export const selectStepIndex = (s: SignUpDraftState): number =>
   SIGN_UP_STEPS.indexOf(s.currentStep);
 
-/** True when the profile step has the minimum required info. */
+/** True when the profile step has the minimum required info (name + phone). */
 export const selectProfileComplete = (s: SignUpDraftState): boolean =>
-  s.fullName.trim().length >= 2;
+  s.fullName.trim().length >= 2 && s.phone.trim().length > 0;
+
+/**
+ * True when a customer/both account has a complete mailing address.
+ * Providers don't enter an address on this step, so callers should only
+ * gate on this for customer/both roles.
+ */
+export const selectAddressComplete = (s: SignUpDraftState): boolean =>
+  s.addressLine1.trim().length > 0 &&
+  s.city.trim().length > 0 &&
+  s.state.trim().length > 0 &&
+  s.postalCode.trim().length > 0;
 
 /** True when the role step has a valid selection. */
 export const selectRoleComplete = (s: SignUpDraftState): boolean =>
