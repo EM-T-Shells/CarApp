@@ -1,10 +1,9 @@
-// Onboarding step 4 — Review & submit.
+// Onboarding final step (provider-only) — Review & submit.
 //
-// Displays everything captured in useSignUpDraftStore (profile, role,
-// vehicle) and on Confirm writes the users row, the primary vehicle
-// row (skipped for provider-only signups), updates useAuthStore with
-// the freshly inserted user, and resets the draft. The root auth gate
-// in app/_layout.tsx then routes the user into (tabs)/search.
+// Customer / both accounts finish on the vehicle step; only provider-only
+// signups reach this screen (branched from the profile step). On Confirm
+// it runs submitSignUp() to write the users row and reset the draft. The
+// root auth gate in app/_layout.tsx then routes the provider onward.
 
 import React, { useMemo, useState } from 'react';
 import {
@@ -20,23 +19,15 @@ import { useRouter } from 'expo-router';
 
 import tokens from '../../../src/design/tokens';
 import { textStyles } from '../../../src/design/typography';
-import { StepIndicator } from '../../../src/components/auth/StepIndicator';
+import { OnboardingHeader } from '../../../src/components/auth/OnboardingHeader';
 import {
   SIGN_UP_STEPS,
   useSignUpDraftStore,
 } from '../../../src/state/signUpDraft';
-import { useAuthStore } from '../../../src/state/auth';
 import type { UserRole } from '../../../src/state/auth';
-import {
-  insertUser,
-  insertVehicle,
-} from '../../../src/lib/supabase/mutations';
-import type {
-  UserInsert,
-  VehicleInsert,
-} from '../../../src/types/models';
+import { submitSignUp } from '../../../src/state/signUpSubmit';
 
-const STEP_INDEX = 3;
+const STEP_INDEX = 2;
 
 const ROLE_LABELS: Record<UserRole, string> = {
   customer: 'Book services',
@@ -46,14 +37,12 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 export default function OnboardingReviewScreen(): React.ReactElement {
   const router = useRouter();
-  const session = useAuthStore((s) => s.session);
-  const setSession = useAuthStore((s) => s.setSession);
 
   const fullName = useSignUpDraftStore((s) => s.fullName);
+  const phone = useSignUpDraftStore((s) => s.phone);
   const role = useSignUpDraftStore((s) => s.role);
   const vehicle = useSignUpDraftStore((s) => s.vehicle);
   const setStep = useSignUpDraftStore((s) => s.setStep);
-  const reset = useSignUpDraftStore((s) => s.reset);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,101 +60,32 @@ export default function OnboardingReviewScreen(): React.ReactElement {
   }, [vehicle]);
 
   function handleBack(): void {
-    // Provider-only signups skipped the vehicle step — send them back
-    // to the role screen instead of an empty vehicle screen.
-    if (role === 'provider') {
-      setStep('role');
-      router.replace('/(auth)/onboarding/role');
-      return;
-    }
-    setStep('vehicle');
+    setStep('profile');
     router.back();
   }
 
   async function handleSubmit(): Promise<void> {
     if (submitting) return;
     setError(null);
-
-    if (!session?.user) {
-      setError('Your session expired. Please sign in again.');
-      return;
-    }
-    if (!role) {
-      setError('Please choose how you plan to use CarApp.');
-      return;
-    }
-    if (needsVehicle) {
-      if (
-        !vehicle.year.trim() ||
-        !vehicle.make.trim() ||
-        !vehicle.model.trim()
-      ) {
-        setError('Vehicle year, make, and model are required.');
-        return;
-      }
-    }
-
     setSubmitting(true);
 
-    const authUser = session.user;
-    const insertPayload: UserInsert = {
-      id: authUser.id,
-      email: authUser.email ?? null,
-      phone: authUser.phone ?? null,
-      full_name: fullName.trim(),
-      role,
-      email_verified: Boolean(authUser.email),
-      phone_verified: Boolean(authUser.phone),
-    };
-
-    const userResult = await insertUser(insertPayload);
-
-    if (userResult.error || !userResult.data) {
+    const result = await submitSignUp();
+    if (!result.ok) {
       setSubmitting(false);
-      setError(
-        userResult.error?.message ??
-          'Could not save your profile. Please try again.',
-      );
+      setError(result.error ?? 'Could not finish setup. Please try again.');
       return;
     }
-
-    const newUser = userResult.data;
-
-    if (needsVehicle) {
-      const vehiclePayload: VehicleInsert = {
-        user_id: newUser.id,
-        year: vehicle.year.trim(),
-        make: vehicle.make.trim(),
-        model: vehicle.model.trim(),
-        trim: vehicle.trim?.trim() || null,
-        color: vehicle.color?.trim() || null,
-        license_plate: vehicle.licensePlate?.trim() || null,
-        is_primary: true,
-      };
-      const vehicleResult = await insertVehicle(vehiclePayload);
-
-      if (vehicleResult.error) {
-        // The user row is saved, so we don't block the user from
-        // entering the app — they can add the vehicle later from
-        // Account. Surface a soft warning before routing onward.
-        setError(
-          'Profile saved, but we could not save your vehicle. You can add it later in Account.',
-        );
-      }
-    }
-
-    // Hand the new user row to the auth store so the root gate
-    // routes into (tabs)/search instead of looping back to (auth)/.
-    setSession(session, newUser);
-    reset();
-    setSubmitting(false);
+    // On success the auth store holds the new users row, so the root gate
+    // routes the provider onward. Leave submitting true through the
+    // transition so the button stays disabled.
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <StepIndicator
-        totalSteps={SIGN_UP_STEPS.length}
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <OnboardingHeader
+        onBack={submitting ? undefined : handleBack}
         currentStep={STEP_INDEX}
+        totalSteps={SIGN_UP_STEPS.length}
       />
       <ScrollView
         contentContainerStyle={styles.container}
@@ -180,6 +100,8 @@ export default function OnboardingReviewScreen(): React.ReactElement {
 
         <View style={styles.card}>
           <Row label="Full name" value={fullName || '—'} />
+          <Divider />
+          <Row label="Phone" value={phone || '—'} />
           <Divider />
           <Row
             label="Account type"
@@ -209,20 +131,6 @@ export default function OnboardingReviewScreen(): React.ReactElement {
 
         <View style={styles.footer}>
           <Pressable
-            onPress={handleBack}
-            disabled={submitting}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            style={({ pressed }) => [
-              styles.secondary,
-              submitting && styles.secondaryDisabled,
-              pressed && !submitting && styles.secondaryPressed,
-            ]}
-            testID="onboarding-review-back"
-          >
-            <Text style={styles.secondaryText}>Back</Text>
-          </Pressable>
-          <Pressable
             onPress={handleSubmit}
             disabled={submitting}
             accessibilityRole="button"
@@ -237,7 +145,7 @@ export default function OnboardingReviewScreen(): React.ReactElement {
             {submitting ? (
               <ActivityIndicator color={tokens.colors.light.offWhite} />
             ) : (
-              <Text style={styles.primaryText}>Confirm</Text>
+              <Text style={styles.primaryText}>Confirm  →</Text>
             )}
           </Pressable>
         </View>
@@ -288,7 +196,7 @@ const styles = StyleSheet.create({
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
   },
   subtitle: {
     ...textStyles.bodyLarge,
@@ -331,34 +239,12 @@ const styles = StyleSheet.create({
     color: '#D92B2B',
   },
   footer: {
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
     marginTop: 'auto',
   },
-  secondary: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: tokens.borderRadius.button,
-    borderWidth: 1,
-    borderColor: tokens.colors.light.deepIndigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryDisabled: {
-    opacity: 0.5,
-  },
-  secondaryPressed: {
-    opacity: 0.7,
-  },
-  secondaryText: {
-    ...textStyles.subheading,
-    color: tokens.colors.light.deepIndigo,
-  },
   primary: {
-    flex: 2,
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: tokens.borderRadius.button,
-    backgroundColor: tokens.colors.light.electricBlue,
+    backgroundColor: tokens.colors.light.deepIndigo,
     alignItems: 'center',
     justifyContent: 'center',
   },

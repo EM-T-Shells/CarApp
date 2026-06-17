@@ -73,6 +73,23 @@ async function runVoid(
   }
 }
 
+// Fire-and-forget invocation of a notify-* Edge Function. A push failure must
+// never surface to the caller or roll back the underlying mutation, so errors
+// are swallowed (the function also records an in-app notifications row, and
+// pushes are best-effort by nature).
+function fireNotify(fn: string, body: Record<string, unknown>): void {
+  try {
+    const pending = supabase.functions?.invoke(fn, { body })
+    if (pending && typeof pending.catch === 'function') {
+      pending.catch(() => {
+        /* best-effort push — ignore */
+      })
+    }
+  } catch {
+    /* best-effort push — ignore */
+  }
+}
+
 // ── Users ──────────────────────────────────────────────────────────────
 
 export function insertUser(
@@ -86,6 +103,29 @@ export function insertUser(
 export function updateUser(
   userId: string,
   updates: UserUpdate,
+): Promise<MutationResult<User>> {
+  return runMutation<User>(
+    supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single(),
+  )
+}
+
+// FCM push token write — Flow 2.9. Narrowed view of UserUpdate that only
+// exposes the three FCM columns so the push.ts client can't accidentally
+// overwrite unrelated user fields.
+export interface PushTokenUpdate {
+  fcm_token: string | null
+  fcm_token_platform: 'ios' | 'android' | null
+  fcm_token_updated_at: string
+}
+
+export function updateUserPushToken(
+  userId: string,
+  updates: PushTokenUpdate,
 ): Promise<MutationResult<User>> {
   return runMutation<User>(
     supabase
@@ -209,11 +249,11 @@ export function insertBooking(
   )
 }
 
-export function updateBooking(
+export async function updateBooking(
   bookingId: string,
   updates: BookingUpdate,
 ): Promise<MutationResult<Booking>> {
-  return runMutation<Booking>(
+  const result = await runMutation<Booking>(
     supabase
       .from('bookings')
       .update(updates)
@@ -221,6 +261,15 @@ export function updateBooking(
       .select()
       .single(),
   )
+
+  // Notify the customer when the provider goes en route. (booking_confirmed
+  // and job_complete pushes fire server-side from stripe-webhook, where those
+  // status transitions actually occur.)
+  if (result.data && updates.status === 'en_route') {
+    fireNotify('notify-provider-enroute', { booking_id: bookingId })
+  }
+
+  return result
 }
 
 // ── Booking Photos ─────────────────────────────────────────────────────
@@ -259,12 +308,19 @@ export function updateRating(
 
 // ── Kudos ──────────────────────────────────────────────────────────────
 
-export function insertKudos(
+export async function insertKudos(
   kudos: KudosInsert,
 ): Promise<MutationResult<Kudos>> {
-  return runMutation<Kudos>(
+  const result = await runMutation<Kudos>(
     supabase.from('kudos').insert(kudos).select().single(),
   )
+
+  // Push the provider a "you received kudos" notification.
+  if (result.data?.id) {
+    fireNotify('notify-kudos-received', { kudos_id: result.data.id })
+  }
+
+  return result
 }
 
 // ── Message Threads ────────────────────────────────────────────────────

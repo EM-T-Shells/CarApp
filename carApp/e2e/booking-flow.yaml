@@ -202,13 +202,18 @@ appId: com.emre.carapp
     text: "Pay"
 
 # ── Booking confirmed — navigate to booking detail ────────────────────
+# After Stripe success the flow router.replaces to /bookings/[id], which
+# renders the BookingDetailScreen. Assert against its actual contents:
+# the Status card, the Confirmed timeline step, and the Message action.
 
 - extendedWaitUntil:
     visible:
-      text: "Booking confirmed"
+      text: "Status"
     timeout: 15000
 
-- assertVisible: "Booking confirmed"
+- assertVisible: "Status"
+- assertVisible: "Confirmed"
+- assertVisible: "Message"
 
 ---
 

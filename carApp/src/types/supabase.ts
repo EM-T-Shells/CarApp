@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       booking_photos: {
@@ -131,6 +156,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "bookings_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "bookings_package_id_fkey"
             columns: ["package_id"]
             isOneToOne: false
@@ -194,10 +226,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "kudos_giver_id_fkey"
+            columns: ["giver_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "kudos_receiver_id_fkey"
             columns: ["receiver_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kudos_receiver_id_fkey"
+            columns: ["receiver_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
         ]
@@ -237,6 +283,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_threads_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
           {
@@ -288,6 +341,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "messages_thread_id_fkey"
             columns: ["thread_id"]
             isOneToOne: false
@@ -333,6 +393,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
         ]
@@ -381,6 +448,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
         ]
@@ -477,6 +551,13 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "promo_redemptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       promotions: {
@@ -521,6 +602,13 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "promotions_issued_to_fkey"
+            columns: ["issued_to"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       provider_location_cache: {
@@ -555,6 +643,7 @@ export type Database = {
       provider_profiles: {
         Row: {
           approved_at: string | null
+          availability: Json | null
           avg_gear_rating: number | null
           bio: string | null
           coverage_area: string | null
@@ -572,6 +661,7 @@ export type Database = {
         }
         Insert: {
           approved_at?: string | null
+          availability?: Json | null
           avg_gear_rating?: number | null
           bio?: string | null
           coverage_area?: string | null
@@ -589,6 +679,7 @@ export type Database = {
         }
         Update: {
           approved_at?: string | null
+          availability?: Json | null
           avg_gear_rating?: number | null
           bio?: string | null
           coverage_area?: string | null
@@ -617,6 +708,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
         ]
@@ -712,6 +810,13 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "provider_vetting_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       ratings: {
@@ -776,10 +881,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "ratings_reviewee_id_fkey"
+            columns: ["reviewee_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "ratings_reviewer_id_fkey"
             columns: ["reviewer_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ratings_reviewer_id_fkey"
+            columns: ["reviewer_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
             referencedColumns: ["id"]
           },
         ]
@@ -934,48 +1053,79 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       users: {
         Row: {
+          address_line1: string | null
+          address_line2: string | null
           avatar_url: string | null
+          city: string | null
           created_at: string | null
           email: string | null
           email_verified: boolean | null
+          fcm_token: string | null
+          fcm_token_platform: string | null
+          fcm_token_updated_at: string | null
           full_name: string | null
           id: string
           is_verified: boolean | null
           phone: string | null
           phone_verified: boolean | null
+          postal_code: string | null
           role: string
+          state: string | null
           stripe_customer_id: string | null
           updated_at: string | null
         }
         Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
           avatar_url?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
+          fcm_token?: string | null
+          fcm_token_platform?: string | null
+          fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
+          postal_code?: string | null
           role?: string
+          state?: string | null
           stripe_customer_id?: string | null
           updated_at?: string | null
         }
         Update: {
+          address_line1?: string | null
+          address_line2?: string | null
           avatar_url?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           email_verified?: boolean | null
+          fcm_token?: string | null
+          fcm_token_platform?: string | null
+          fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
+          postal_code?: string | null
           role?: string
+          state?: string | null
           stripe_customer_id?: string | null
           updated_at?: string | null
         }
@@ -1029,11 +1179,35 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "vehicles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
     Views: {
-      [_ in never]: never
+      users_public: {
+        Row: {
+          avatar_url: string | null
+          full_name: string | null
+          id: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          full_name?: string | null
+          id?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          full_name?: string | null
+          id?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
@@ -1165,6 +1339,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

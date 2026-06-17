@@ -3,6 +3,7 @@ import {
   SIGN_UP_STEPS,
   selectStepIndex,
   selectProfileComplete,
+  selectAddressComplete,
   selectRoleComplete,
   selectVehicleComplete,
 } from '../signUpDraft';
@@ -12,60 +13,59 @@ beforeEach(() => {
 });
 
 describe('useSignUpDraftStore', () => {
-  it('starts on the profile step with empty fields', () => {
+  it('starts on the role step with empty fields', () => {
     const state = useSignUpDraftStore.getState();
-    expect(state.currentStep).toBe('profile');
+    expect(state.currentStep).toBe('role');
     expect(state.fullName).toBe('');
+    expect(state.phone).toBe('');
     expect(state.role).toBeNull();
     expect(state.vehicle.year).toBe('');
   });
 
   it('nextStep advances through all steps and stops at the last', () => {
     useSignUpDraftStore.getState().nextStep();
-    expect(useSignUpDraftStore.getState().currentStep).toBe('role');
+    expect(useSignUpDraftStore.getState().currentStep).toBe('profile');
 
     useSignUpDraftStore.getState().nextStep();
     expect(useSignUpDraftStore.getState().currentStep).toBe('vehicle');
 
-    useSignUpDraftStore.getState().nextStep();
-    expect(useSignUpDraftStore.getState().currentStep).toBe('review');
-
     // Clamps at the last step
     useSignUpDraftStore.getState().nextStep();
-    expect(useSignUpDraftStore.getState().currentStep).toBe('review');
+    expect(useSignUpDraftStore.getState().currentStep).toBe('vehicle');
   });
 
-  it('prevStep walks back and clamps at profile', () => {
+  it('prevStep walks back and clamps at role', () => {
     useSignUpDraftStore.getState().setStep('vehicle');
+    useSignUpDraftStore.getState().prevStep();
+    expect(useSignUpDraftStore.getState().currentStep).toBe('profile');
+
     useSignUpDraftStore.getState().prevStep();
     expect(useSignUpDraftStore.getState().currentStep).toBe('role');
 
     useSignUpDraftStore.getState().prevStep();
-    expect(useSignUpDraftStore.getState().currentStep).toBe('profile');
-
-    useSignUpDraftStore.getState().prevStep();
-    expect(useSignUpDraftStore.getState().currentStep).toBe('profile');
+    expect(useSignUpDraftStore.getState().currentStep).toBe('role');
   });
 
   it('setStep jumps directly to a step', () => {
-    useSignUpDraftStore.getState().setStep('review');
-    expect(useSignUpDraftStore.getState().currentStep).toBe('review');
+    useSignUpDraftStore.getState().setStep('vehicle');
+    expect(useSignUpDraftStore.getState().currentStep).toBe('vehicle');
   });
 
-  it('setProfile updates full name and avatar', () => {
+  it('setProfile merges contact fields without clobbering others', () => {
     useSignUpDraftStore.getState().setProfile({
       fullName: 'Jane Doe',
       avatarUrl: 'https://cdn/avatar.png',
+    });
+    useSignUpDraftStore.getState().setProfile({
+      phone: '(703) 555-0142',
+      city: 'Reston',
     });
 
     const state = useSignUpDraftStore.getState();
     expect(state.fullName).toBe('Jane Doe');
     expect(state.avatarUrl).toBe('https://cdn/avatar.png');
-  });
-
-  it('setProfile without avatar nulls the avatar field', () => {
-    useSignUpDraftStore.getState().setProfile({ fullName: 'Jane Doe' });
-    expect(useSignUpDraftStore.getState().avatarUrl).toBeNull();
+    expect(state.phone).toBe('(703) 555-0142');
+    expect(state.city).toBe('Reston');
   });
 
   it('setRole assigns role', () => {
@@ -84,16 +84,17 @@ describe('useSignUpDraftStore', () => {
   });
 
   it('reset returns to initial defaults', () => {
-    useSignUpDraftStore.getState().setProfile({ fullName: 'Jane' });
+    useSignUpDraftStore.getState().setProfile({ fullName: 'Jane', phone: '5551234567' });
     useSignUpDraftStore.getState().setRole('provider');
     useSignUpDraftStore.getState().setVehicle({ year: '2022' });
-    useSignUpDraftStore.getState().setStep('review');
+    useSignUpDraftStore.getState().setStep('vehicle');
 
     useSignUpDraftStore.getState().reset();
 
     const state = useSignUpDraftStore.getState();
-    expect(state.currentStep).toBe('profile');
+    expect(state.currentStep).toBe('role');
     expect(state.fullName).toBe('');
+    expect(state.phone).toBe('');
     expect(state.role).toBeNull();
     expect(state.vehicle.year).toBe('');
   });
@@ -102,18 +103,31 @@ describe('useSignUpDraftStore', () => {
 describe('signUpDraft selectors', () => {
   it('selectStepIndex returns the current index', () => {
     expect(selectStepIndex(useSignUpDraftStore.getState())).toBe(0);
-    useSignUpDraftStore.getState().setStep('review');
+    useSignUpDraftStore.getState().setStep('vehicle');
     expect(selectStepIndex(useSignUpDraftStore.getState())).toBe(
       SIGN_UP_STEPS.length - 1,
     );
   });
 
-  it('selectProfileComplete requires a non-trivial full name', () => {
-    expect(selectProfileComplete(useSignUpDraftStore.getState())).toBe(false);
-    useSignUpDraftStore.getState().setProfile({ fullName: 'A' });
+  it('selectProfileComplete requires a non-trivial name and a phone', () => {
     expect(selectProfileComplete(useSignUpDraftStore.getState())).toBe(false);
     useSignUpDraftStore.getState().setProfile({ fullName: 'Jane Doe' });
+    // Name alone is not enough — phone is required.
+    expect(selectProfileComplete(useSignUpDraftStore.getState())).toBe(false);
+    useSignUpDraftStore.getState().setProfile({ phone: '(703) 555-0142' });
     expect(selectProfileComplete(useSignUpDraftStore.getState())).toBe(true);
+  });
+
+  it('selectAddressComplete requires line1, city, state and ZIP', () => {
+    expect(selectAddressComplete(useSignUpDraftStore.getState())).toBe(false);
+    useSignUpDraftStore.getState().setProfile({
+      addressLine1: '123 Main St',
+      city: 'Reston',
+      state: 'VA',
+    });
+    expect(selectAddressComplete(useSignUpDraftStore.getState())).toBe(false);
+    useSignUpDraftStore.getState().setProfile({ postalCode: '20190' });
+    expect(selectAddressComplete(useSignUpDraftStore.getState())).toBe(true);
   });
 
   it('selectRoleComplete requires a role selection', () => {

@@ -242,9 +242,15 @@ export default function BookingsScreen(): React.ReactElement {
 
   const handleBookingPress = useCallback(
     (bookingId: string) => {
-      router.push(`/bookings/${bookingId}`);
+      // Providers manage their own jobs on the active-job screen; customers
+      // open the read-only booking detail.
+      if (viewMode === 'provider') {
+        router.push(`/bookings/job/${bookingId}`);
+      } else {
+        router.push(`/bookings/${bookingId}`);
+      }
     },
-    [router],
+    [router, viewMode],
   );
 
   const renderItem = useCallback(

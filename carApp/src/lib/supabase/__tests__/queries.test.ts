@@ -54,6 +54,7 @@ import {
   getServiceCatalog,
   getServicePackagesByProvider,
   getBookingById,
+  getProviderJobById,
   getUpcomingBookingsForCustomer,
   getPastBookingsForCustomer,
   getActiveBookingForCustomer,
@@ -315,6 +316,20 @@ describe('getBookingById', () => {
     const result = await getBookingById('b1')
 
     expect(result.data).toEqual(booking)
+    expect(mockFrom).toHaveBeenCalledWith('bookings')
+    expect(builder.eq).toHaveBeenCalledWith('id', 'b1')
+  })
+})
+
+describe('getProviderJobById', () => {
+  it('queries a single booking by id (provider job view)', async () => {
+    const job = { id: 'b1', customer: { id: 'c1', full_name: 'Pat' } }
+    const builder = makeBuilder({ data: job, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await getProviderJobById('b1')
+
+    expect(result.data).toEqual(job)
     expect(mockFrom).toHaveBeenCalledWith('bookings')
     expect(builder.eq).toHaveBeenCalledWith('id', 'b1')
   })

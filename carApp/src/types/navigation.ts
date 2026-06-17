@@ -29,6 +29,11 @@ export type BookingTrackingParams = {
   bookingId: string;
 };
 
+/** (tabs)/bookings/job/[bookingId].tsx — provider active-job view */
+export type ProviderJobParams = {
+  bookingId: string;
+};
+
 // ── Inbox ─────────────────────────────────────────────────────────────
 
 /** (tabs)/inbox/[threadId].tsx */

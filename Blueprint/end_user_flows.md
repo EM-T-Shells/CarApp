@@ -56,7 +56,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Gate | `app/_layout.tsx` routes session-without-users-row to `/(auth)/onboarding/profile` | ✅ |
 | External | Twilio (phone OTP configured in Supabase dashboard) | ✅ |
 
-**UAT on phone:**
+**UAT on phone:** ✅
 1. Use a fresh email (no `users` row exists yet)
 2. Send OTP, verify
 3. Confirm you land on Profile step (not back on splash)
@@ -85,7 +85,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | External | Deep link scheme `carapp://` in `app.json` | ✅ |
 | Onboarding screens (same as Flow 1.1) | | ✅ |
 
-**UAT on phone:** Same as Flow 1.1 but starting from the Google button.
+**UAT on phone:** Same as Flow 1.1 but starting from the Google button. ✅
 
 ---
 
@@ -101,7 +101,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | External | App ID, Services ID, Key, and Sign In with Apple entitlement registered in Apple Developer | ✅ |
 | Onboarding screens (same as Flow 1.1) | | ✅ |
 
-**UAT on phone:** Verified on iPad (iPadOS 26.2) via `expo run:ios --device` — native Apple sheet appears, authentication completes, new user routed into onboarding.
+**UAT on phone:** Verified on iPad (iPadOS 26.2) via `expo run:ios --device` — native Apple sheet appears, authentication completes, new user routed into onboarding. ✅
 
 ---
 
@@ -120,7 +120,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Auth gate | `useProtectedRoute` in `_layout.tsx` | ✅ |
 | `fetchUserRow` hydration | ✅ |
 
-**UAT on phone:** Sign in with an account that already exists in `users` table → confirm direct route to Search.
+**UAT on phone:** Sign in with an account that already exists in `users` table → confirm direct route to Search. ✅
 
 ---
 
@@ -134,7 +134,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Storage | `expo-secure-store` adapter for Supabase auth | ✅ |
 | Hydration | `supabase.auth.getSession()` on mount | ✅ |
 
-**UAT on phone:** Sign in, force-quit, re-open. Should land on Search without showing sign-in.
+**UAT on phone:** Sign in, force-quit, re-open. Should land on Search without showing sign-in. ✅
 
 ---
 
@@ -149,7 +149,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | UI | Sign-out button on More tab (with native confirmation alert); also exists on `pending-approval.tsx` | ✅ |
 | Gate | Auth gate detects no session → routes to `(auth)/` | ✅ |
 
-**UAT on phone:** From the More tab, tap Sign out → confirm in the native alert → verify return to splash. Will move into More → Account when that screen is built in Phase 15.
+**UAT on phone:** From the More tab, tap Sign out → confirm in the native alert → verify return to splash. Will move into More → Account when that screen is built in Phase 15. ✅
 
 ---
 
@@ -164,7 +164,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 |---|---|---|
 | Screen | `app/(tabs)/services/index.tsx` | ✅ |
 | Data | `getServiceCatalog()` | ✅ |
-| Seed | `service_catalog` rows in DB | 🔒 must be seeded |
+| Seed | `service_catalog` rows in DB | ✅ |
 
 **UAT on phone:** Open Services tab. Verify catalog renders grouped by category. Check loading/empty/error states by toggling network.
 
@@ -191,7 +191,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Component | `ProviderCard` | ✅ |
 | State | `search` Zustand store | ✅ |
 | Data | `searchProviders()` | ✅ |
-| Seed | `provider_profiles` rows | 🔒 must be seeded with verified providers |
+| Seed | `provider_profiles` rows | ✅ seeded via `carApp/supabase/seeds/providers.sql` |
 | Enhancement | Real geocoding for location radius filter | ⛔ post-MVP, currently text-only |
 
 **UAT on phone:** Enter "Reston, VA", tap Search → confirm provider list renders. Open filters, change sort to rating, apply, verify reorder. Empty/error states.
@@ -210,7 +210,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Data | `getServicePackagesByProvider()` | ✅ |
 | Data | `getRatingsForProviderUser()` | ✅ |
 | Data | `getKudosForProviderUser()` | ✅ |
-| Seed | Provider must have at least one `service_package` | 🔒 |
+| Seed | Provider must have at least one `service_package` | ✅ seeded via `carApp/supabase/seeds/provider_content.sql` (also seeds ratings + kudos) |
 
 **UAT on phone:** Tap any provider card. Verify avatar, rating, stats, package list, sticky Book Now button. Tap Book Now → routes to booking flow.
 
@@ -242,7 +242,7 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Edge Function | `stripe-webhook` (creates intent + handles success/failure) | ✅ deployed |
 | External | Stripe test keys in `.env.local` | 🔒 |
 | External | `@stripe/stripe-react-native` `StripeProvider` wraps root | ✅ |
-| Post-success | Route to booking detail screen | 🟡 booking detail screen is an empty stub |
+| Post-success | Route to booking detail screen | ✅ routes to `bookings/[id].tsx` (built — see Flow 2.6) |
 
 **UAT on phone (with Stripe test mode):**
 1. Pick a provider → Book Now
@@ -276,14 +276,12 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/[id].tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/[id].tsx` | ✅ |
 | Data | `getBookingById()` | ✅ |
-| Data | `getBookingPhotos()` | ✅ |
-| Component | Status timeline (pending → confirmed → en_route → in_progress → completed) | ⛔ |
-| Component | Action buttons (Cancel, Reschedule, Message) | ⛔ |
-| Logic | Cancel-within-24h forfeits 15% deposit (per CLAUDE.md) | ⛔ |
-
-**🔴 BLOCKING ISSUE:** Tapping a booking from the list goes to a blank screen.
+| Data | `getBookingPhotos()` | ✅ (not yet rendered — gallery deferred to Flow 3.2) |
+| Component | Status timeline (pending → confirmed → en_route → in_progress → completed) | ✅ `src/components/booking/StatusTimeline.tsx` |
+| Component | Action buttons (Cancel, Reschedule, Message) | ✅ Track / Message / Reschedule / Cancel wired |
+| Logic | Cancel-within-24h forfeits 15% deposit (per CLAUDE.md) | ✅ via `isWithin24Hours()` → `deposit_forfeited` |
 
 **UAT on phone:** From bookings list, tap a card → see full detail. Tap Track → opens live map. Tap Message → opens thread.
 
@@ -296,9 +294,9 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/past.tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/past.tsx` | ✅ |
 | Data | `getPastBookingsForCustomer()` | ✅ |
-| UI | List with re-book CTA per provider | ⛔ |
+| UI | List with re-book CTA per provider | ✅ "Book Again" pill on completed cards |
 
 **UAT on phone:** Tap "Past" link from header → list of past bookings.
 
@@ -318,16 +316,16 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/bookings/tracking/[bookingId].tsx` | ⛔ empty |
-| Component | `LiveMap` (Google Maps + provider pin) | ⛔ empty file |
-| Component | `JobStatusBar` | ⛔ empty file |
-| Component | `ETADisplay` | ⛔ empty file |
-| Lib | `src/lib/location/index.ts` (geocoding, distance, ETA) | ⛔ empty file |
-| Lib | `src/lib/redis/index.ts` (GPS cache reads) | ⛔ empty file |
+| Screen | `app/(tabs)/bookings/tracking/[bookingId].tsx` | ✅ |
+| Component | `LiveMap` (OSM tiles via `react-native-maps` UrlTile — no Google Maps key) | ✅ |
+| Component | `JobStatusBar` | ✅ |
+| Component | `ETADisplay` | ✅ |
+| Lib | `src/lib/location/index.ts` (Haversine distance / bearing / ETA / region helpers) | ✅ |
+| Lib | `src/lib/redis/index.ts` (GPS cache reads) | ⛔ deferred — customer side polls `provider_location_cache` (Postgres) every 5s per CLAUDE.md |
 | Data | `getProviderLocation()` (Postgres fallback) | ✅ |
-| External | Google Maps API key | 🔒 in `.env.local` |
-| External | `react-native-maps` install + config | ⛔ verify package |
-| External | Redis URL set in Supabase secrets | 🔒 |
+| External | ~~Google Maps API key~~ — switched to free OSM tiles | n/a |
+| External | `react-native-maps` install + config | ✅ installed (OSM tiles, no API key/config needed) |
+| External | Redis URL set in Supabase secrets | 🔒 user-handled (only needed for provider-side writes / Flow 5.4) |
 
 **UAT on phone:** With an active booking, tap Track → map renders → provider pin updates. (Requires the provider side to be sending GPS — Flow 5.4.)
 
@@ -340,11 +338,15 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `src/lib/notifications/push.ts` (FCM token registration) | ⛔ empty file |
-| Edge Function | `notify-booking-confirmed` | ⛔ |
-| Edge Function | `notify-provider-enroute` | ⛔ |
-| Edge Function | `notify-job-complete` | ⛔ |
+| Lib | `src/lib/notifications/push.ts` (FCM token registration + refresh + tap routing) | ✅ |
+| Schema | `users.fcm_token`, `users.fcm_token_platform`, `users.fcm_token_updated_at` | ✅ migration `fcm_token_columns` applied + types regenerated |
+| Mutation | `updateUserPushToken()` | ✅ |
+| Edge Function | `notify-booking-confirmed` | ✅ deployed (v1, 2026-06-15); invoked server-side from `stripe-webhook` on deposit→confirmed |
+| Edge Function | `notify-provider-enroute` | ✅ deployed (v1, 2026-06-15); invoked client-side from `updateBooking` on status→en_route |
+| Edge Function | `notify-job-complete` | ✅ deployed (v1, 2026-06-15); invoked server-side from `stripe-webhook` on job→completed |
+| Edge Function | shared `_shared/fcm.ts` (Legacy FCM HTTP + in-app `notifications` row) | ✅ |
 | External | FCM credentials in `app.json` | ✅ Firebase configured |
+| External | `FCM_SERVER_KEY` secret in Supabase | 🔒 user-handled (`supabase secrets set FCM_SERVER_KEY=…`) |
 | Deep link routing | Booking-related deep links → relevant screen | ✅ per CLAUDE.md route map |
 
 **UAT on phone:** Make a booking → confirm push appears on lock screen → tap → opens booking detail.
@@ -361,8 +363,8 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 | Storage bucket | `booking-photos` | ✅ |
 | Lib | `uploadBookingPhoto()` in `storage.ts` | ✅ |
 | Data | `getBookingPhotos()` | ✅ |
-| Component | Photo gallery in booking detail | ⛔ (booking detail screen itself is empty) |
-| Push | "Photos ready" notification | ⛔ |
+| Component | Photo gallery in booking detail | ✅ `src/components/booking/BookingPhotoGallery.tsx` (before/after rows + full-screen lightbox) |
+| Push | "Photos ready" notification | ⛔ deferred — can reuse `_shared/fcm.ts` later |
 
 **UAT on phone:** With a completed job that has photos, open booking detail → see gallery of before/after.
 
@@ -385,11 +387,11 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 |---|---|---|
 | Component | `GearRating` (interactive) | ✅ |
 | Component | `KudosBadge` (interactive) | ✅ |
-| Component | `KudosBadgeSelector` | ⛔ empty file |
-| Component | `KudosDisplay` | ⛔ empty file |
-| Component | Review sheet / modal | ⛔ |
+| Component | `KudosBadgeSelector` | ✅ (plus `kudosToStorage` / `kudosFromStorage` for snake_case enum mapping) |
+| Component | `KudosDisplay` | ✅ accepts raw rows OR pre-aggregated counts |
+| Component | Review sheet / modal | ✅ `src/components/booking/ReviewSheet.tsx` |
 | Data | `insertRating()`, `insertKudos()` | ✅ |
-| Entry point | Triggered from booking detail | ⛔ (booking detail empty) |
+| Entry point | Triggered from booking detail | ✅ "Rate Provider" CTA when status=completed and no rating yet |
 
 **UAT on phone:** Complete a booking → tap Rate → submit gear ratings + kudos → confirm provider's profile shows updated rating.
 
@@ -402,10 +404,10 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | Cancel / Reschedule buttons in booking detail | ⛔ |
-| Logic | 24-hour deposit forfeiture | ⛔ in `utils/date.ts` helpers exist; need wiring |
+| UI | Cancel / Reschedule buttons in booking detail | ✅ (built in Flow 2.6) |
+| Logic | 24-hour deposit forfeiture | ✅ via `isWithin24Hours()` → `deposit_forfeited` flag |
 | Data | `updateBooking({ status: 'cancelled', deposit_forfeited: true })` | ✅ |
-| Stripe | Refund flow for non-forfeit cancellations | ⛔ |
+| Stripe | Refund flow for non-forfeit cancellations | ✅ `stripe-webhook` `refund_deposit` action + `refundDeposit()` client helper |
 
 ---
 
@@ -416,93 +418,112 @@ Flows are grouped into six sections matching the natural user lifecycle. Within 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | Dispute button in booking detail / rating | ⛔ |
-| Data | `updateRating({ flagged_for_review: true })` | ✅ |
-| Backend | Admin queue + notification | ⛔ |
-| Logic | 48h window check using `utils/date.ts` | ✅ helpers exist; need wiring |
+| UI | Dispute button in booking detail / rating | ✅ "Report an Issue" footer CTA |
+| Data | `updateRating({ is_flagged: true })` | ✅ |
+| Backend | Admin queue + notification | ⛔ deferred — no admin surface yet; flagged rows are queryable via `ratings.is_flagged=true` |
+| Logic | 48h window check using `utils/date.ts` | ✅ via `isWithinDisputeWindow(booking.completed_at \|\| rating.created_at)` |
 
 ---
 
 # Section 3 — Customer Account & Communication
 
-## Flow 3.1 — Manage vehicles
+## Flow 3.1 — Manage vehicles ✅ _(2026-05-31)_
 
 **Goal:** Customer adds, edits, or removes vehicles from their profile.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/account.tsx` (with vehicles section) | ⛔ empty file |
-| Component | `VehicleForm` | ✅ |
+| Screen | `app/(tabs)/more/account.tsx` (with vehicles section) | ✅ list + add / edit / delete / set-primary |
+| Component | `VehicleForm` | ✅ (onboarding-only; account uses its own sheet form so it doesn't couple to `signUpDraft`) |
 | Data | `getVehiclesByUser()`, `insertVehicle()`, `updateVehicle()`, `deleteVehicle()` | ✅ |
+
+**UAT on phone:** Open More → Account. Add a vehicle, edit it, set a second vehicle as primary (the star moves), delete one (confirm alert). Confirm changes survive a tab switch.
 
 ---
 
-## Flow 3.2 — Manage account settings & notifications
+## Flow 3.2 — Manage account settings & notifications ✅ _(2026-05-31)_
 
 **Goal:** Customer edits name, profile photo, notification preferences, contact methods.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/account.tsx` | ⛔ empty file |
-| Screen | `app/(tabs)/more/settings.tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/more/account.tsx` | ✅ editable name (persists to `users`) + avatar via expo-image-picker → `uploadAvatar` → `updateUser`; email/phone shown read-only |
+| Screen | `app/(tabs)/more/settings.tsx` | ✅ notification toggles + legal/about |
 | Storage | `avatars` bucket | ✅ |
 | Lib | `uploadAvatar()` | ✅ |
 | Data | `updateUser()` | ✅ |
+| State | `settings` Zustand store (notif prefs, AsyncStorage-backed) | ✅ NEW — `users` has no prefs columns, so prefs persist locally until Flow 2.9 push + a server column exist |
+
+**Note:** Avatar capture needs the `expo-image-picker` native module → a dev-client / production build (not Expo Go web). The 1920px client resize from CLAUDE.md needs `expo-image-manipulator` (not yet approved) — quality is constrained to 0.8 via the picker for now.
+
+**UAT on phone:** Account → tap avatar → pick a photo → it uploads and shows. Edit name → Save → persists. More → Settings → flip toggles; force-quit + reopen → toggles persisted.
 
 ---
 
-## Flow 3.3 — More tab hub
+## Flow 3.3 — More tab hub ✅ _(2026-05-31)_
 
 **Goal:** Customer opens More tab and sees entry points to Account, Settings, Bookings History, Lug AI, Provider Mode, Sign Out.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/index.tsx` | 🟡 just shows "More" text placeholder |
+| Screen | `app/(tabs)/more/index.tsx` | ✅ profile summary card + Account/Settings/History/Lug/Provider rows + Sign Out; Provider row label adapts to role |
+
+**UAT on phone:** Open More. Confirm the profile card shows your name + email/phone and routes to Account. Tap each row → Account, Settings, Booking history (past bookings), Ask Lug, and Provider (label reads "Become a Provider" as a customer, "Provider Dashboard" once you have a provider role). Tap Sign out → confirm the alert → land on splash.
 
 ---
 
-## Flow 3.4 — Inbox: list message threads
+## Flow 3.4 — Inbox: list message threads ✅ _(2026-05-31)_
 
 **Goal:** Customer opens Inbox tab and sees a list of message threads with providers.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/inbox/index.tsx` | 🟡 placeholder |
+| Screen | `app/(tabs)/inbox/index.tsx` | ✅ thread rows (provider avatar/name + booking context), loading/empty/error, pull-to-refresh |
 | Data | `getThreadsForCustomer()` | ✅ |
+
+**Note:** Customer view only — provider-side inbox is Section 5 (the thread summary query joins the provider's user, not the customer's).
+
+**UAT on phone:** Open Inbox. With a booking that has a thread, confirm the provider's name + booking status/date render and tapping opens the conversation. Empty + pull-to-refresh states.
 
 ---
 
-## Flow 3.5 — Inbox: send and receive messages in a thread
+## Flow 3.5 — Inbox: send and receive messages in a thread ✅ _(2026-05-31)_
 
 **Goal:** Customer opens a thread, sees message history, sends a new message (which passes through content moderation before insert).
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/inbox/[threadId].tsx` | ⛔ empty file |
+| Screen | `app/(tabs)/inbox/[threadId].tsx` | ✅ message bubbles (mine/theirs + flagged style), composer, KeyboardAvoidingView, native header title = provider name |
 | Data | `getMessages()`, `insertMessage()` | ✅ |
 | Lib | `containsFlaggedContent()` in validators | ✅ (already wired into `insertMessage`) |
-| Realtime | Supabase subscription for new messages on this thread | ⛔ (pattern documented in CLAUDE.md but not implemented) |
+| Realtime | Supabase subscription for new messages on this thread | ✅ `thread:{threadId}` channel, INSERT → refetch, cleanup on unmount |
+
+**UAT on phone:** Open a thread → history loads, header shows the provider name. Send a message → it appears and clears the input. Send something with a phone number / "Venmo me" → it posts as `[Message flagged for review]`. With a second device/session, a new message appears live.
 
 ---
 
-## Flow 3.6 — Chat with Lug AI
+## Flow 3.6 — Chat with Lug AI ✅ _(2026-05-31)_ — UI complete; edge fn awaits 🔒 key
 
 **Goal:** Customer taps the floating Lug bubble (visible on every screen) and chats with the AI assistant about car care, services, and recommendations.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `LugBubble` floating button | ⛔ empty file |
-| Component | `LugThread` conversation UI | ⛔ empty file |
-| Screen | `app/(tabs)/more/lug.tsx` (full-screen view) | ⛔ empty file |
-| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ⛔ |
-| External | `ANTHROPIC_API_KEY` set in Supabase secrets | 🔒 |
-| Mount | Floating bubble must mount in `(tabs)/_layout.tsx` to be persistent | ⛔ |
+| Component | `LugBubble` floating button | ✅ FAB, navigates to the full-screen Lug view |
+| Component | `LugThread` conversation UI | ✅ chat + persistent "Talk to a person" CTA that becomes primary after 2 consecutive human-help turns (CLAUDE.md rule) |
+| Screen | `app/(tabs)/more/lug.tsx` (full-screen view) | ✅ hosts LugThread; "Talk to a person" opens a support thread in the inbox |
+| Edge Function | `lug-ai` (Anthropic Claude proxy with system prompt) | ✅ deployed (v1, 2026-06-15); returns 503 until `ANTHROPIC_API_KEY` is set |
+| External | `ANTHROPIC_API_KEY` set in Supabase secrets | 🔒 _(yours)_ — also `supabase functions deploy lug-ai` |
+| Mount | Floating bubble must mount in `(tabs)/_layout.tsx` to be persistent | ✅ wraps `<Tabs>` so the FAB overlays every tab |
+
+**Note (🔒 your step):** `supabase secrets set ANTHROPIC_API_KEY=…` then `supabase functions deploy lug-ai`. Optional `LUG_MODEL` env overrides the default (`claude-haiku-4-5-20251001`). Until then the UI shows a graceful fallback that points to the escalation CTA.
+
+**UAT on phone:** Tap the gold Lug bubble (any tab) → Lug view. Ask a question → reply (once the key/deploy are in place). Confirm "Talk to a person" is visible without scrolling; ask for a human twice → it turns into a solid primary button; tap it → lands in a support thread.
 
 ---
 
@@ -514,213 +535,249 @@ Per CLAUDE.md, promo/gift-card redemption is post-MVP. Data layer has `getPromot
 
 # Section 4 — Provider Onboarding & Vetting
 
-## Flow 4.1 — Existing customer opts in to provider mode
+## Flow 4.1 — Existing customer opts in to provider mode ✅ _(2026-05-31)_
 
 **Goal:** A customer toggles "Become a Provider" and is taken through the vetting flow.
 
 **User journey:**
 1. More tab → "Become a Provider"
 2. Provider intro screen (what's expected, fees, founding program)
-3. Choose provider type(s) (Detailer / Mechanic / Both)
+3. Choose provider type (Detailer / Mechanic — single-select; `provider_profiles` has one `provider_type_id`)
 4. Continue to vetting flow
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/provider.tsx` | ⛔ empty file |
-| Screen | Provider intro / onboarding entry | ⛔ |
+| Screen | `app/(tabs)/more/provider.tsx` | ✅ intro/opt-in + type pick → creates profile, role→both, routes to vetting; in-progress/approved states for existing providers |
+| Screen | Provider intro / onboarding entry | ✅ (the customer state of `provider.tsx`) |
+| Scaffold | `(provider)` route group + `vetting` hub + `VettingStepIndicator` + shared `vettingSteps` config | ✅ NEW — full-screen vetting stack outside the tabs |
 | State | `providerDraft` Zustand store | ✅ |
 | Data | `insertProviderProfile()`, `updateUser({ role: 'both' })` | ✅ |
+| Gate | Root auth gate allows the `(provider)` group for signed-in users | ✅ |
+| Backend | `create_provider_vetting_row` trigger seeds `provider_vetting` on profile insert | ✅ migration `create_provider_vetting_row_trigger` applied to live DB (verified 2026-06-15) |
+
+**UAT on phone:** More → Become a Provider → pick Detailer → Start application → lands on the vetting hub showing 6 steps with statuses. Re-open More → Provider → "Continue application" returns to the hub.
 
 ---
 
-## Flow 4.2 — Complete vetting: Identity (Persona / Stripe Identity)
+## Flow 4.2 — Complete vetting: Identity (Persona / Stripe Identity) ✅ _(2026-05-31)_ — UI done; Persona glue stubbed
 
 **Goal:** Provider verifies government ID + selfie match.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Identity step | ⛔ |
-| Lib | `src/lib/persona/index.ts` | ⛔ empty file |
-| Edge Function | `persona-webhook` | ⛔ |
-| Component | `VettingStepIndicator` | ⛔ empty file |
-| Component | `CredentialUpload` | ⛔ empty file |
-| Data | `updateProviderVetting({ identity_status: 'approved' })` | ✅ |
-| External | Persona API key | 🔒 |
+| Screen | Vetting → Identity step (`app/(provider)/identity.tsx`) | ✅ manual gov-ID photo upload via `VettingUploadStep` → `identity_status: 'submitted'` |
+| Lib | `src/lib/persona/index.ts` | ✅ stub (`startPersonaInquiry` → not configured) |
+| Edge Function | `persona-webhook` | ✅ deployed (v1, 2026-06-15, `verify_jwt: false`); maps inquiry status → `identity_status`; 503 until secret set |
+| Component | `VettingStepIndicator` | ✅ |
+| Component | `CredentialUpload` | ✅ |
+| Data | `updateProviderVetting({ identity_status })` | ✅ |
+| External | Persona API key + SDK | 🔒 _(yours)_ — automated verification wires in once set |
 
 ---
 
-## Flow 4.3 — Complete vetting: Background check (Checkr)
+## Flow 4.3 — Complete vetting: Background check (Checkr) ✅ _(2026-05-31)_ — UI done; Checkr glue stubbed
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Background step | ⛔ |
-| Lib | `src/lib/checkr/index.ts` | ⛔ empty file |
-| Edge Function | `checkr-webhook` | ⛔ |
-| Data | `updateProviderVetting({ background_status: 'approved' })` | ✅ |
-| External | Checkr API key | 🔒 |
+| Screen | Vetting → Background step (`app/(provider)/background.tsx`) | ✅ consent → `background_status: 'submitted'` via `VettingActionStep` |
+| Lib | `src/lib/checkr/index.ts` | ✅ stub (`startBackgroundCheck` → not configured) |
+| Edge Function | `checkr-webhook` | ✅ deployed (v1, 2026-06-15, `verify_jwt: false`); maps report status → `background_status`; 503 until secret set |
+| Data | `updateProviderVetting({ background_status })` | ✅ |
+| External | Checkr API key | 🔒 _(yours)_ — real report runs server-side once set |
 
 ---
 
-## Flow 4.4 — Complete vetting: Insurance upload
+## Flow 4.4 — Complete vetting: Insurance upload ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Insurance step | ⛔ |
+| Screen | Vetting → Insurance step (`app/(provider)/insurance.tsx`) | ✅ via shared `VettingUploadStep` |
+| Component | `CredentialUpload` (reusable doc uploader) | ✅ |
 | Storage | `vetting-documents` bucket | ✅ |
 | Lib | `uploadVettingDocument()` | ✅ |
-| Data | `updateProviderVetting({ insurance_status: 'approved' })` | ✅ (manual admin approval) |
+| Data | `updateProviderVetting({ insurance_status: 'submitted' })` | ✅ upload → "Under review"; admin approves manually |
+
+**UAT on phone:** Vetting hub → Insurance → Upload insurance photo → step shows "Under review".
 
 ---
 
-## Flow 4.5 — Complete vetting: Credentials (IDA / ASE)
+## Flow 4.5 — Complete vetting: Credentials (IDA / ASE) ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Credentials step | ⛔ |
-| Component | `CredentialUpload` | ⛔ empty file |
-| Storage / Data | (same as 4.4) | ✅ |
+| Screen | Vetting → Credentials step (`app/(provider)/credentials.tsx`) | ✅ via shared `VettingUploadStep` |
+| Component | `CredentialUpload` | ✅ |
+| Storage / Data | (same as 4.4) → `credentials_status: 'submitted'` | ✅ |
+
+**UAT on phone:** Vetting hub → Credentials → upload a cert photo → "Under review".
 
 ---
 
-## Flow 4.6 — Complete vetting: Bank account (Stripe Connect onboarding)
+## Flow 4.6 — Complete vetting: Bank account (Stripe Connect onboarding) ✅ _(2026-05-31)_ — UI done; Connect glue stubbed
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Bank step | ⛔ |
-| Lib | Stripe Connect onboarding link generation | ⛔ (separate from existing `stripe/index.ts`) |
-| Data | `updateProviderProfile({ stripe_connect_id })` | ✅ |
-| External | Stripe Connect platform configured | 🔒 |
+| Screen | Vetting → Bank step (`app/(provider)/bank.tsx`) | ✅ "Connect with Stripe" via `VettingActionStep`; shows "not set up yet" until configured |
+| Lib | Stripe Connect onboarding link generation (`src/lib/stripe/connect.ts`) | ✅ stub, separate from `stripe/index.ts` |
+| Data | `updateProviderProfile({ stripe_account_id })` | ✅ (saved on onboarding return once configured) |
+| External | Stripe Connect platform configured | 🔒 _(yours)_ |
 
 ---
 
-## Flow 4.7 — Complete vetting: Profile (bio, photos, hours, coverage area)
+## Flow 4.7 — Complete vetting: Profile (bio, photos, hours, coverage area) ✅ _(2026-05-31)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | Vetting → Profile step | ⛔ |
-| Component | `ServiceMenuEditor` | ⛔ empty file |
-| Component | `AvailabilityCalendar` | ⛔ empty file |
-| Storage | `avatars` bucket | ✅ |
-| Data | `updateProviderProfile()`, `insertServicePackage()` | ✅ |
+| Screen | Vetting → Profile step (`app/(provider)/profile.tsx`) | ✅ bio/coverage/radius → `updateProviderProfile`; recomputes `profile_completeness` |
+| Component | `ServiceMenuEditor` | ✅ list + add/edit/delete service packages (dollars in, cents stored); surfaces "Pending review" for unapproved |
+| Component | `AvailabilityCalendar` | ✅ weekly day picker (controlled) — **not yet persisted** (no `provider_profiles.availability` column) |
+| Storage | `avatars` bucket | ✅ (provider photo reuses the Account avatar) |
+| Data | `updateProviderProfile()`, `insertServicePackage()`, + new `getProviderOwnServicePackages()` | ✅ |
+
+**Note:** availability is captured locally only; persisting it needs an `availability JSONB` column on `provider_profiles` + a `supabase gen types` regen (deferred, also relevant to Flow 5.2).
+
+**UAT on phone:** Vetting hub → Profile. Write a bio (≥20 chars), coverage area, radius; add a service (enter $150 / 120 min → shows $150.00); pick availability days; Save → hub shows Profile = Approved (completeness ≥ 80).
 
 ---
 
-## Flow 4.8 — Provider awaits approval
+## Flow 4.8 — Provider awaits approval ✅ _(2026-05-31)_
 
 **Goal:** While `verification_status != 'approved'`, provider is held on a pending screen showing each vetting step's status.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(auth)/pending-approval.tsx` | ✅ |
+| Screen | `app/(auth)/pending-approval.tsx` | ✅ + "Continue your application" → `(provider)/vetting` |
 | Data | `getProviderVetting()` | ✅ |
-| Gate | Block provider screens until approved | 🟡 pending-approval lives in `(auth)` group; need gate logic for hybrid users |
+| Gate | Block provider screens until approved | ✅ root gate hydrates `providerVerification` and holds **provider-only** unapproved accounts on pending-approval (while allowing the `(provider)` vetting flow); **hybrid `both` users are never blocked** — they keep customer access and vet at their own pace |
+
+**Note:** closes the "unapproved provider routing gap" — provider-only accounts no longer land on `/(tabs)/search` on cold start; they resume on pending-approval until `verification_status = 'approved'`.
+
+**UAT on phone:** Sign in as a provider-only account with `verification_status = 'pending'` → lands on pending-approval; "Continue your application" opens the vetting hub. Flip the row to `approved` in Supabase → next cold start lands on Search.
 
 ---
 
-# Section 5 — Provider Active Use
+# ✅ Section 5 — Provider Active Use ✅
 
-## Flow 5.1 — Provider sees incoming booking requests & accepts/declines
+_All flows built as of 2026-06-08. Edge Functions are deployed (`stripe-webhook` v4, `update-provider-location`, `notify-payout-processed`, `notify-kudos-received`, plus the Section 2/3/4 functions deployed 2026-06-15). Notify invocation is now wired: `notify-booking-confirmed` + `notify-job-complete` fire server-side from `stripe-webhook`; `notify-provider-enroute` + `notify-kudos-received` fire client-side from `updateBooking`/`insertKudos`. `expo-location` + `react-native-maps` are installed. Remaining 🔒 items (yours): set `FCM_SERVER_KEY` for the actual push send, and decide an invocation source for `notify-payout-processed` (no payout→paid event exists in-app yet — fires when you settle Connect payouts)._
 
-**Goal:** Provider sees pending bookings in their dashboard and can accept, decline, or counter-offer.
+## Flow 5.1 — Provider sees & manages their jobs (dashboard hub) ✅ _(2026-06-08)_
+
+**Goal:** Provider has a dashboard hub and sees their upcoming jobs. (Per the deposit model the booking is auto-`confirmed` when the 15% deposit clears, so there is no separate accept/decline step — the provider drives the job forward via the active-job lifecycle in Flow 5.4/5.6.)
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Screen | `app/(tabs)/more/provider.tsx` (provider dashboard hub) | ⛔ empty file |
+| Screen | `app/(tabs)/more/provider.tsx` — approved providers get a dashboard hub: My Jobs, Services & Availability, Earnings & Kudos, application | ✅ |
+| List | Provider job list via the Bookings tab "My Jobs" toggle → routes to the active-job screen | ✅ (built Flow 2.5; routing added in Flow 5.4) |
 | Data | `getUpcomingBookingsForProvider()` | ✅ |
-| Data | `updateBooking({ status: 'confirmed' })` | ✅ |
-| Push | "New booking request" notification | ⛔ |
+| Data | `updateBooking({ status })` lifecycle transitions | ✅ (Flow 5.4/5.6) |
+| Push | "Booking confirmed" push to provider | ✅ via existing `notify-booking-confirmed` (Flow 2.9) |
+
+**Note:** accept/decline/counter-offer was dropped — it doesn't fit the deposit-auto-confirm model or the schema. Decided 2026-06-08.
 
 ---
 
-## Flow 5.2 — Provider manages availability calendar
+## Flow 5.2 — Provider manages availability calendar ✅ _(2026-06-08)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `AvailabilityCalendar` | ⛔ empty file |
-| Data | Availability fields on `provider_profiles` | 🟡 schema check needed |
+| Component | `AvailabilityCalendar` | ✅ controlled weekly picker (built Flow 4.7) |
+| Data | `availability JSONB` column on `provider_profiles` | ✅ migration `add_availability_to_provider_profiles` applied + types regenerated + `schema.sql` updated |
+| Lib | `availabilityFromJson()` (coerces stored Json → `WeeklyAvailability`, fills missing days) | ✅ |
+| Screen | `app/(tabs)/more/provider-manage.tsx` (persists via `updateProviderProfile({ availability })`) | ✅ also persisted in the vetting `(provider)/profile.tsx` step |
+
+**UAT on phone:** More → Provider (approved) → Manage services & availability → toggle days → Save → force-quit/reopen → confirm the chosen days persist.
 
 ---
 
-## Flow 5.3 — Provider edits service menu
+## Flow 5.3 — Provider edits service menu ✅ _(2026-06-08)_
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `ServiceMenuEditor` | ⛔ empty file |
+| Component | `ServiceMenuEditor` | ✅ list + add/edit/delete (built Flow 4.7) |
 | Data | `insertServicePackage()`, `updateServicePackage()`, `deleteServicePackage()` | ✅ |
+| Screen | Surfaced in `app/(tabs)/more/provider-manage.tsx` (post-approval) + vetting `(provider)/profile.tsx` | ✅ |
+
+**UAT on phone:** More → Provider (approved) → Manage services & availability → add a service ($150 / 120 min) → it appears with price; edit/delete it.
 
 ---
 
-## Flow 5.4 — Provider navigates to a job + sends live GPS
+## Flow 5.4 — Provider navigates to a job + sends live GPS ✅ _(2026-06-08)_ — code done; deploy + installs awaiting 🔒
 
-**Goal:** When a booking goes `en_route`, the provider app pushes GPS updates every 5 seconds to Redis (and periodically to Postgres for last-known fallback).
+**Goal:** When a booking goes `en_route`/`in_progress`, the provider app streams GPS every 5s so the customer tracking screen (Flow 2.8) updates.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `src/lib/location/index.ts` | ⛔ empty file |
-| Lib | `src/lib/redis/index.ts` | ⛔ empty file |
-| Component | `LiveMap` (provider-side view with directions to customer) | ⛔ empty file |
-| External | `expo-location` background permission | ⛔ verify config |
-| External | Redis URL in Supabase secrets | 🔒 |
+| Lib | `src/lib/location/index.ts` (distance/ETA math) | ✅ (built Flow 2.8) |
+| Lib | `src/lib/location/tracking.ts` (`sendProviderLocation` → Edge Function) | ✅ NEW |
+| Edge Function | `update-provider-location` (verifies ownership, upserts `provider_location_cache` with service role — app never writes it directly per CLAUDE.md) | ✅ deployed (v1, 2026-06-08) |
+| Screen | `app/(tabs)/bookings/job/[bookingId].tsx` runs the `expo-location` watcher while active + "Open in Maps" hand-off for real turn-by-turn | ✅ |
+| Component | `LiveMap` (customer-facing OSM map) | ✅ reused; provider directions use the native maps hand-off (no routing API per CLAUDE.md OSM note) |
+| Lib | `src/lib/redis/index.ts` | ⛔ deferred — Postgres `provider_location_cache` is the write target for now; Redis swaps in behind the same Edge Function later |
+| External | `expo-location` install + foreground permission | ✅ installed; `app.json` has the `locationWhenInUsePermission` string |
+| External | Redis URL in Supabase secrets | 🔒 deferred |
 
 ---
 
-## Flow 5.5 — Provider uploads before/after photos
+## Flow 5.5 — Provider uploads before/after photos ✅ _(2026-06-08)_
 
-**Goal:** Provider uses in-app camera to capture and upload required before/after photos (4 minimum to complete a job).
+**Goal:** Provider captures before/after photos during an active job (≥4 to complete).
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Lib | `uploadBookingPhoto()` | ✅ |
+| Lib | `uploadBookingPhoto()`, `getSignedUrl()` | ✅ |
 | Data | `insertBookingPhoto()` | ✅ |
-| UI | Camera screen + gallery in active-booking provider view | ⛔ |
-| External | `expo-camera` permissions | ⛔ verify package |
+| Component | `JobPhotoCapture` (camera/library via `expo-image-picker`; stores a signed URL so the private-bucket photo renders in the existing gallery) | ✅ NEW |
+| UI | Photo capture in the provider active-job screen + ≥4-photo gate on "Complete Job" | ✅ |
+| External | `expo-camera` | n/a — uses the already-installed `expo-image-picker` camera source |
 
 ---
 
-## Flow 5.6 — Provider marks job complete → Stripe captures remainder
+## Flow 5.6 — Provider marks job complete → Stripe captures remainder ✅ _(2026-06-08)_ — code done; deploy awaiting 🔒
 
-**Goal:** Provider taps "Complete Job" → backend captures remaining 85% via Stripe → payout queued.
+**Goal:** Provider taps "Complete Job" → backend captures remaining 85% via Stripe → booking completed + payout queued.
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| UI | "Complete Job" button in provider's active booking view | ⛔ |
-| Edge Function | `stripe-webhook` extended to handle balance capture | 🟡 only deposit creation today |
-| Data | `updateBooking({ status: 'completed' })` | ✅ |
+| UI | "Complete Job" button in `bookings/job/[bookingId].tsx` | ✅ |
+| Lib | `captureBalance()` client helper | ✅ NEW |
+| Edge Function | `stripe-webhook` `capture_balance` action — off-session charge of the 85% balance, records `balance` payment, sets booking `completed`, queues a `pending` payout, bumps `total_jobs`. Deposit intent now sets `setup_future_usage: 'off_session'` so the card is reusable. | ✅ deployed (v3, 2026-06-08) |
+| Data | `updateBooking({ status })` for en_route/in_progress transitions | ✅ |
 
 ---
 
-## Flow 5.7 — Provider views earnings & payouts
+## Flow 5.7 — Provider views earnings & payouts ✅ _(2026-06-08)_ — UI done; payout notify deploy awaiting 🔒
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Component | `EarningsDashboard` | ⛔ empty file |
-| Data | `getPayoutsByProvider()`, `getPaymentsByUser()` | ✅ |
-| Edge Function | `notify-payout-processed` | ⛔ |
+| Component | `EarningsDashboard` (paid + pending totals, dated payout list) | ✅ NEW — reads `payouts` (the provider's earnings source; `getPaymentsByUser` is customer-side) |
+| Screen | `app/(tabs)/more/provider-earnings.tsx` (hosts EarningsDashboard + kudos history) | ✅ NEW |
+| Data | `getPayoutsByProvider()` | ✅ |
+| Edge Function | `notify-payout-processed` (push when a payout → paid) | ✅ deployed (v1, 2026-06-08); needs to be invoked when a payout flips to paid + `FCM_SERVER_KEY` for push |
 
 ---
 
-## Flow 5.8 — Provider receives kudos / rating notifications
+## Flow 5.8 — Provider receives kudos / rating notifications ✅ _(2026-06-08)_ — UI done; kudos notify deploy awaiting 🔒
 
 **Required pieces:**
 | Type | Item | Status |
 |---|---|---|
-| Edge Function | `notify-kudos-received` | ⛔ |
-| UI | Kudos history view on provider dashboard | ⛔ |
+| Edge Function | `notify-kudos-received` (push on kudos insert; deep-links to More → Provider) | ✅ deployed (v1, 2026-06-08); now invoked from `insertKudos`; needs `FCM_SERVER_KEY` for the push send |
+| UI | Kudos history on the earnings screen via `KudosDisplay` | ✅ `app/(tabs)/more/provider-earnings.tsx` |
 | Data | `getKudosForProviderUser()` | ✅ |
 
 ---
@@ -791,15 +848,15 @@ Per CLAUDE.md, no offline queueing; show error + retry CTA.
 Based on what unlocks the most UAT coverage with the least new code:
 
 1. **Flow 1.1 onboarding screens** — without these, no real new-user testing is possible. Components and state already exist; only screens + `insertUser` mutation needed.
-2. **Flow 2.6 booking detail screen** — unblocks the entire post-booking experience (tracking, rating, photos, cancel, message).
-3. **Flow 2.7 past bookings screen** — small lift, completes the Bookings tab.
+2. ~~Flow 2.6 booking detail screen — unblocks the entire post-booking experience (tracking, rating, photos, cancel, message).~~ ✅ Done.
+3. ~~Flow 2.7 past bookings screen — small lift, completes the Bookings tab.~~ ✅ Done.
 4. **Flow 3.3 More tab hub** — gives access to Account, Settings, Sign Out, Provider Mode.
 5. **Flow 3.1 / 3.2 account & vehicle management** — small screens with existing data layer.
 6. **Flow 3.4 / 3.5 inbox + thread view** — the data layer + moderation already exist; only UI needed.
-7. **Flow 2.11 rating sheet** — finishes the customer post-service moment.
+7. ~~Flow 2.11 rating sheet — finishes the customer post-service moment.~~ ✅ Done.
 8. **Flow 4.x provider vetting + 5.x provider dashboard** — large body of work; sequence Persona → Checkr → Stripe Connect last.
-9. **Flow 2.8 / 5.4 live tracking** — depends on Redis + location libs + Google Maps view.
-10. **Flow 2.9 push notifications + Edge Functions** — backend-heavy.
+9. ~~Flow 2.8 / 5.4 live tracking — depends on Redis + location libs + Google Maps view.~~ Customer side ✅ Done (OSM tiles, no Google Maps key); provider-side write-path (5.4) remains.
+10. ~~Flow 2.9 push notifications + Edge Functions — backend-heavy.~~ ✅ Done (waiting on `FCM_SERVER_KEY` secret + schema apply).
 11. **Flow 3.6 Lug AI** — Anthropic Edge Function + floating bubble.
 
 ---

@@ -93,75 +93,76 @@
 ---
 
 ## Phase 8 — Active Booking & Live Tracking
-- [ ] `src/lib/location/index.ts` — GPS helpers, geocoding, distance calc
-- [ ] `src/lib/redis/index.ts` — GPS caching, rate limiting, short-lived tokens
-- [ ] `src/components/tracking/LiveMap.tsx`
-- [ ] `src/components/tracking/JobStatusBar.tsx`
-- [ ] `src/components/tracking/ETADisplay.tsx`
-- [ ] `app/(tabs)/bookings/[id].tsx` — active booking detail
-- [ ] `app/(tabs)/bookings/tracking/[bookingId].tsx` — live GPS map screen
+- [x] `src/lib/location/index.ts` — distance / bearing / ETA / region helpers
+- [ ] `src/lib/redis/index.ts` — GPS caching, rate limiting, short-lived tokens (provider-side write path, Flow 5.4)
+- [x] `src/components/tracking/LiveMap.tsx` — OSM tiles via `react-native-maps` UrlTile (no Google Maps key)
+- [x] `src/components/tracking/JobStatusBar.tsx`
+- [x] `src/components/tracking/ETADisplay.tsx`
+- [x] `app/(tabs)/bookings/[id].tsx` — active booking detail (+ `src/components/booking/StatusTimeline.tsx`)
+- [x] `app/(tabs)/bookings/tracking/[bookingId].tsx` — live GPS map screen
 
 ---
 
 ## Phase 9 — Bookings Management
 - [x] `app/(tabs)/bookings/index.tsx` — upcoming bookings list
-- [ ] `app/(tabs)/bookings/past.tsx` — completed bookings history
+- [x] `app/(tabs)/bookings/past.tsx` — completed bookings history (with "Book Again" CTA)
 
 ---
 
 ## Phase 10 — Push Notifications
-- [ ] `src/lib/notifications/push.ts` — FCM token registration, all 10 trigger types
-- [ ] Supabase Edge Function — booking confirmed trigger
-- [ ] Supabase Edge Function — provider en route trigger
-- [ ] Supabase Edge Function — job complete / rate now trigger
-- [ ] Supabase Edge Function — payout processed trigger
-- [ ] Supabase Edge Function — kudos received trigger
+- [x] `src/lib/notifications/push.ts` — FCM token registration, refresh, foreground/background, deep-link routing
+- [x] `supabase/functions/_shared/fcm.ts` — shared FCM sender + in-app `notifications` row
+- [x] Supabase Edge Function — booking confirmed trigger
+- [x] Supabase Edge Function — provider en route trigger
+- [x] Supabase Edge Function — job complete / rate now trigger
+- [ ] Supabase Edge Function — payout processed trigger (Flow 5.x)
+- [ ] Supabase Edge Function — kudos received trigger (Flow 5.x)
 
 ---
 
 ## Phase 11 — Inbox & Messaging
-- [ ] `app/(tabs)/inbox/index.tsx` — thread list
-- [ ] `app/(tabs)/inbox/[threadId].tsx` — message thread view
+- [x] `app/(tabs)/inbox/index.tsx` — thread list
+- [x] `app/(tabs)/inbox/[threadId].tsx` — message thread view
 
 ---
 
 ## Phase 12 — Ratings, Kudos & Reviews
-- [ ] `src/components/kudos/KudosBadgeSelector.tsx`
-- [ ] `src/components/kudos/KudosDisplay.tsx`
-- [ ] Post-service review flow (gear rating + kudos + review text)
+- [x] `src/components/kudos/KudosBadgeSelector.tsx`
+- [x] `src/components/kudos/KudosDisplay.tsx`
+- [x] Post-service review flow — `src/components/booking/ReviewSheet.tsx` + booking-detail entry CTA
 
 ---
 
 ## Phase 13 — Provider Dashboard
-- [ ] `src/components/provider/AvailabilityCalendar.tsx`
-- [ ] `src/components/provider/ServiceMenuEditor.tsx`
+- [x] `src/components/provider/AvailabilityCalendar.tsx`
+- [x] `src/components/provider/ServiceMenuEditor.tsx`
 - [ ] `src/components/provider/EarningsDashboard.tsx`
-- [ ] `src/components/provider/VettingStepIndicator.tsx`
-- [ ] `src/components/provider/CredentialUpload.tsx`
-- [ ] `app/(tabs)/more/provider.tsx` — provider dashboard hub
+- [x] `src/components/provider/VettingStepIndicator.tsx`
+- [x] `src/components/provider/CredentialUpload.tsx`
+- [x] `app/(tabs)/more/provider.tsx` — provider opt-in / status (dashboard is Section 5)
 
 ---
 
 ## Phase 14 — Provider Vetting
-- [ ] `src/lib/persona/index.ts` — identity verification flow
-- [ ] `src/lib/checkr/index.ts` — background check webhook
-- [ ] Checkr webhook handler (Supabase Edge Function)
-- [ ] Persona webhook handler (Supabase Edge Function)
-- [ ] Vetting multi-step flow screens
+- [x] `src/lib/persona/index.ts` — identity verification flow (stub; awaits PERSONA_API_KEY/SDK)
+- [x] `src/lib/checkr/index.ts` — background check (stub; awaits CHECKR_API_KEY)
+- [x] Checkr webhook handler (Supabase Edge Function — stub)
+- [x] Persona webhook handler (Supabase Edge Function — stub)
+- [x] Vetting multi-step flow screens (identity/background/insurance/credentials/bank/profile under (provider))
 
 ---
 
 ## Phase 15 — More Tab & Account
-- [ ] `app/(tabs)/more/account.tsx` — customer profile, vehicles
-- [ ] `app/(tabs)/more/settings.tsx` — preferences, notifications
-- [ ] `app/(tabs)/more/lug.tsx` — Lug AI screen
+- [x] `app/(tabs)/more/account.tsx` — customer profile, vehicles
+- [x] `app/(tabs)/more/settings.tsx` — preferences, notifications
+- [x] `app/(tabs)/more/lug.tsx` — Lug AI screen
 
 ---
 
 ## Phase 16 — Lug AI
-- [ ] `src/components/lug/LugBubble.tsx` — persistent floating chat button
-- [ ] `src/components/lug/LugThread.tsx` — conversation thread UI
-- [ ] Anthropic Claude API integration (Supabase Edge Function with system prompt + catalog context)
+- [x] `src/components/lug/LugBubble.tsx` — persistent floating chat button
+- [x] `src/components/lug/LugThread.tsx` — conversation thread UI
+- [x] Anthropic Claude API integration (Supabase Edge Function — written; awaits ANTHROPIC_API_KEY + deploy)
 
 ---
 

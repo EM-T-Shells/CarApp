@@ -12,6 +12,10 @@ CREATE TABLE provider_types (
 );
 
 -- USERS
+-- NOTE: the public.users row is inserted by the app at the end of onboarding
+-- (insertUser() on the review step), NOT by a trigger on auth.users. Do not
+-- add an on_auth_user_created / handle_new_user trigger here — it would create
+-- the row at signup time and the auth gate would skip onboarding entirely.
 CREATE TABLE users (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email              TEXT UNIQUE,
@@ -19,13 +23,37 @@ CREATE TABLE users (
   full_name          TEXT,
   role               VARCHAR NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'provider', 'both')),
   avatar_url         TEXT,
+  -- Customer mailing address (structured), captured on the onboarding
+  -- profile step. Used to match customers with nearby providers.
+  -- Added by migration add_user_address_columns.
+  address_line1      TEXT,
+  address_line2      TEXT,
+  city               TEXT,
+  state              TEXT,
+  postal_code        TEXT,
   is_verified        BOOLEAN DEFAULT FALSE,
   stripe_customer_id TEXT,
   email_verified     BOOLEAN DEFAULT FALSE,
   phone_verified     BOOLEAN DEFAULT FALSE,
+  -- Single-device FCM token (one device per user for MVP). Flow 2.9.
+  fcm_token              TEXT,
+  fcm_token_platform     VARCHAR CHECK (fcm_token_platform IN ('ios', 'android')),
+  fcm_token_updated_at   TIMESTAMPTZ,
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
+
+-- Public-safe projection of users. The `users` table RLS only allows a user
+-- to read their own row (auth.uid() = id), so joins from provider_profiles,
+-- bookings, message_threads, and messages cannot read another user's name or
+-- avatar. This SECURITY DEFINER view exposes ONLY id/full_name/avatar_url
+-- (never email/phone/stripe_customer_id) for all users, so those joins resolve.
+-- Data-layer embeds reference it as `users:users_public(...)`.
+CREATE OR REPLACE VIEW users_public
+  WITH (security_invoker = false) AS
+  SELECT id, full_name, avatar_url FROM users;
+
+GRANT SELECT ON users_public TO anon, authenticated;
 
 -- VEHICLES
 CREATE TABLE vehicles (
@@ -50,6 +78,7 @@ CREATE TABLE provider_profiles (
   bio                 TEXT,
   coverage_area       TEXT,
   mile_radius         NUMERIC(5,2),
+  availability        JSONB,                 -- weekly { "mon": true, …, "sun": false }; NULL = not set (Flow 5.2)
   avg_gear_rating     NUMERIC(3,2) DEFAULT 0,
   total_jobs          INT DEFAULT 0,
   kudos_count         INT DEFAULT 0,
@@ -79,6 +108,29 @@ CREATE TABLE provider_vetting (
   created_at            TIMESTAMPTZ DEFAULT now(),
   updated_at            TIMESTAMPTZ DEFAULT now()
 );
+
+-- Auto-create the provider_vetting row whenever a provider_profiles row is
+-- inserted. provider_vetting RLS is UPDATE-only (no client INSERT), so this
+-- SECURITY DEFINER trigger runs as the table owner to seed the row — clients
+-- never insert vetting rows directly, keeping RLS tight. Added for Flow 4.1
+-- (provider opt-in). Apply to existing projects as a migration.
+CREATE OR REPLACE FUNCTION create_provider_vetting_row()
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO provider_vetting (provider_id) VALUES (NEW.id);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_create_provider_vetting ON provider_profiles;
+CREATE TRIGGER trg_create_provider_vetting
+  AFTER INSERT ON provider_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION create_provider_vetting_row();
 
 -- SERVICE CATALOG (admin managed preset list)
 CREATE TABLE service_catalog (
@@ -348,6 +400,9 @@ ALTER TABLE provider_location_cache ENABLE ROW LEVEL SECURITY;
 -- USERS
 CREATE POLICY "users: read own" ON users
   FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "users: insert own" ON users
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
 
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);

@@ -1,9 +1,10 @@
-// Onboarding step 1 — Profile.
+// Onboarding step 2 — Profile.
 //
-// Brand-new authenticated user enters their full name. Writes through
-// useSignUpDraftStore.setProfile and advances to the role step on
-// Continue. The 4-step StepIndicator at the top mirrors the position
-// stored in the draft store.
+// After choosing a role, the new user enters their contact details:
+// full name and phone (required for everyone), plus a mailing address
+// for customer / both accounts (used to match them with nearby
+// providers). Writes through useSignUpDraftStore.setProfile and advances
+// to the vehicle step (customer / both) or the review screen (provider).
 
 import React, { useState } from 'react';
 import {
@@ -12,7 +13,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -22,108 +22,302 @@ import { useRouter } from 'expo-router';
 
 import tokens from '../../../src/design/tokens';
 import { textStyles } from '../../../src/design/typography';
-import { StepIndicator } from '../../../src/components/auth/StepIndicator';
+import { OnboardingHeader } from '../../../src/components/auth/OnboardingHeader';
 import {
   SIGN_UP_STEPS,
   useSignUpDraftStore,
 } from '../../../src/state/signUpDraft';
-import { isValidFullName } from '../../../src/utils/validators';
+import { useAuthStore } from '../../../src/state/auth';
+import {
+  isValidFullName,
+  isValidPhone,
+  isRequired,
+} from '../../../src/utils/validators';
 
-const STEP_INDEX = 0;
+const STEP_INDEX = 1;
+
+type FieldKey =
+  | 'fullName'
+  | 'phone'
+  | 'addressLine1'
+  | 'city'
+  | 'state'
+  | 'postalCode';
 
 export default function OnboardingProfileScreen(): React.ReactElement {
   const router = useRouter();
-  const fullName = useSignUpDraftStore((s) => s.fullName);
+  const role = useSignUpDraftStore((s) => s.role);
   const setProfile = useSignUpDraftStore((s) => s.setProfile);
   const setStep = useSignUpDraftStore((s) => s.setStep);
+  const sessionPhone = useAuthStore((s) => s.session?.user?.phone ?? '');
 
-  const [local, setLocal] = useState(fullName);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const isCustomerLike = role === 'customer' || role === 'both';
 
-  function handleChange(value: string): void {
-    setLocal(value);
-    if (error) setError(null);
+  const [fullName, setFullName] = useState(
+    () => useSignUpDraftStore.getState().fullName,
+  );
+  const [phone, setPhone] = useState(
+    () => useSignUpDraftStore.getState().phone || sessionPhone,
+  );
+  const [addressLine1, setAddressLine1] = useState(
+    () => useSignUpDraftStore.getState().addressLine1,
+  );
+  const [addressLine2, setAddressLine2] = useState(
+    () => useSignUpDraftStore.getState().addressLine2,
+  );
+  const [city, setCity] = useState(() => useSignUpDraftStore.getState().city);
+  const [stateRegion, setStateRegion] = useState(
+    () => useSignUpDraftStore.getState().state,
+  );
+  const [postalCode, setPostalCode] = useState(
+    () => useSignUpDraftStore.getState().postalCode,
+  );
+
+  const [errors, setErrors] = useState<Partial<Record<FieldKey, string | null>>>(
+    {},
+  );
+
+  function clearError(key: FieldKey): void {
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   }
 
   function handleContinue(): void {
-    const result = isValidFullName(local);
-    if (!result.valid) {
-      setError(result.error);
+    const nextErrors: Partial<Record<FieldKey, string | null>> = {};
+
+    const nameResult = isValidFullName(fullName);
+    if (!nameResult.valid) nextErrors.fullName = nameResult.error;
+
+    const phoneResult = isValidPhone(phone);
+    if (!phoneResult.valid) nextErrors.phone = phoneResult.error;
+
+    if (isCustomerLike) {
+      const l1 = isRequired(addressLine1, 'Street address');
+      if (!l1.valid) nextErrors.addressLine1 = l1.error;
+      const cityResult = isRequired(city, 'City');
+      if (!cityResult.valid) nextErrors.city = cityResult.error;
+      const stateResult = isRequired(stateRegion, 'State');
+      if (!stateResult.valid) nextErrors.state = stateResult.error;
+      const zipResult = isRequired(postalCode, 'ZIP code');
+      if (!zipResult.valid) nextErrors.postalCode = zipResult.error;
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
       return;
     }
 
-    setSubmitting(true);
-    setProfile({ fullName: local.trim() });
-    setStep('role');
-    router.push('/(auth)/onboarding/role');
-    setSubmitting(false);
+    setProfile({
+      fullName: fullName.trim(),
+      phone: phone.trim(),
+      addressLine1: addressLine1.trim(),
+      addressLine2: addressLine2.trim(),
+      city: city.trim(),
+      state: stateRegion.trim(),
+      postalCode: postalCode.trim(),
+    });
+
+    if (role === 'provider') {
+      router.push('/(auth)/onboarding/review');
+      return;
+    }
+    setStep('vehicle');
+    router.push('/(auth)/onboarding/vehicle');
   }
 
-  const canSubmit = local.trim().length >= 2 && !submitting;
+  function handleBack(): void {
+    setStep('role');
+    router.back();
+  }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <OnboardingHeader
+        onBack={handleBack}
+        currentStep={STEP_INDEX}
+        totalSteps={SIGN_UP_STEPS.length}
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <StepIndicator
-          totalSteps={SIGN_UP_STEPS.length}
-          currentStep={STEP_INDEX}
-        />
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <Text style={styles.title}>What's your name?</Text>
+            <Text style={styles.title}>Your details</Text>
             <Text style={styles.subtitle}>
-              This is how providers will see you when you book a service.
+              {isCustomerLike
+                ? 'We use your address to match you with nearby detailers and mechanics.'
+                : 'How customers will reach you for bookings.'}
             </Text>
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Full name</Text>
-            <TextInput
-              style={[styles.input, error ? styles.inputError : null]}
-              value={local}
-              onChangeText={handleChange}
-              placeholder="Alex Rivera"
-              placeholderTextColor={tokens.colors.light.midGray}
-              autoCapitalize="words"
-              autoCorrect={false}
-              autoFocus
-              maxLength={100}
-              returnKeyType="done"
-              onSubmitEditing={handleContinue}
-              accessibilityLabel="Full name"
-              testID="onboarding-profile-name"
-            />
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          </View>
+          <Field
+            label="Full name"
+            value={fullName}
+            onChangeText={(v) => {
+              setFullName(v);
+              clearError('fullName');
+            }}
+            placeholder="Alex Rivera"
+            autoCapitalize="words"
+            autoFocus
+            error={errors.fullName}
+            testID="onboarding-profile-name"
+          />
+
+          <Field
+            label="Phone"
+            value={phone}
+            onChangeText={(v) => {
+              setPhone(v);
+              clearError('phone');
+            }}
+            placeholder="(703) 555-0142"
+            keyboardType="phone-pad"
+            error={errors.phone}
+            testID="onboarding-profile-phone"
+          />
+
+          {isCustomerLike ? (
+            <>
+              <Field
+                label="Street address"
+                value={addressLine1}
+                onChangeText={(v) => {
+                  setAddressLine1(v);
+                  clearError('addressLine1');
+                }}
+                placeholder="123 Main St"
+                autoCapitalize="words"
+                error={errors.addressLine1}
+                testID="onboarding-profile-address1"
+              />
+              <Field
+                label="Apt / unit (optional)"
+                value={addressLine2}
+                onChangeText={setAddressLine2}
+                placeholder="Apt 4B"
+                autoCapitalize="words"
+                testID="onboarding-profile-address2"
+              />
+              <Field
+                label="City"
+                value={city}
+                onChangeText={(v) => {
+                  setCity(v);
+                  clearError('city');
+                }}
+                placeholder="Reston"
+                autoCapitalize="words"
+                error={errors.city}
+                testID="onboarding-profile-city"
+              />
+              <View style={styles.row}>
+                <View style={styles.rowItemSmall}>
+                  <Field
+                    label="State"
+                    value={stateRegion}
+                    onChangeText={(v) => {
+                      setStateRegion(v);
+                      clearError('state');
+                    }}
+                    placeholder="VA"
+                    autoCapitalize="characters"
+                    maxLength={2}
+                    error={errors.state}
+                    testID="onboarding-profile-state"
+                  />
+                </View>
+                <View style={styles.rowItem}>
+                  <Field
+                    label="ZIP code"
+                    value={postalCode}
+                    onChangeText={(v) => {
+                      setPostalCode(v);
+                      clearError('postalCode');
+                    }}
+                    placeholder="20190"
+                    keyboardType="number-pad"
+                    maxLength={10}
+                    error={errors.postalCode}
+                    testID="onboarding-profile-zip"
+                  />
+                </View>
+              </View>
+            </>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [
               styles.submit,
-              !canSubmit && styles.submitDisabled,
-              pressed && canSubmit && styles.submitPressed,
+              pressed && styles.submitPressed,
             ]}
             onPress={handleContinue}
-            disabled={!canSubmit}
             accessibilityRole="button"
             accessibilityLabel="Continue to next step"
             testID="onboarding-profile-continue"
           >
-            {submitting ? (
-              <ActivityIndicator color={tokens.colors.light.offWhite} />
-            ) : (
-              <Text style={styles.submitText}>Continue</Text>
-            )}
+            <Text style={styles.submitText}>Continue  →</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+// ── Field ─────────────────────────────────────────────────────────────────
+
+interface FieldProps {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  error?: string | null;
+  testID?: string;
+  autoFocus?: boolean;
+  maxLength?: number;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  keyboardType?: 'default' | 'phone-pad' | 'number-pad';
+}
+
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  error,
+  testID,
+  autoFocus,
+  maxLength,
+  autoCapitalize = 'sentences',
+  keyboardType = 'default',
+}: FieldProps): React.ReactElement {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={[styles.input, error ? styles.inputError : null]}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={tokens.colors.light.midGray}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={false}
+        autoFocus={autoFocus}
+        maxLength={maxLength}
+        keyboardType={keyboardType}
+        accessibilityLabel={label}
+        testID={testID}
+      />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
   );
 }
 
@@ -141,7 +335,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: tokens.spacing.xl,
     paddingBottom: tokens.spacing['2xl'],
-    gap: tokens.spacing.xl,
+    gap: tokens.spacing.lg,
   },
   header: {
     marginTop: tokens.spacing.xl,
@@ -149,18 +343,30 @@ const styles = StyleSheet.create({
   },
   title: {
     ...textStyles.displayMedium,
-    color: tokens.colors.light.deepIndigo,
+    color: tokens.colors.light.charcoal,
   },
   subtitle: {
     ...textStyles.bodyLarge,
     color: tokens.colors.light.midGray,
   },
   field: {
-    gap: tokens.spacing.xs,
+    gap: tokens.spacing.sm,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: tokens.spacing.md,
+  },
+  rowItem: {
+    flex: 1,
+  },
+  rowItemSmall: {
+    width: 96,
   },
   label: {
     ...textStyles.label,
-    color: tokens.colors.light.charcoal,
+    color: tokens.colors.light.midGray,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
     ...textStyles.body,
@@ -181,14 +387,12 @@ const styles = StyleSheet.create({
     color: '#D92B2B',
   },
   submit: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: tokens.borderRadius.button,
-    backgroundColor: tokens.colors.light.electricBlue,
+    backgroundColor: tokens.colors.light.deepIndigo,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  submitDisabled: {
-    opacity: 0.5,
+    marginTop: tokens.spacing.sm,
   },
   submitPressed: {
     opacity: 0.85,

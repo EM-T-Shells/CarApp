@@ -124,6 +124,7 @@ CarApp/                                   # Git repo root
     │       ├── notify-job-complete/ 
     │       ├── notify-payout-processed/ 
     │       ├── notify-kudos-received/ 
+    │       ├── update-provider-location/  # Provider GPS write path → provider_location_cache (Flow 5.4) 
     │       └── lug-ai/ 
     ├── e2e/                              # Maestro E2E flows 
     └── assets/ 
@@ -213,7 +214,7 @@ app/_layout.tsx — onAuthStateChange
 - **Service snapshots**: Services are snapshotted as JSONB in the `bookings.services` column at booking time. Price or name changes by providers never alter existing bookings.
 - **Deposit model**: 15% of booking total collected at booking via Stripe; remainder captured on job completion. `deposit_forfeited = true` on late cancellations (within 24 hours of scheduled time).
 - **Fee structure**: Provider platform fee is 5% (0% for Founding Providers for first 3 months, controlled by `is_founding_provider` and `platform_fee_rate`). Customer service fee is 2% added at checkout.
-- **Live GPS architecture**: Provider location updates every 5 seconds during active bookings. Live position is written to Redis (never directly to Postgres from the app). `provider_location_cache` in Postgres stores last-known position, persisted server-side. Customers with an active booking (`en_route` or `in_progress`) can read their provider's cached location via RLS policy.
+- **Live GPS architecture**: Provider location updates every 5 seconds during active bookings. The app never writes `provider_location_cache` directly — the provider app (`src/lib/location/tracking.ts`) posts each fix to the `update-provider-location` Edge Function, which verifies ownership and upserts the row with the service role (Flow 5.4). Redis (live cache + TTL) is deferred; the Edge Function persists straight to Postgres for now, and the same contract holds when Redis is added. Customers with an active booking (`en_route` or `in_progress`) read the cached location via RLS by polling `getProviderLocation` every 5s.
 - **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert. Flagged body is replaced with `[Message flagged for review]`. Auto-detection of phone numbers, email addresses, and external payment handles ('Venmo me') triggers flagging.
 - **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).

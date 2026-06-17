@@ -1,4 +1,8 @@
-import { createDepositPaymentIntent, confirmDepositPayment } from '../index';
+import {
+  createDepositPaymentIntent,
+  confirmDepositPayment,
+  captureBalance,
+} from '../index';
 
 // ── Mock supabase.functions.invoke ────────────────────────────────────
 
@@ -141,5 +145,59 @@ describe('confirmDepositPayment', () => {
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error!.message).toBe('unexpected string throw');
+  });
+});
+
+describe('captureBalance', () => {
+  it('invokes the capture_balance action and returns the response', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, payment_intent_id: 'pi_bal', status: 'succeeded' },
+      error: null,
+    });
+
+    const result = await captureBalance('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: { action: 'capture_balance', booking_id: 'booking-1' },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual({
+      ok: true,
+      payment_intent_id: 'pi_bal',
+      status: 'succeeded',
+    });
+  });
+
+  it('returns error when the edge function returns an error', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: { message: 'card_declined' },
+    });
+
+    const result = await captureBalance('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('card_declined');
+  });
+
+  it('returns error when response is not ok', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await captureBalance('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toContain('did not complete');
+  });
+
+  it('handles thrown exceptions', async () => {
+    mockInvoke.mockRejectedValue(new Error('Network failure'));
+
+    const result = await captureBalance('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('Network failure');
   });
 });

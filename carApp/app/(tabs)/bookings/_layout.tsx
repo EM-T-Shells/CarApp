@@ -29,6 +29,7 @@ export default function BookingsLayout(): React.ReactElement {
         name="tracking/[bookingId]"
         options={{ title: 'Live Tracking', headerShown: false }}
       />
+      <Stack.Screen name="job/[bookingId]" options={{ title: 'Job' }} />
     </Stack>
   );
 }
