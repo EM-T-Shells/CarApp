@@ -1,0 +1,213 @@
+# ✅ Stabl MVP — User Story Testing Checklist
+
+---
+
+## 🔐 Account Creation & Onboarding
+
+- [ ] As a new user, I can tap **Get Started** and land on the Sign Up screen
+- [ ] As a new user, I can sign up with **email + password** (min 8 chars, unique email validation)
+- [ ] As a new user, I can sign up via **Google or Apple SSO**
+- [ ] As a new user, I receive an **OTP** to verify my email/phone
+- [ ] As a new user, I can add my **vehicle year, make, and model** during onboarding
+- [ ] As a new user, I can **skip vehicle entry** at signup but am prompted before confirming a booking
+- [ ] As a new user, I can select my role: **Customer** or **Provider**
+- [ ] As a returning user, I can **sign in** and skip directly to Home
+- [ ] As a new user, I am prompted to grant **push notification permission** at the end of onboarding
+- [ ] As a customer, I land on the **Search tab** after completing onboarding
+- [ ] As a provider, I am routed to **Provider Onboarding** (screen 05) after role selection
+- [ ] As a provider, I can upload a **government-issued ID** during onboarding
+- [ ] As a provider, I see a **Pending Approval** screen after submitting onboarding docs
+- [ ] As a provider, I receive a **push notification + email** when my background check clears
+- [ ] As a provider, I **cannot accept bookings** until my account status is approved
+- [ ] As a user, I can **add the Provider role later** from More > Account Settings (with re-verification)
+- [ ] As the first 100 verified providers, I see the **Founding Provider Program (0% fee)** prominently during onboarding
+
+---
+
+## 🔍 Workflow A — Search & Discovery
+
+- [ ] As a customer, I can enter a **zip code or allow location detection** to search providers
+- [ ] As a customer, I see provider cards showing **name, avatar, distance, Shines rating, and starting price**
+- [ ] As a customer, **unavailable providers are greyed out** and show their next available date
+- [ ] As a customer, providers with **no availability in the next 7 days** are suppressed from default results
+- [ ] As a customer, I can open the **Filter Sheet** and filter by service type, max distance (1–25 mi), date, and price tier
+- [ ] As a customer, my **filters persist for the session** and the active filter count shows on the button
+- [ ] As a customer, I can tap a provider card to view their **full profile** (bio, services, Kudos, Shines reviews)
+- [ ] As a customer, I can tap a service and tap **Book Now** to enter the booking flow
+- [ ] As a customer, I can **heart/save a provider** as a favorite for quick re-booking
+- [ ] As a customer, my **favorites are accessible from the More tab**
+
+---
+
+## 📅 Workflow B — Bookings Management
+
+- [ ] As a customer, I can tap the **Bookings tab** and toggle between Upcoming and Past tabs
+- [ ] As a customer, the **Upcoming tab is default** when I have active bookings
+- [ ] As a customer, I can tap a past booking and view the **full receipt** (provider, services, total paid, date, before/after photos)
+- [ ] As a customer, I can tap **Book Again** to initiate a rebook with the same provider and service pre-selected
+- [ ] As a customer, I must **select a new date and time** when rebooking
+- [ ] As a customer, I am **alerted if the provider's pricing has changed** since my last booking
+- [ ] As a customer, the rebook creates a **new independent booking** (no special discount at MVP)
+
+---
+
+## 💬 Workflow C — Inbox & Messaging
+
+- [ ] As a user, I can tap the **Inbox tab** and see conversations sorted by most recent message
+- [ ] As a user, I see an **unread dot badge** on the Inbox tab and individual thread rows
+- [ ] As a user, I can tap a conversation and see the **booking context card** (date, service, status) pinned at the top
+- [ ] As a user, I can **type and send a message** and the recipient receives a push notification within 2 seconds
+- [ ] As a user, I **cannot open a free-form chat** outside of a specific booking
+- [ ] As a user, I see a **policy notice on first message** about no external contact sharing
+- [ ] As a user, if I try to send a **phone number, email, or Venmo handle**, the message is blocked and I am warned
+- [ ] As a repeat offender of contact sharing, my messages are **escalated to admin review**
+- [ ] As support staff, I can **view message threads** via the admin panel for dispute resolution
+
+---
+
+## 📊 Workflow D — Provider Dashboard
+
+- [ ] As a provider, I land on the **Dashboard tab** by default when opening the app
+- [ ] As a provider, I can see my **today's job queue, earnings snapshot, and Shines rating summary**
+- [ ] As a provider, jobs awaiting approval show a **2-hour countdown timer** prominently
+- [ ] As a provider, I can tap the **Earnings card** and see weekly and monthly breakdowns
+- [ ] As a provider, I can see **net earnings after platform fee deduction**, with pending payouts highlighted separately
+- [ ] As a provider, I can tap **Schedule** and view a calendar with confirmed bookings and blocked dates
+- [ ] As a provider, I can **tap a date to mark it as unavailable**, blocking new booking requests for that day
+- [ ] As a provider, I can set **recurring unavailability** (e.g. every Sunday)
+- [ ] As a provider, I can see my **Gear score breakdown (4 dimensions), Kudos badge wall, and 30-day rating trend** on my dashboard
+
+---
+
+## ⚙️ Workflow E — More & Settings
+
+- [ ] As a user, I can tap the **More tab** and see: Profile, Payment Methods, Notifications, Help & Support, Logout
+- [ ] As a provider, I also see **Payout Settings** in the More tab menu
+- [ ] As a user, I can **edit my profile photo, display name, and service area** from Account Settings
+- [ ] As a user, changes **auto-save on field blur** or when leaving a sub-screen
+- [ ] As a user, I can **add or remove a payment method** (Stripe tokenized — no raw card numbers stored)
+- [ ] As a user, I can **toggle notification preferences** by category (Booking Updates, Messages, Promotions, System Alerts)
+- [ ] As a user, I can **request account deletion** which triggers a 30-day grace period before permanent removal (Virginia CDPA)
+
+---
+
+## 🔔 Workflow F — Notifications Center
+
+- [ ] As a user, I can tap the **bell icon** to open the Notifications Center
+- [ ] As a user, notifications are **grouped by category**: Booking, Payment, Message, Promo
+- [ ] As a user, tapping a notification **deep-links me to the relevant screen**
+- [ ] As a user, I can tap **Mark All Read** to clear the unread badge on the bell icon
+- [ ] As a user, I can **swipe to dismiss** individual notifications
+- [ ] As a user, **every booking state change** generates a notification for both customer and provider
+- [ ] As a user, **critical notifications** (booking confirmed, provider en route) cannot be fully disabled
+
+---
+
+## 🔧 Workflow G — Booking Management Actions
+
+- [ ] As a customer, I can tap **Add Service** on an upcoming booking and browse that provider's catalog
+- [ ] As a customer, adding a service **charges the incremental amount via Stripe** and updates the booking total
+- [ ] As a customer, I am **emailed** when I add a service to a booking
+- [ ] As a customer, **Add Service is only available** when booking status is "confirmed" (not in-progress or complete)
+- [ ] As a customer, I can tap **Cancel Booking** and see the cancellation policy and refund amount before confirming
+- [ ] As a customer cancelling **more than 24 hours** before the appointment, I receive a full deposit refund
+- [ ] As a customer cancelling **within 24 hours**, I receive no refund
+- [ ] As a customer cancelling within 24h, a **$15 fee is deducted** from my deposit refund (enforced at API level)
+- [ ] As a provider cancelling within 24h, a **$25 penalty** is applied and re-booking assistance is offered
+- [ ] As a provider, I am **notified within 30 seconds** of any customer-initiated booking change
+- [ ] As a provider, I can mark a job as **No Show** which forfeits the full booking amount from the customer
+
+---
+
+## 🚗 Workflow H — Provider Job Flow
+
+- [ ] As a provider, I receive a **push notification** when a customer submits a booking
+- [ ] As a provider, I can see the booking summary with **service, date, address, and price** on the alert screen
+- [ ] As a provider, I have a **2-hour window** (shown as countdown timer) to accept or decline before auto-cancel
+- [ ] As a provider, I can tap **Accept** — booking moves to confirmed and customer is notified immediately
+- [ ] As a provider, I can tap **Decline** with a reason — booking is auto-cancelled and the 15% deposit is refunded to the customer
+- [ ] As a provider, my **decline rate is tracked** and excessive declines are flagged
+- [ ] As a provider, on the day of the job I can tap **On My Way** — customer is notified "Provider is on the way"
+- [ ] As a provider, I can advance job status through: **En Route → Arrived → In Progress → Complete**
+- [ ] As a provider, I **cannot mark a job complete** without uploading before/after photos (enforced at API level — minimum 4 photos)
+- [ ] As a provider, after job completion, the **remaining balance is captured from the customer** and a Stripe transfer is sent to my Connect account
+- [ ] As a provider, I receive a **payout push notification** when payment is released
+- [ ] As a customer, I can see the **provider's live GPS location** (broadcast every 5 seconds), ETA badge, and status banner on a full-screen map during an active booking
+- [ ] As a customer, I receive **push notifications for each job status transition**
+- [ ] As a customer, I **review the before/after photo gallery** before approving job completion
+
+---
+
+## 🎁 Workflow I — Gift Cards & Promo Codes
+
+- [ ] As a customer, I can navigate to **More > Gift Cards** and see my existing card balance
+- [ ] As a customer, I can purchase a gift card in **$25, $50, $100, or custom** amounts
+- [ ] As a customer, the recipient receives a **branded email with a redemption code**
+- [ ] As a customer, **gift cards never expire** (Virginia gift card law compliance)
+- [ ] As a customer, I can tap **Add Promo Code** at checkout and apply a valid code
+- [ ] As a customer, **invalid codes return an error** before payment confirmation
+- [ ] As a customer, the **discount is displayed** on the review screen before I confirm
+- [ ] As a customer, **single-use codes are invalidated** immediately upon redemption
+- [ ] Promo codes support **flat dollar off, percentage off, and free service** types
+
+---
+
+## 👥 Workflow J — Referral Program
+
+- [ ] As a user, I can navigate to **More > Refer a Friend** and see my unique referral code
+- [ ] As a user, I can see **total referrals sent and total credits earned**, with pending credits shown separately
+- [ ] As a user, I can tap **Share** and a native share sheet opens with a pre-populated message and unique referral link
+- [ ] As a user, I can see the status of each referral: **Signed Up, First Booking Pending, Credit Earned**
+- [ ] As a referrer, I receive a **$10 credit** when the referred user completes and pays for their first booking
+- [ ] As a referred user, I also receive a **$10 credit** on my first completed booking
+- [ ] As a user, referral credits are **applied as promo codes** at checkout via Workflow I
+- [ ] Referral credits have a **12-month expiry** and are non-transferable
+
+---
+
+## 🔁 Workflow K — Recurring Subscriptions *(Phase 2 — Deferred)*
+
+- [ ] *(Deferred)* As a customer, I can set up a recurring schedule with **weekly, bi-weekly, or monthly** cadence
+- [ ] *(Deferred)* As a customer, I can **pause, modify, or cancel** a recurring subscription from the Subscription Dashboard
+- [ ] *(Deferred)* As a customer, I can cancel a recurring schedule with **48 hours notice** before the next booking
+
+---
+
+## 🛠️ Workflow L — Admin Panel
+
+- [ ] As an admin, I can log in to the **desktop web portal** (1280px minimum width)
+- [ ] As an admin, I can see a KPI overview: **GMV, active providers, open disputes, and NPS** (refreshes every 5 min)
+- [ ] As an admin, I can **search and filter providers** and take actions: Approve, Suspend, Flag for Review
+- [ ] As an admin, I can **approve or reject a provider** with a reason code, and an approval email is triggered to the provider within 60 seconds
+- [ ] As an admin, I can **review insurance certificates** and manually approve or reject them
+- [ ] As an admin, I can open a dispute and view **booking details, message thread, and before/after photos**
+- [ ] As an admin, I can **issue full or partial refunds**, ban users, or send warnings — all audit-logged with my name and timestamp
+- [ ] As an admin, I can **create promo codes** with fields for type, value, expiry, max redemptions, and user segment
+- [ ] As an admin, I can view **GMV, bookings, and provider earnings** over a selected date range, exportable as CSV
+- [ ] As an admin, I can **force-cancel any booking** with full or partial refund
+- [ ] Role-based access is enforced: **Admin (full), Support (disputes/refunds only), Finance (payouts/analytics only)**
+
+---
+
+## 💸 Workflow M — Provider Payout & Tax
+
+- [ ] As a provider, I can navigate to **More > Payout Settings** and see my linked bank account and payout schedule
+- [ ] As a provider, I can **add a bank account** via Stripe's secure input (Stabl never stores raw bank details)
+- [ ] As a provider, I can view **payout history** with per-booking breakdown (gross, fee, net, transfer date)
+- [ ] As a provider, I can **download my 1099-K** for the applicable tax year (generated if I earn > $600/year)
+- [ ] As a provider below the threshold, I still receive an **annual earnings summary**
+- [ ] As a provider, my **payout is blocked** until Stripe Connect onboarding is fully complete
+- [ ] As a provider in the Founding Program, I am on **0% platform fee** for 3 months, auto-converting to 3% after
+
+---
+
+## 🛒 Workflow N — Provider Service Setup
+
+- [ ] As a provider, I can navigate to the **Services tab** and see an empty state prompting me to add my first service
+- [ ] As a provider, I can browse the **Stabl platform service catalog** and add services
+- [ ] As a provider, I can **edit description, price, and estimated duration** for each service (price and duration required)
+- [ ] As a provider, I can add up to **3 custom services** (subject to moderation before approval)
+- [ ] As a provider, custom services are **not searchable platform-wide** — only discoverable on my profile
+- [ ] As a provider, I can tap **Preview** to see the exact customer-facing version of my service listing
+- [ ] As a provider, I can tap **Publish** and my service menu goes live immediately in search
+- [ ] As a provider, I can **toggle services on/off** without deleting them from my menu
