@@ -401,6 +401,9 @@ ALTER TABLE provider_location_cache ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "users: read own" ON users
   FOR SELECT USING (auth.uid() = id);
 
+CREATE POLICY "users: insert own" ON users
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);
 
