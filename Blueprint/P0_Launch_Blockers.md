@@ -5,9 +5,11 @@ P0 Launch Blockers — Stabl MVP
 Root cause: push.ts is imported by nothing. Device tokens are never registered. All 10 required lifecycle notifications are silently dropped.
 Fix: Call registerForPushNotifications() + updateUserPushToken() at the end of onboarding and on session resume.
 
-2. No real money moves to providers
+2. No real money moves to providers — ✅ RESOLVED
 Root cause: captureBalance in stripe-webhook/index.ts inserts a payouts row and calls stripe.paymentIntents.capture() but never calls stripe.transfers.create() or uses destination charges. Provider gets a DB record, not money.
-Fix: Implement Stripe Connect destination charges or explicit transfers in capture_balance. Also requires completing the Connect onboarding link generation (currently stubbed).
+Fix (done): capture_balance now calls stripe.transfers.create() (via a shared transferPayout helper) to send the post-fee provider_payout to the provider's Connect account, marking the payout row paid with stripe_transfer_id. Connect onboarding is wired up via two new Edge Function actions — connect_onboarding (creates/reuses an Express account + hosted account link, persisting stripe_account_id) and connect_status (flips bank_status to approved once payouts are enabled, and drains payouts stranded before onboarding finished). Client: src/lib/stripe/connect.ts + app/(provider)/bank.tsx return-link handling.
+External setup required before live use: Stripe Connect (Express) must be enabled on the platform account; the carapp://provider/bank return/refresh deep links must be registered.
+Follow-on (not P0): retry for transfers that FAIL after onboarding (decline / insufficient platform balance) — currently left pending and logged; needs an ops-triggered or scheduled retry.
 
 3. Photo minimum is UI-only — Non-Negotiable #3 violated
 Root cause: The 4-photo gate lives in job/[bookingId].tsx:197 but capture_balance in the Edge Function has no check. A provider can complete a job with 0 photos via API.

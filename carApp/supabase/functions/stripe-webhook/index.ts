@@ -5,6 +5,13 @@
 //      absence of a Stripe-Signature header. Currently supports:
 //        • create_deposit_intent — creates a Stripe PaymentIntent for the 15%
 //          deposit and records a pending payment row.
+//        • capture_balance — charges the remaining balance, completes the job,
+//          and transfers the provider's payout to their Connect account.
+//        • refund_deposit — refunds the deposit on a non-forfeit cancellation.
+//        • connect_onboarding — creates/reuses a provider's Express account and
+//          returns a hosted onboarding link.
+//        • connect_status — re-checks onboarding after the provider returns and
+//          drains any payouts stranded before the account became payable.
 //
 //   2. Stripe webhook events (from Stripe's servers) — identified by the
 //      Stripe-Signature header. Signature is verified before processing.
@@ -35,6 +42,14 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Deep link the provider is sent back to after Stripe Connect onboarding. The
+// bank step re-checks status on this link (see app/(provider)/bank.tsx). The
+// app's URL scheme is "carapp" (app.json). refresh_url is hit when the link
+// expires before completion; we route both back to the same screen, which will
+// re-request a fresh link if needed.
+const CONNECT_RETURN_URL = 'carapp://provider/bank?connect=return';
+const CONNECT_REFRESH_URL = 'carapp://provider/bank?connect=refresh';
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -84,7 +99,12 @@ serve(async (req: Request) => {
 // ── App-invoked actions ───────────────────────────────────────────────
 
 async function handleAppAction(req: Request): Promise<Response> {
-  const body = await req.json() as { action: string; booking_id?: string; amount?: number };
+  const body = await req.json() as {
+    action: string;
+    booking_id?: string;
+    amount?: number;
+    provider_id?: string;
+  };
 
   switch (body.action) {
     case 'create_deposit_intent':
@@ -93,6 +113,10 @@ async function handleAppAction(req: Request): Promise<Response> {
       return await captureBalance(body as { action: string; booking_id: string });
     case 'refund_deposit':
       return await refundDeposit(body as { action: string; booking_id: string });
+    case 'connect_onboarding':
+      return await connectOnboarding(body as { action: string; provider_id: string });
+    case 'connect_status':
+      return await connectStatus(body as { action: string; provider_id: string });
     default:
       return new Response(JSON.stringify({ error: `Unknown action: ${body.action}` }), {
         status: 400,
@@ -289,6 +313,170 @@ async function refundDeposit(body: {
   );
 }
 
+// ── Stripe Connect onboarding (Flow 4.6) ──────────────────────────────
+//
+// Provider payouts require a Stripe Connect (Express) account. This pair of
+// actions replaces the old client-side stub:
+//   • connect_onboarding — creates the Express account on first run (persisting
+//     stripe_account_id), then returns a hosted account-link URL the provider
+//     opens to enter their bank details.
+//   • connect_status — re-checks the account after the provider returns; flips
+//     bank_status to approved once charges_enabled && payouts_enabled, and
+//     drains any payouts that were stranded pending before onboarding finished.
+
+async function connectOnboarding(body: {
+  action: string;
+  provider_id: string;
+}): Promise<Response> {
+  const { provider_id } = body;
+
+  const { data: provider, error: providerError } = await supabase
+    .from('provider_profiles')
+    .select('id, user_id, stripe_account_id')
+    .eq('id', provider_id)
+    .single();
+
+  if (providerError || !provider) {
+    return jsonResponse({ error: 'Provider not found' }, 404);
+  }
+
+  let accountId: string | null = provider.stripe_account_id;
+
+  // Create the Express account on first onboarding and persist it so repeat
+  // runs (e.g. expired link) reuse the same account.
+  if (!accountId) {
+    let account: Stripe.Account;
+    try {
+      account = await stripe.accounts.create({
+        type: 'express',
+        capabilities: {
+          transfers: { requested: true },
+        },
+        business_type: 'individual',
+        metadata: { provider_id },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Stripe account create failed';
+      return jsonResponse({ error: message }, 502);
+    }
+
+    accountId = account.id;
+
+    const { error: saveError } = await supabase
+      .from('provider_profiles')
+      .update({ stripe_account_id: accountId })
+      .eq('id', provider_id);
+
+    if (saveError) {
+      return jsonResponse({ error: 'Failed to save Stripe account' }, 500);
+    }
+  }
+
+  let link: Stripe.AccountLink;
+  try {
+    link = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: CONNECT_REFRESH_URL,
+      return_url: CONNECT_RETURN_URL,
+      type: 'account_onboarding',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Stripe account link failed';
+    return jsonResponse({ error: message }, 502);
+  }
+
+  // Onboarding is underway — reflect that on the vetting step.
+  await supabase
+    .from('provider_vetting')
+    .update({ bank_status: 'submitted' })
+    .eq('provider_id', provider_id)
+    .neq('bank_status', 'approved');
+
+  return jsonResponse({ configured: true, url: link.url, account_id: accountId }, 200);
+}
+
+async function connectStatus(body: {
+  action: string;
+  provider_id: string;
+}): Promise<Response> {
+  const { provider_id } = body;
+
+  const { data: provider, error: providerError } = await supabase
+    .from('provider_profiles')
+    .select('id, stripe_account_id')
+    .eq('id', provider_id)
+    .single();
+
+  if (providerError || !provider) {
+    return jsonResponse({ error: 'Provider not found' }, 404);
+  }
+
+  if (!provider.stripe_account_id) {
+    // Onboarding never started — nothing to verify.
+    return jsonResponse({ state: 'not_started' }, 200);
+  }
+
+  let account: Stripe.Account;
+  try {
+    account = await stripe.accounts.retrieve(provider.stripe_account_id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Stripe account retrieve failed';
+    return jsonResponse({ error: message }, 502);
+  }
+
+  const ready = Boolean(account.charges_enabled && account.payouts_enabled);
+
+  if (!ready) {
+    // Express can return the provider to return_url while the account is still
+    // under review. Keep the step in-progress rather than wrongly approving.
+    await supabase
+      .from('provider_vetting')
+      .update({ bank_status: 'submitted' })
+      .eq('provider_id', provider_id)
+      .neq('bank_status', 'approved');
+
+    return jsonResponse({ state: 'pending' }, 200);
+  }
+
+  await supabase
+    .from('provider_vetting')
+    .update({ bank_status: 'approved' })
+    .eq('provider_id', provider_id);
+
+  // Account is now payable — drain any payouts that completed before the
+  // provider finished onboarding. Fire-and-forget so the status response
+  // returns immediately instead of blocking on N transfers; remaining payouts
+  // (past the batch cap or transient failures) are picked up on the next call.
+  drainPendingPayouts(provider_id, provider.stripe_account_id).catch((err) => {
+    console.warn('drainPendingPayouts failed', err);
+  });
+
+  return jsonResponse({ state: 'approved' }, 200);
+}
+
+// Transfer up to a capped batch of a provider's stranded payouts (completed
+// before onboarding, so still pending with no transfer). Capped + oldest-first
+// so a provider with many test-job payouts can't stall a single invocation.
+async function drainPendingPayouts(
+  providerId: string,
+  stripeAccountId: string,
+): Promise<void> {
+  const { data: pending } = await supabase
+    .from('payouts')
+    .select('id, booking_id, amount, status, stripe_transfer_id')
+    .eq('provider_id', providerId)
+    .eq('status', 'pending')
+    .is('stripe_transfer_id', null)
+    .order('id', { ascending: true })
+    .limit(20);
+
+  if (!pending || pending.length === 0) return;
+
+  for (const payout of pending) {
+    await transferPayout(payout, stripeAccountId);
+  }
+}
+
 // ── Capture balance (Flow 5.6) ────────────────────────────────────────
 //
 // Called when a provider marks a job complete. Charges the customer's saved
@@ -448,23 +636,31 @@ async function completeAndQueuePayout(booking: {
   // One payout row per booking.
   const { data: existingPayout } = await supabase
     .from('payouts')
-    .select('id')
+    .select('id, booking_id, amount, status, stripe_transfer_id')
     .eq('booking_id', booking.id)
     .maybeSingle();
 
-  if (!existingPayout && payoutAmount > 0) {
-    await supabase.from('payouts').insert({
-      provider_id: booking.provider_id,
-      booking_id: booking.id,
-      amount: payoutAmount,
-      status: 'pending',
-    });
+  let payoutRow = existingPayout;
+
+  if (!payoutRow && payoutAmount > 0) {
+    const { data: inserted } = await supabase
+      .from('payouts')
+      .insert({
+        provider_id: booking.provider_id,
+        booking_id: booking.id,
+        amount: payoutAmount,
+        status: 'pending',
+      })
+      .select('id, booking_id, amount, status, stripe_transfer_id')
+      .single();
+    payoutRow = inserted ?? null;
   }
 
-  // Bump the provider's completed-job count.
+  // Bump the provider's completed-job count, and grab the Connect account in
+  // the same read so we can move the money.
   const { data: profile } = await supabase
     .from('provider_profiles')
-    .select('total_jobs')
+    .select('total_jobs, stripe_account_id')
     .eq('id', booking.provider_id)
     .single();
 
@@ -473,6 +669,61 @@ async function completeAndQueuePayout(booking: {
       .from('provider_profiles')
       .update({ total_jobs: (profile.total_jobs ?? 0) + 1 })
       .eq('id', booking.provider_id);
+  }
+
+  // Move real money to the provider. Requires a Connect account; if onboarding
+  // isn't done yet the payout stays pending and is drained when connect_status
+  // flips them to approved.
+  if (payoutRow && profile?.stripe_account_id) {
+    await transferPayout(payoutRow, profile.stripe_account_id);
+  }
+}
+
+// Create a Stripe transfer for a single pending payout and mark it paid. Safe
+// to call repeatedly: skips payouts that aren't pending or already have a
+// transfer, and leaves the row pending (logged) on Stripe failure so a later
+// drain can retry — never throws into the caller's completion path.
+async function transferPayout(
+  payout: {
+    id: string;
+    booking_id: string | null;
+    amount: number | null;
+    status: string | null;
+    stripe_transfer_id: string | null;
+  },
+  stripeAccountId: string,
+): Promise<void> {
+  if (payout.status !== 'pending' || payout.stripe_transfer_id) return;
+
+  const amountCents = Math.round(Number(payout.amount ?? 0) * 100);
+  if (amountCents <= 0) return;
+
+  let transfer: Stripe.Transfer;
+  try {
+    transfer = await stripe.transfers.create({
+      amount: amountCents,
+      currency: 'usd',
+      destination: stripeAccountId,
+      transfer_group: payout.booking_id ?? undefined,
+      metadata: { booking_id: payout.booking_id ?? '', payout_id: payout.id },
+    });
+  } catch (err) {
+    // Decline / insufficient platform balance — leave pending for retry.
+    console.warn(`transfer failed for payout ${payout.id}`, err);
+    return;
+  }
+
+  await supabase
+    .from('payouts')
+    .update({
+      status: 'paid',
+      stripe_transfer_id: transfer.id,
+      paid_at: new Date().toISOString(),
+    })
+    .eq('id', payout.id);
+
+  if (payout.booking_id) {
+    await fireNotify('notify-payout-processed', { booking_id: payout.booking_id });
   }
 }
 
