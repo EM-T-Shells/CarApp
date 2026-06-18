@@ -312,6 +312,7 @@ const BOOKING_SUMMARY_SELECT = `*,
 
 const ACTIVE_BOOKING_STATUSES = [
   'pending',
+  'pending_provider_approval',
   'confirmed',
   'en_route',
   'in_progress',

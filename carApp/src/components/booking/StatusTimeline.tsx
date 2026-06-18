@@ -14,6 +14,7 @@ import { colors, spacing } from '../../design/tokens';
 
 export type BookingStatus =
   | 'pending'
+  | 'pending_provider_approval'
   | 'confirmed'
   | 'en_route'
   | 'in_progress'
@@ -25,12 +26,19 @@ export interface StatusTimelineProps {
 }
 
 const STEPS: { key: BookingStatus; label: string }[] = [
-  { key: 'pending', label: 'Pending' },
+  { key: 'pending', label: 'Requested' },
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'en_route', label: 'En Route' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'completed', label: 'Completed' },
 ];
+
+// pending_provider_approval is the deposit-paid, awaiting-accept state; it sits
+// on the first ("Requested") step of the 5-node bar — the provider hasn't
+// confirmed yet (Blocker #4).
+const STEP_INDEX: Partial<Record<BookingStatus, number>> = {
+  pending_provider_approval: 0,
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -61,7 +69,9 @@ export function StatusTimeline({
     );
   }
 
-  const currentIndex = STEPS.findIndex((s) => s.key === status);
+  const mappedIndex = STEP_INDEX[status];
+  const currentIndex =
+    mappedIndex ?? STEPS.findIndex((s) => s.key === status);
   const safeIndex = currentIndex === -1 ? 0 : currentIndex;
   const inactiveColor = palette.midGray;
 

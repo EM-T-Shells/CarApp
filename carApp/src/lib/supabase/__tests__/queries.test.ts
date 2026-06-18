@@ -345,6 +345,7 @@ describe('getUpcomingBookingsForCustomer', () => {
     expect(builder.eq).toHaveBeenCalledWith('customer_id', 'u1')
     expect(builder.in).toHaveBeenCalledWith('status', [
       'pending',
+      'pending_provider_approval',
       'confirmed',
       'en_route',
       'in_progress',

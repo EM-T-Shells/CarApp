@@ -3,8 +3,11 @@
 // Reached from the Bookings tab "My Jobs" toggle. Shows the job from the
 // provider's side (customer, vehicle, address, schedule, payout) and drives the
 // job lifecycle:
-//   confirmed → [Start Travel] → en_route → [I've Arrived] → in_progress →
-//   [Complete Job] → completed
+//   pending_provider_approval → [Accept] → confirmed → [Start Travel] →
+//   en_route → [I've Arrived] → in_progress → [Complete Job] → completed
+// While awaiting approval the provider has a 2-hour window (countdown shown)
+// to Accept (→ confirmed) or Decline (→ cancelled + deposit refund); a
+// server-side sweep auto-cancels/refunds on timeout (Blocker #4 / Flow H1).
 //
 // While en_route / in_progress it streams the device GPS every 5s through the
 // update-provider-location Edge Function (Flow 5.4) so the customer tracking
@@ -41,6 +44,9 @@ import {
   Truck,
   Play,
   CheckCircle2,
+  Check,
+  X,
+  Clock,
 } from 'lucide-react-native';
 import { Text } from '../../../../src/components/ui/Text';
 import { Button } from '../../../../src/components/ui/Button';
@@ -58,7 +64,7 @@ import {
   type ProviderJobSummary,
 } from '../../../../src/lib/supabase/queries';
 import { updateBooking, insertMessageThread } from '../../../../src/lib/supabase/mutations';
-import { captureBalance } from '../../../../src/lib/stripe';
+import { captureBalance, acceptBooking, declineBooking } from '../../../../src/lib/stripe';
 import { sendProviderLocation } from '../../../../src/lib/location/tracking';
 import { useAuthStore } from '../../../../src/state/auth';
 import { centsToDisplay } from '../../../../src/utils/money';
@@ -76,6 +82,18 @@ function dollarsToCents(amount: number | null | undefined): number {
   return Math.round(amount * 100);
 }
 
+// Formats milliseconds-remaining as "1h 23m" / "12m 04s" for the approval
+// countdown. Returns null once the deadline has passed.
+function formatCountdown(msRemaining: number): string | null {
+  if (msRemaining <= 0) return null;
+  const totalSeconds = Math.floor(msRemaining / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
 export default function ProviderJobScreen(): React.ReactElement {
   const { bookingId } = useLocalSearchParams<ProviderJobParams>();
   const router = useRouter();
@@ -90,6 +108,7 @@ export default function ProviderJobScreen(): React.ReactElement {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [isMutating, setIsMutating] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
 
@@ -130,6 +149,11 @@ export default function ProviderJobScreen(): React.ReactElement {
     ? `${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.color ? ` · ${vehicle.color}` : ''}`
     : null;
   const isActive = ACTIVE_STATUSES.includes(status);
+  const isAwaitingApproval = status === 'pending_provider_approval';
+  const approvalMsLeft = job?.approval_expires_at
+    ? new Date(job.approval_expires_at).getTime() - now
+    : 0;
+  const countdownLabel = formatCountdown(approvalMsLeft);
   const payoutCents = dollarsToCents(job?.provider_payout);
   const totalCents = dollarsToCents(job?.total_amount);
   const hasDestination = job?.location_lat != null && job?.location_lng != null;
@@ -166,6 +190,77 @@ export default function ProviderJobScreen(): React.ReactElement {
       watcherRef.current = null;
     };
   }, [isActive, providerId]);
+
+  // ── Approval-window countdown tick ───────────────────────────────────
+  // Only runs while the booking is awaiting approval; updates the visible
+  // countdown once per second. The actual auto-cancel is server-side
+  // (expire_pending_approvals) — this is display only.
+  useEffect(() => {
+    if (!isAwaitingApproval) return;
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [isAwaitingApproval]);
+
+  // ── Accept / decline (Blocker #4 / Flow H1) ──────────────────────────
+  const handleAccept = useCallback(() => {
+    if (!job) return;
+    Alert.alert('Accept this booking?', 'The customer will be notified that you confirmed.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Accept',
+        onPress: async () => {
+          setIsMutating(true);
+          const result = await acceptBooking(job.id);
+          setIsMutating(false);
+          if (result.error) {
+            Alert.alert('Could not accept', result.error.message);
+            fetchJob(true);
+            return;
+          }
+          fetchJob(true);
+        },
+      },
+    ]);
+  }, [job, fetchJob]);
+
+  const runDecline = useCallback(
+    async (reason?: string) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await declineBooking(job.id, reason?.trim() || undefined);
+      setIsMutating(false);
+      if (result.error) {
+        Alert.alert('Could not decline', result.error.message);
+        fetchJob(true);
+        return;
+      }
+      fetchJob(true);
+      Alert.alert('Booking declined', "The customer's deposit has been refunded.");
+    },
+    [job, fetchJob],
+  );
+
+  const handleDecline = useCallback(() => {
+    if (!job) return;
+    // Alert.prompt is iOS-only; on Android fall back to a plain confirm
+    // (spec H1b asks for a reason but does not require one).
+    if (Platform.OS === 'ios' && typeof Alert.prompt === 'function') {
+      Alert.prompt(
+        'Decline this booking?',
+        "Tell the customer why (optional). We'll refund their deposit in full.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Decline', style: 'destructive', onPress: (reason?: string) => runDecline(reason) },
+        ],
+        'plain-text',
+      );
+      return;
+    }
+    Alert.alert('Decline this booking?', "We'll refund the customer's deposit in full.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Decline', style: 'destructive', onPress: () => runDecline() },
+    ]);
+  }, [job, runDecline]);
 
   // ── Lifecycle transitions ────────────────────────────────────────────
   const transition = useCallback(
@@ -490,6 +585,42 @@ export default function ProviderJobScreen(): React.ReactElement {
                 </Text>
               )}
 
+              {isAwaitingApproval && (
+                <>
+                  <View style={styles.countdownRow}>
+                    <Clock size={16} color={palette.gearGold} strokeWidth={2.5} />
+                    <Text variant="label" style={{ color: palette.gearGold }}>
+                      {countdownLabel
+                        ? `Respond within ${countdownLabel}`
+                        : 'Time expired — refreshing…'}
+                    </Text>
+                  </View>
+                  <Spacer size="sm" />
+                  <View style={styles.actionRow}>
+                    <Button
+                      label="Decline"
+                      variant="secondary"
+                      size="lg"
+                      loading={isMutating}
+                      onPress={handleDecline}
+                      leftIcon={<X size={18} color={palette.deepIndigo} strokeWidth={2} />}
+                      style={styles.flexBtn}
+                      testID="job-decline"
+                    />
+                    <Button
+                      label="Accept"
+                      variant="primary"
+                      size="lg"
+                      loading={isMutating}
+                      onPress={handleAccept}
+                      leftIcon={<Check size={18} color={palette.offWhite} strokeWidth={2} />}
+                      style={styles.flexBtn}
+                      testID="job-accept"
+                    />
+                  </View>
+                </>
+              )}
+
               {status === 'confirmed' && (
                 <Button
                   label="Start Travel"
@@ -570,4 +701,10 @@ const styles = StyleSheet.create({
   footerInner: { padding: spacing.base, borderTopWidth: StyleSheet.hairlineWidth },
   actionRow: { flexDirection: 'row', gap: spacing.sm },
   flexBtn: { flex: 1 },
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
 });

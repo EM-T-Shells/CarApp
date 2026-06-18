@@ -73,9 +73,12 @@ export type Database = {
       }
       bookings: {
         Row: {
+          approval_expires_at: string | null
           completed_at: string | null
+          confirmed_at: string | null
           created_at: string | null
           customer_id: string | null
+          declined_reason: string | null
           deposit_amount: number | null
           deposit_forfeited: boolean | null
           id: string
@@ -98,9 +101,12 @@ export type Database = {
           vehicle_id: string | null
         }
         Insert: {
+          approval_expires_at?: string | null
           completed_at?: string | null
+          confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
+          declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
           id?: string
@@ -123,9 +129,12 @@ export type Database = {
           vehicle_id?: string | null
         }
         Update: {
+          approval_expires_at?: string | null
           completed_at?: string | null
+          confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
+          declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
           id?: string

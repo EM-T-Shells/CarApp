@@ -167,7 +167,7 @@ CREATE TABLE bookings (
   vehicle_id       UUID REFERENCES vehicles(id) ON DELETE SET NULL,
   package_id       UUID REFERENCES service_packages(id) ON DELETE SET NULL,
   services         JSONB NOT NULL DEFAULT '[]',        -- snapshot at booking time
-  status           VARCHAR NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'en_route', 'in_progress', 'completed', 'cancelled')),
+  status           VARCHAR NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'pending_provider_approval', 'confirmed', 'en_route', 'in_progress', 'completed', 'cancelled')),
   total_amount     NUMERIC(10,2),
   deposit_amount   NUMERIC(10,2),
   platform_fee     NUMERIC(10,2),
@@ -179,12 +179,20 @@ CREATE TABLE bookings (
   location_lng     NUMERIC(9,6),
   notes            TEXT,
   deposit_forfeited BOOLEAN DEFAULT FALSE,
+  approval_expires_at TIMESTAMPTZ,                  -- 2-hour provider-accept deadline (set on deposit success)
+  confirmed_at     TIMESTAMPTZ,                     -- when the provider accepted
+  declined_reason  TEXT,                            -- provider's reason on decline
   scheduled_at     TIMESTAMPTZ NOT NULL,
   started_at       TIMESTAMPTZ,
   completed_at     TIMESTAMPTZ,
   created_at       TIMESTAMPTZ DEFAULT now(),
   updated_at       TIMESTAMPTZ DEFAULT now()
 );
+
+-- Auto-cancel sweep (expire_pending_approvals) scans expired approvals; index the hot path.
+CREATE INDEX IF NOT EXISTS idx_bookings_pending_approval_expiry
+  ON bookings (approval_expires_at)
+  WHERE status = 'pending_provider_approval';
 
 -- BOOKING PHOTOS
 CREATE TABLE booking_photos (

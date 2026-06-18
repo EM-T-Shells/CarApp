@@ -203,3 +203,81 @@ export async function refundDeposit(
     };
   }
 }
+
+// ── Provider Accept / Decline (Blocker #4 / Flow H1) ──────────────────
+//
+// After the customer's deposit lands, the booking sits in
+// pending_provider_approval for 2 hours. The provider resolves it from the
+// job screen: accept moves it to confirmed; decline cancels it and refunds
+// the customer's deposit. Both run server-side in the stripe-webhook Edge
+// Function so the status transition and the refund stay atomic with auth.
+
+export interface AcceptBookingResponse {
+  ok: boolean;
+  status?: string;
+}
+
+export interface DeclineBookingResponse {
+  ok: boolean;
+  status?: string;
+  refund?: unknown;
+}
+
+/**
+ * Provider accepts a booking still in pending_provider_approval. Returns a
+ * 409-shaped error if the window already closed (accepted/declined/expired).
+ */
+export async function acceptBooking(
+  bookingId: string,
+): Promise<StripeResult<AcceptBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'accept_booking', booking_id: bookingId },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Accept failed') };
+    }
+
+    const response = data as AcceptBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer awaiting approval') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Provider declines a booking. Cancels it and refunds the deposit. An optional
+ * reason is recorded (spec H1b: provider provides a decline reason).
+ */
+export async function declineBooking(
+  bookingId: string,
+  reason?: string,
+): Promise<StripeResult<DeclineBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'decline_booking', booking_id: bookingId, reason },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Decline failed') };
+    }
+
+    const response = data as DeclineBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer awaiting approval') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}

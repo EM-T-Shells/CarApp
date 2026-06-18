@@ -26,6 +26,7 @@ interface StatusConfig {
 
 const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
   pending: { label: 'Pending', colorKey: 'midGray', Icon: MapPin },
+  pending_provider_approval: { label: 'Awaiting Provider', colorKey: 'midGray', Icon: MapPin },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue', Icon: Check },
   en_route: { label: 'En Route', colorKey: 'gearGold', Icon: Navigation },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen', Icon: Wrench },

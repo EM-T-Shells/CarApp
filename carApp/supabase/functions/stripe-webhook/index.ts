@@ -8,6 +8,12 @@
 //        • capture_balance — charges the remaining balance, completes the job,
 //          and transfers the provider's payout to their Connect account.
 //        • refund_deposit — refunds the deposit on a non-forfeit cancellation.
+//        • accept_booking — provider accepts within the 2h window; the booking
+//          moves pending_provider_approval → confirmed (Blocker #4).
+//        • decline_booking — provider declines; the booking is cancelled and
+//          the deposit refunded to the customer.
+//        • expire_pending_approvals — pg_cron sweep that auto-cancels and
+//          refunds approvals still pending past their 2h deadline.
 //        • connect_onboarding — creates/reuses a provider's Express account and
 //          returns a hosted onboarding link.
 //        • connect_status — re-checks onboarding after the provider returns and
@@ -16,7 +22,8 @@
 //   2. Stripe webhook events (from Stripe's servers) — identified by the
 //      Stripe-Signature header. Signature is verified before processing.
 //      Currently handles:
-//        • payment_intent.succeeded — marks payment succeeded; confirms booking.
+//        • payment_intent.succeeded — marks payment succeeded; opens the
+//          provider-approval window (deposit no longer auto-confirms).
 //        • payment_intent.payment_failed — marks payment failed.
 //
 // Runs on Deno. Secrets accessed via Deno.env.get().
@@ -50,6 +57,15 @@ const corsHeaders = {
 // re-request a fresh link if needed.
 const CONNECT_RETURN_URL = 'carapp://provider/bank?connect=return';
 const CONNECT_REFRESH_URL = 'carapp://provider/bank?connect=refresh';
+
+// Minimum before/after photos required before a job can be completed
+// (Non-Negotiable #3 / Flow 5.5). Mirrors MIN_PHOTOS_TO_COMPLETE on the client.
+const MIN_PHOTOS_TO_COMPLETE = 4;
+
+// Manual provider-approval window (Blocker #4). On deposit success the booking
+// moves to pending_provider_approval; the provider has this long to accept
+// before the auto-cancel sweep refunds the deposit and cancels the booking.
+const APPROVAL_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -104,6 +120,7 @@ async function handleAppAction(req: Request): Promise<Response> {
     booking_id?: string;
     amount?: number;
     provider_id?: string;
+    reason?: string;
   };
 
   switch (body.action) {
@@ -113,6 +130,12 @@ async function handleAppAction(req: Request): Promise<Response> {
       return await captureBalance(body as { action: string; booking_id: string });
     case 'refund_deposit':
       return await refundDeposit(body as { action: string; booking_id: string });
+    case 'accept_booking':
+      return await acceptBooking(body as { action: string; booking_id: string });
+    case 'decline_booking':
+      return await declineBooking(body as { action: string; booking_id: string; reason?: string });
+    case 'expire_pending_approvals':
+      return await expirePendingApprovals();
     case 'connect_onboarding':
       return await connectOnboarding(body as { action: string; provider_id: string });
     case 'connect_status':
@@ -238,12 +261,20 @@ async function createDepositIntent(body: {
 // 24-hour forfeit window. Idempotent against the payments table — if the
 // deposit row is already `refunded` the function short-circuits with ok.
 
-async function refundDeposit(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
-  const { booking_id } = body;
+// Core deposit-refund routine, shared by the customer cancel path
+// (refund_deposit action), provider decline, and the auto-cancel sweep.
+// Idempotent against the payments table: once the deposit row is `refunded`
+// there is no succeeded deposit left to find, so repeat calls return skipped.
+// Returns a discriminated result the callers map onto their own responses.
+type RefundResult =
+  | { ok: true; skipped: string }
+  | { ok: true; refund_id: string; status: string | null }
+  | { ok: false; status: number; error: string };
 
+async function issueDepositRefund(
+  booking_id: string,
+  reason: Stripe.RefundCreateParams.Reason = 'requested_by_customer',
+): Promise<RefundResult> {
   // Locate the successful deposit payment for this booking.
   const { data: deposit, error: depositError } = await supabase
     .from('payments')
@@ -254,41 +285,29 @@ async function refundDeposit(body: {
     .maybeSingle();
 
   if (depositError) {
-    return new Response(JSON.stringify({ error: depositError.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return { ok: false, status: 500, error: depositError.message };
   }
 
   if (!deposit) {
-    // Nothing succeeded yet — treat as already-refunded so the client
-    // cancel flow can proceed without erroring.
-    return new Response(JSON.stringify({ ok: true, skipped: 'no deposit' }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // Nothing succeeded yet (or already refunded) — treat as a no-op so the
+    // caller's cancel flow can proceed without erroring.
+    return { ok: true, skipped: 'no deposit' };
   }
 
   if (!deposit.stripe_payment_intent_id) {
-    return new Response(
-      JSON.stringify({ error: 'Deposit has no Stripe PaymentIntent id' }),
-      { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+    return { ok: false, status: 422, error: 'Deposit has no Stripe PaymentIntent id' };
   }
 
   let refund: Stripe.Refund;
   try {
     refund = await stripe.refunds.create({
       payment_intent: deposit.stripe_payment_intent_id,
-      reason: 'requested_by_customer',
+      reason,
       metadata: { booking_id, payment_id: deposit.id },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Stripe refund failed';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return { ok: false, status: 502, error: message };
   }
 
   // Mark the original deposit as refunded and record a separate refund row
@@ -307,10 +326,153 @@ async function refundDeposit(body: {
     status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
   });
 
-  return new Response(
-    JSON.stringify({ ok: true, refund_id: refund.id, status: refund.status }),
-    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-  );
+  return { ok: true, refund_id: refund.id, status: refund.status };
+}
+
+async function refundDeposit(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const result = await issueDepositRefund(body.booking_id);
+  if (!result.ok) {
+    return jsonResponse({ error: result.error }, result.status);
+  }
+  return jsonResponse(result, 200);
+}
+
+// ── Provider approval window (Blocker #4 / Flow H1) ────────────────────
+//
+// After deposit success a booking sits in pending_provider_approval with a
+// 2-hour approval_expires_at. The provider resolves it one of three ways:
+//   • accept_booking  → confirmed   (customer + provider notified)
+//   • decline_booking → cancelled + deposit refunded
+//   • timeout         → expire_pending_approvals auto-cancels + refunds
+//
+// All three guard on the current status so a retried call (or a sweep racing a
+// manual accept) is a safe no-op rather than a double transition.
+
+async function acceptBooking(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const { booking_id } = body;
+
+  const { data: accepted, error } = await supabase
+    .from('bookings')
+    .update({
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+      approval_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_provider_approval') // Guard: only from the window.
+    .select('id');
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  if (!accepted || accepted.length === 0) {
+    // Already resolved (accepted, declined, or expired) — surface a 409 so the
+    // client can refetch and show the real state.
+    return jsonResponse({ error: 'Booking is no longer awaiting approval' }, 409);
+  }
+
+  await fireNotify('notify-booking-confirmed', { booking_id });
+  return jsonResponse({ ok: true, status: 'confirmed' }, 200);
+}
+
+async function declineBooking(body: {
+  action: string;
+  booking_id: string;
+  reason?: string;
+}): Promise<Response> {
+  const { booking_id, reason } = body;
+
+  // Cancel first, guarded on the window so we only refund a booking we
+  // actually transitioned out of pending_provider_approval.
+  const { data: declined, error } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      declined_reason: reason ?? null,
+      approval_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_provider_approval')
+    .select('id');
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  if (!declined || declined.length === 0) {
+    return jsonResponse({ error: 'Booking is no longer awaiting approval' }, 409);
+  }
+
+  // Provider declined → full deposit refund (no forfeit, not the customer's fault).
+  const refund = await issueDepositRefund(booking_id, 'requested_by_customer');
+  if (!refund.ok) {
+    // The booking is cancelled but the refund failed — leave it for ops/retry
+    // rather than silently dropping the customer's money.
+    return jsonResponse({ error: refund.error, cancelled: true }, refund.status);
+  }
+
+  await fireNotify('notify-booking-declined', { booking_id });
+  return jsonResponse({ ok: true, status: 'cancelled', refund }, 200);
+}
+
+// Auto-cancel sweep, invoked by pg_cron every minute (see migration
+// 0001_booking_provider_approval_model.sql). Cancels and refunds every
+// approval whose 2-hour window has elapsed. Per-booking failures are logged
+// and skipped so one bad refund doesn't stall the rest of the batch.
+async function expirePendingApprovals(): Promise<Response> {
+  const nowIso = new Date().toISOString();
+
+  const { data: overdue, error } = await supabase
+    .from('bookings')
+    .select('id')
+    .eq('status', 'pending_provider_approval')
+    .lte('approval_expires_at', nowIso);
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  let cancelled = 0;
+  const failed: string[] = [];
+
+  for (const { id } of overdue ?? []) {
+    // Guarded transition — if a provider accepts between the SELECT and here,
+    // the update matches nothing and we skip the refund.
+    const { data: swept } = await supabase
+      .from('bookings')
+      .update({
+        status: 'cancelled',
+        declined_reason: 'Auto-cancelled: provider did not respond within 2 hours',
+        approval_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('status', 'pending_provider_approval')
+      .select('id');
+
+    if (!swept || swept.length === 0) continue;
+
+    const refund = await issueDepositRefund(id, 'requested_by_customer');
+    if (!refund.ok) {
+      console.warn(`expire_pending_approvals: refund failed for ${id}: ${refund.error}`);
+      failed.push(id);
+      continue;
+    }
+
+    cancelled += 1;
+    await fireNotify('notify-booking-declined', { booking_id: id, expired: true });
+  }
+
+  return jsonResponse({ ok: true, cancelled, failed }, 200);
 }
 
 // ── Stripe Connect onboarding (Flow 4.6) ──────────────────────────────
@@ -505,6 +667,19 @@ async function captureBalance(body: {
     return jsonResponse({ error: 'Booking is cancelled' }, 409);
   }
 
+  // Non-Negotiable #3: a job cannot be completed without the minimum number of
+  // before/after photos. The client enforces this too (Flow 5.5) but the gate
+  // must live here so the rule can't be bypassed via a direct API call. Skip
+  // the check on idempotent re-runs of an already-captured booking below.
+  const { count: photoCount, error: photoError } = await supabase
+    .from('booking_photos')
+    .select('id', { count: 'exact', head: true })
+    .eq('booking_id', booking_id);
+
+  if (photoError) {
+    return jsonResponse({ error: 'Failed to verify job photos' }, 500);
+  }
+
   // Idempotency — if a balance payment already succeeded, just finish.
   const { data: existingBalance } = await supabase
     .from('payments')
@@ -517,6 +692,20 @@ async function captureBalance(body: {
   if (existingBalance) {
     await completeAndQueuePayout(booking);
     return jsonResponse({ ok: true, skipped: 'already captured' }, 200);
+  }
+
+  // Enforce the photo minimum before charging the balance / completing. Checked
+  // only for not-yet-captured bookings so an already-completed job (above) is
+  // never re-blocked by a later policy change.
+  if ((photoCount ?? 0) < MIN_PHOTOS_TO_COMPLETE) {
+    return jsonResponse(
+      {
+        error: `At least ${MIN_PHOTOS_TO_COMPLETE} before/after photos are required to complete the job.`,
+        photo_count: photoCount ?? 0,
+        required: MIN_PHOTOS_TO_COMPLETE,
+      },
+      400,
+    );
   }
 
   const total = Number(booking.total_amount ?? 0);
@@ -779,19 +968,27 @@ async function onPaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent): Pr
     .update({ status: 'succeeded', processed_at: new Date().toISOString() })
     .eq('stripe_payment_intent_id', paymentIntent.id);
 
-  // Deposit success → transition the booking from pending → confirmed.
+  // Deposit success → move the booking into the manual provider-approval
+  // window (Blocker #4). The provider must accept within 2 hours or the
+  // booking auto-cancels and the deposit is refunded (expire_pending_approvals).
+  // Deposit success does NOT confirm the booking — accept_booking does.
   if (payment_type === 'deposit' && booking_id) {
-    const { data: confirmed } = await supabase
+    const expiresAt = new Date(Date.now() + APPROVAL_WINDOW_MS).toISOString();
+    const { data: awaiting } = await supabase
       .from('bookings')
-      .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+      .update({
+        status: 'pending_provider_approval',
+        approval_expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', booking_id)
       .eq('status', 'pending') // Guard: only move forward if still pending.
       .select('id');
 
-    // Only notify on the real pending → confirmed transition so retried
-    // webhook deliveries don't double-send.
-    if (confirmed && confirmed.length > 0) {
-      await fireNotify('notify-booking-confirmed', { booking_id });
+    // Only notify on the real pending → pending_provider_approval transition
+    // so retried webhook deliveries don't double-send.
+    if (awaiting && awaiting.length > 0) {
+      await fireNotify('notify-booking-requested', { booking_id });
     }
   }
 }

@@ -2,6 +2,8 @@ import {
   createDepositPaymentIntent,
   confirmDepositPayment,
   captureBalance,
+  acceptBooking,
+  declineBooking,
 } from '../index';
 
 // ── Mock supabase.functions.invoke ────────────────────────────────────
@@ -199,5 +201,88 @@ describe('captureBalance', () => {
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error!.message).toBe('Network failure');
+  });
+});
+
+describe('acceptBooking', () => {
+  it('invokes the accept_booking action and returns the response', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'confirmed' },
+      error: null,
+    });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: { action: 'accept_booking', booking_id: 'booking-1' },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual({ ok: true, status: 'confirmed' });
+  });
+
+  it('errors when the approval window already closed (not ok)', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toContain('no longer awaiting approval');
+  });
+
+  it('surfaces an edge-function error', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: { message: 'boom' } });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toBe('boom');
+  });
+});
+
+describe('declineBooking', () => {
+  it('invokes decline_booking with the reason', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'cancelled', refund: { ok: true } },
+      error: null,
+    });
+
+    const result = await declineBooking('booking-1', 'Out of my area');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: {
+        action: 'decline_booking',
+        booking_id: 'booking-1',
+        reason: 'Out of my area',
+      },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.status).toBe('cancelled');
+  });
+
+  it('omits the reason when not provided', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'cancelled' },
+      error: null,
+    });
+
+    await declineBooking('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: {
+        action: 'decline_booking',
+        booking_id: 'booking-1',
+        reason: undefined,
+      },
+    });
+  });
+
+  it('errors when the approval window already closed (not ok)', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await declineBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('no longer awaiting approval');
   });
 });
