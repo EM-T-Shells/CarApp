@@ -74,6 +74,8 @@ export type Database = {
       bookings: {
         Row: {
           approval_expires_at: string | null
+          cancellation_fee: number | null
+          cancelled_by: string | null
           completed_at: string | null
           confirmed_at: string | null
           created_at: string | null
@@ -82,6 +84,7 @@ export type Database = {
           deposit_amount: number | null
           deposit_forfeited: boolean | null
           id: string
+          no_show_at: string | null
           location_lat: number | null
           location_lng: number | null
           notes: string | null
@@ -102,6 +105,8 @@ export type Database = {
         }
         Insert: {
           approval_expires_at?: string | null
+          cancellation_fee?: number | null
+          cancelled_by?: string | null
           completed_at?: string | null
           confirmed_at?: string | null
           created_at?: string | null
@@ -112,6 +117,7 @@ export type Database = {
           id?: string
           location_lat?: number | null
           location_lng?: number | null
+          no_show_at?: string | null
           notes?: string | null
           package_id?: string | null
           platform_fee?: number | null
@@ -130,6 +136,8 @@ export type Database = {
         }
         Update: {
           approval_expires_at?: string | null
+          cancellation_fee?: number | null
+          cancelled_by?: string | null
           completed_at?: string | null
           confirmed_at?: string | null
           created_at?: string | null
@@ -140,6 +148,7 @@ export type Database = {
           id?: string
           location_lat?: number | null
           location_lng?: number | null
+          no_show_at?: string | null
           notes?: string | null
           package_id?: string | null
           platform_fee?: number | null

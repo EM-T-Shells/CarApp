@@ -366,6 +366,7 @@ describe('getPastBookingsForCustomer', () => {
     expect(builder.in).toHaveBeenCalledWith('status', [
       'completed',
       'cancelled',
+      'no_show',
     ])
     expect(builder.order).toHaveBeenCalledWith('scheduled_at', {
       ascending: false,

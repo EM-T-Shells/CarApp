@@ -4,6 +4,9 @@ import {
   captureBalance,
   acceptBooking,
   declineBooking,
+  cancelBooking,
+  providerCancelBooking,
+  markNoShow,
 } from '../index';
 
 // ── Mock supabase.functions.invoke ────────────────────────────────────
@@ -284,5 +287,102 @@ describe('declineBooking', () => {
 
     expect(result.data).toBeNull();
     expect(result.error!.message).toContain('no longer awaiting approval');
+  });
+});
+
+// ── Cancellation policy (Blocker #5) ──────────────────────────────────
+
+describe('cancelBooking', () => {
+  it('invokes cancel_booking and returns the server policy outcome', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'cancelled', late: true, fee_cents: 1500 },
+      error: null,
+    });
+
+    const result = await cancelBooking('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: { action: 'cancel_booking', booking_id: 'booking-1' },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.late).toBe(true);
+    expect(result.data?.fee_cents).toBe(1500);
+  });
+
+  it('errors when the booking is no longer cancellable', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await cancelBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('no longer cancellable');
+  });
+
+  it('surfaces an edge error', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: { message: 'boom' },
+    });
+
+    const result = await cancelBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toBe('boom');
+  });
+});
+
+describe('providerCancelBooking', () => {
+  it('invokes provider_cancel_booking with the reason and returns the penalty', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'cancelled', late: true, penalty_cents: 2500 },
+      error: null,
+    });
+
+    const result = await providerCancelBooking('booking-1', 'Vehicle broke down');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: {
+        action: 'provider_cancel_booking',
+        booking_id: 'booking-1',
+        reason: 'Vehicle broke down',
+      },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.penalty_cents).toBe(2500);
+  });
+
+  it('errors when no longer cancellable', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await providerCancelBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('no longer cancellable');
+  });
+});
+
+describe('markNoShow', () => {
+  it('invokes mark_no_show and returns the no_show status', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'no_show' },
+      error: null,
+    });
+
+    const result = await markNoShow('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: { action: 'mark_no_show', booking_id: 'booking-1' },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.status).toBe('no_show');
+  });
+
+  it('errors when the booking cannot be marked a no-show', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await markNoShow('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('cannot be marked as a no-show');
   });
 });

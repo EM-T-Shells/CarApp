@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { View, StyleSheet, useColorScheme } from 'react-native';
-import { Navigation, MapPin, Wrench, Check } from 'lucide-react-native';
+import { Navigation, MapPin, Wrench, Check, X } from 'lucide-react-native';
 import { Text } from '../ui/Text';
 import { colors, spacing } from '../../design/tokens';
 import type { BookingStatus } from '../booking/StatusTimeline';
@@ -31,7 +31,8 @@ const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
   en_route: { label: 'En Route', colorKey: 'gearGold', Icon: Navigation },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen', Icon: Wrench },
   completed: { label: 'Completed', colorKey: 'emeraldGreen', Icon: Check },
-  cancelled: { label: 'Cancelled', colorKey: 'midGray', Icon: Check },
+  cancelled: { label: 'Cancelled', colorKey: 'midGray', Icon: X },
+  no_show: { label: 'No-Show', colorKey: 'midGray', Icon: X },
 };
 
 // ─── Component ─────────────────────────────────────────────────────────

@@ -73,6 +73,16 @@ describe('StatusTimeline', () => {
     });
   });
 
+  // ─── No-show (Blocker #5) ────────────────────────────────────────────
+
+  describe('no_show status', () => {
+    it('renders a single "No-Show" pill instead of the progress bar', () => {
+      render(<StatusTimeline status="no_show" />);
+      expect(screen.getByText('No-Show')).toBeTruthy();
+      expect(screen.queryByLabelText(/^Booking status:/)).toBeNull();
+    });
+  });
+
   // ─── Unknown status fallback ─────────────────────────────────────────
 
   describe('unknown status fallback', () => {

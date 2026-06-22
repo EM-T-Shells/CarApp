@@ -110,7 +110,7 @@ These workflows cover the primary customer journeys: discovering providers, mana
 
 * Before and after photos uploaded by provider at job completion are stored on the booking record
 
-* Cancellation policy: full deposit refund if cancelled more than 24 hours before the appointment
+* Cancellation policy: full deposit refund if cancelled more than 24 hours before the appointment; within 24 hours a $15 flat fee is retained and the remainder of the deposit is refunded
 
 * Rebooking creates a new independent booking; no special rebooking discount applied at MVP
 
@@ -244,8 +244,8 @@ These workflows cover account configuration, the notification center, and the ac
 | :---- | :---- | :---- | :---- |
 | G1 | Add Service | Tap Add Service; browse the booked provider's active service catalog | Only services listed by the same provider are shown. |
 | G1a | Add Service | Select service; review price; tap Add to Booking | Stripe charges the incremental amount. Booking total updated and customer emailed. |
-| G2 | Cancel Booking | Tap Cancel Booking; review cancellation policy and refund amount | Policy: full refund if cancelled more than 24 hours before appointment. No refund within 24 hours. |
-| G2a | Cancel Confirmation | Tap Confirm Cancellation | Booking status set to cancelled. Deposit refunded per policy. Provider notified via push and email. |
+| G2 | Cancel Booking | Tap Cancel Booking; review cancellation policy and refund amount | Policy: full deposit refund if cancelled more than 24 hours before appointment. Within 24 hours, a $15 flat fee is retained and the remainder of the deposit is refunded. |
+| G2a | Cancel Confirmation | Tap Confirm Cancellation | Booking status set to cancelled. Deposit refunded per policy (less $15 if within 24h). Refund and fee enforced server-side. Provider notified via push and email. |
 
 ### **Notes & Constraints**
 
@@ -284,6 +284,10 @@ These workflows cover account configuration, the notification center, and the ac
 * Status flow: pending\_provider\_approval \> confirmed \> on\_the\_way \> in\_progress \> complete
 
 * Provider cannot mark a job complete without uploading at least one photo
+
+* Provider-initiated cancellation of a confirmed booking within 24 hours of the appointment incurs a $25 penalty (recorded on the booking for ops to deduct from a future payout) and triggers a full deposit refund to the customer plus re-booking assistance. Enforced server-side.
+
+* Customer no-show: the provider marks the job No Show, the customer forfeits the full booking amount (no refund), and no provider penalty applies. Enforced server-side.
 
 * Net payout equals booking total minus the 5% platform fee
 

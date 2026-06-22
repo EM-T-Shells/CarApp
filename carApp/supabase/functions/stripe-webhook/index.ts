@@ -8,6 +8,12 @@
 //        • capture_balance — charges the remaining balance, completes the job,
 //          and transfers the provider's payout to their Connect account.
 //        • refund_deposit — refunds the deposit on a non-forfeit cancellation.
+//        • cancel_booking — customer cancels; refunds the full deposit (>24h)
+//          or the deposit less a $15 flat fee (<=24h). (Blocker #5)
+//        • provider_cancel_booking — provider cancels a confirmed booking;
+//          full customer refund + $25 penalty recorded on the booking.
+//        • mark_no_show — provider marks a no-show; customer forfeits the full
+//          amount (deposit kept, no refund), booking moves to no_show.
 //        • accept_booking — provider accepts within the 2h window; the booking
 //          moves pending_provider_approval → confirmed (Blocker #4).
 //        • decline_booking — provider declines; the booking is cancelled and
@@ -66,6 +72,16 @@ const MIN_PHOTOS_TO_COMPLETE = 4;
 // moves to pending_provider_approval; the provider has this long to accept
 // before the auto-cancel sweep refunds the deposit and cancels the booking.
 const APPROVAL_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// Cancellation policy (Blocker #5 / PRD v5). Enforced here, never in the UI.
+//   • Customer cancels within 24h → retain this flat fee, refund the rest.
+//   • Provider cancels within 24h → full customer refund + this penalty
+//     recorded on the booking for ops to deduct from a future payout.
+// Mirrors CUSTOMER_LATE_CANCEL_FEE_CENTS / PROVIDER_CANCEL_PENALTY_CENTS on
+// the client (src/utils/money.ts).
+const LATE_CANCEL_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CUSTOMER_LATE_CANCEL_FEE_CENTS = 1500; // $15
+const PROVIDER_CANCEL_PENALTY_CENTS = 2500; // $25
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -130,6 +146,12 @@ async function handleAppAction(req: Request): Promise<Response> {
       return await captureBalance(body as { action: string; booking_id: string });
     case 'refund_deposit':
       return await refundDeposit(body as { action: string; booking_id: string });
+    case 'cancel_booking':
+      return await cancelBooking(body as { action: string; booking_id: string });
+    case 'provider_cancel_booking':
+      return await providerCancelBooking(body as { action: string; booking_id: string; reason?: string });
+    case 'mark_no_show':
+      return await markNoShow(body as { action: string; booking_id: string });
     case 'accept_booking':
       return await acceptBooking(body as { action: string; booking_id: string });
     case 'decline_booking':
@@ -262,18 +284,22 @@ async function createDepositIntent(body: {
 // deposit row is already `refunded` the function short-circuits with ok.
 
 // Core deposit-refund routine, shared by the customer cancel path
-// (refund_deposit action), provider decline, and the auto-cancel sweep.
+// (refund_deposit / cancel_booking actions), provider decline/cancel, and the
+// auto-cancel sweep.
 // Idempotent against the payments table: once the deposit row is `refunded`
 // there is no succeeded deposit left to find, so repeat calls return skipped.
 // Returns a discriminated result the callers map onto their own responses.
 type RefundResult =
   | { ok: true; skipped: string }
-  | { ok: true; refund_id: string; status: string | null }
+  | { ok: true; refund_id: string; status: string | null; refunded_amount: number }
   | { ok: false; status: number; error: string };
 
+// Optional partial-refund amount (cents). When omitted the full deposit is
+// refunded. Used by the late-cancel path to retain the $15 flat fee.
 async function issueDepositRefund(
   booking_id: string,
   reason: Stripe.RefundCreateParams.Reason = 'requested_by_customer',
+  refundAmountCents?: number,
 ): Promise<RefundResult> {
   // Locate the successful deposit payment for this booking.
   const { data: deposit, error: depositError } = await supabase
@@ -298,10 +324,26 @@ async function issueDepositRefund(
     return { ok: false, status: 422, error: 'Deposit has no Stripe PaymentIntent id' };
   }
 
+  // Deposit is stored in dollars (NUMERIC); Stripe works in cents.
+  const depositCents = Math.round(Number(deposit.amount) * 100);
+
+  // Clamp any requested partial amount into [0, depositCents]. A zero refund
+  // (e.g. a $15 fee >= the whole deposit) is a no-op: keep the deposit, mark
+  // nothing refunded, but still let the caller's cancel proceed.
+  const amountCents =
+    refundAmountCents === undefined
+      ? depositCents
+      : Math.max(0, Math.min(refundAmountCents, depositCents));
+
+  if (amountCents === 0) {
+    return { ok: true, skipped: 'fee equals deposit' };
+  }
+
   let refund: Stripe.Refund;
   try {
     refund = await stripe.refunds.create({
       payment_intent: deposit.stripe_payment_intent_id,
+      amount: amountCents,
       reason,
       metadata: { booking_id, payment_id: deposit.id },
     });
@@ -311,7 +353,9 @@ async function issueDepositRefund(
   }
 
   // Mark the original deposit as refunded and record a separate refund row
-  // so the payments history shows both transactions.
+  // so the payments history shows both transactions. A partial refund still
+  // flips the deposit to `refunded` (the retained fee is platform revenue,
+  // not a still-collectable deposit).
   await supabase
     .from('payments')
     .update({ status: 'refunded' })
@@ -322,11 +366,16 @@ async function issueDepositRefund(
     user_id: deposit.user_id,
     stripe_payment_intent_id: deposit.stripe_payment_intent_id,
     payment_type: 'refund',
-    amount: deposit.amount,
+    amount: amountCents / 100, // DB stores dollars
     status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
   });
 
-  return { ok: true, refund_id: refund.id, status: refund.status };
+  return {
+    ok: true,
+    refund_id: refund.id,
+    status: refund.status,
+    refunded_amount: amountCents,
+  };
 }
 
 async function refundDeposit(body: {
@@ -338,6 +387,203 @@ async function refundDeposit(body: {
     return jsonResponse({ error: result.error }, result.status);
   }
   return jsonResponse(result, 200);
+}
+
+// ── Cancellation policy (Blocker #5 / PRD v5) ──────────────────────────
+//
+// All three paths enforce policy server-side and guard on the booking's
+// current status so a retried call is a safe no-op rather than a double
+// transition or a double refund.
+//
+// Cancellable statuses for a customer/provider cancel: a booking that is
+// pending payment, awaiting approval, confirmed, or en route. Once the job is
+// in_progress/completed it can no longer be cancelled (the customer no-show
+// path covers a confirmed job the customer never showed up for).
+const CANCELLABLE_STATUSES = [
+  'pending',
+  'pending_provider_approval',
+  'confirmed',
+  'en_route',
+];
+
+// Whether the appointment is within the 24h late-cancel window.
+function isWithinLateCancelWindow(scheduledAtIso: string | null): boolean {
+  if (!scheduledAtIso) return false;
+  const scheduled = new Date(scheduledAtIso).getTime();
+  if (Number.isNaN(scheduled)) return false;
+  const diff = scheduled - Date.now();
+  return diff >= 0 && diff <= LATE_CANCEL_WINDOW_MS;
+}
+
+// Customer-initiated cancellation. Outside 24h → full deposit refund. Within
+// 24h → retain the $15 flat fee and refund the remainder of the deposit.
+async function cancelBooking(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const { booking_id } = body;
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, status, scheduled_at, deposit_amount')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+    return jsonResponse({ error: `Cannot cancel a booking in status ${booking.status}` }, 409);
+  }
+
+  const late = isWithinLateCancelWindow(booking.scheduled_at);
+  const depositCents = Math.round(Number(booking.deposit_amount ?? 0) * 100);
+  const feeCents = late ? Math.min(depositCents, CUSTOMER_LATE_CANCEL_FEE_CENTS) : 0;
+  const refundCents = late ? Math.max(depositCents - feeCents, 0) : depositCents;
+
+  // Transition first, guarded on status so concurrent calls don't double-refund.
+  const { data: cancelled, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      cancelled_by: 'customer',
+      cancellation_fee: late ? feeCents / 100 : null,
+      deposit_forfeited: late, // a fee was retained from the deposit
+      approval_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .in('status', CANCELLABLE_STATUSES)
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!cancelled || cancelled.length === 0) {
+    return jsonResponse({ error: 'Booking is no longer cancellable' }, 409);
+  }
+
+  const refund = await issueDepositRefund(
+    booking_id,
+    'requested_by_customer',
+    refundCents,
+  );
+  if (!refund.ok) {
+    // Booking is cancelled but the refund failed — leave it for ops/retry
+    // rather than silently dropping the customer's money.
+    return jsonResponse({ error: refund.error, cancelled: true }, refund.status);
+  }
+
+  await fireNotify('notify-booking-cancelled', {
+    booking_id,
+    cancelled_by: 'customer',
+    fee_cents: feeCents,
+    refund_cents: refundCents,
+  });
+
+  return jsonResponse(
+    { ok: true, status: 'cancelled', late, fee_cents: feeCents, refund },
+    200,
+  );
+}
+
+// Provider-initiated cancellation of a booking they had accepted. The customer
+// is made whole (full deposit refund) and the $25 penalty is recorded on the
+// booking for ops to deduct from a future payout (no live charge in MVP).
+async function providerCancelBooking(body: {
+  action: string;
+  booking_id: string;
+  reason?: string;
+}): Promise<Response> {
+  const { booking_id, reason } = body;
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, status, scheduled_at')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+    return jsonResponse({ error: `Cannot cancel a booking in status ${booking.status}` }, 409);
+  }
+
+  // Penalty only applies inside the 24h window (PRD: "Provider cancels within
+  // 24h → $25 penalty"). Earlier than that, no penalty.
+  const late = isWithinLateCancelWindow(booking.scheduled_at);
+  const penaltyCents = late ? PROVIDER_CANCEL_PENALTY_CENTS : 0;
+
+  const { data: cancelled, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      cancelled_by: 'provider',
+      cancellation_fee: late ? penaltyCents / 100 : null,
+      declined_reason: reason ?? null,
+      approval_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .in('status', CANCELLABLE_STATUSES)
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!cancelled || cancelled.length === 0) {
+    return jsonResponse({ error: 'Booking is no longer cancellable' }, 409);
+  }
+
+  // Provider's fault → customer gets the full deposit back.
+  const refund = await issueDepositRefund(booking_id, 'requested_by_customer');
+  if (!refund.ok) {
+    return jsonResponse({ error: refund.error, cancelled: true }, refund.status);
+  }
+
+  await fireNotify('notify-booking-cancelled', {
+    booking_id,
+    cancelled_by: 'provider',
+    penalty_cents: penaltyCents,
+  });
+
+  return jsonResponse(
+    { ok: true, status: 'cancelled', late, penalty_cents: penaltyCents, refund },
+    200,
+  );
+}
+
+// Customer no-show. The provider marks the job a no-show: the customer forfeits
+// the full booking amount (the deposit is kept, NO refund) and the booking
+// moves to the terminal no_show status. No provider penalty.
+async function markNoShow(body: {
+  action: string;
+  booking_id: string;
+}): Promise<Response> {
+  const { booking_id } = body;
+
+  // A no-show only makes sense for a job that was confirmed/active but never
+  // started. Guard against marking a completed/cancelled job.
+  const NO_SHOW_FROM = ['confirmed', 'en_route'];
+
+  const { data: updated, error } = await supabase
+    .from('bookings')
+    .update({
+      status: 'no_show',
+      no_show_at: new Date().toISOString(),
+      deposit_forfeited: true, // full booking amount forfeited; deposit kept
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .in('status', NO_SHOW_FROM)
+    .select('id');
+
+  if (error) return jsonResponse({ error: error.message }, 500);
+  if (!updated || updated.length === 0) {
+    return jsonResponse({ error: 'Booking cannot be marked as a no-show' }, 409);
+  }
+
+  await fireNotify('notify-booking-cancelled', {
+    booking_id,
+    cancelled_by: 'no_show',
+  });
+
+  return jsonResponse({ ok: true, status: 'no_show' }, 200);
 }
 
 // ── Provider approval window (Blocker #4 / Flow H1) ────────────────────

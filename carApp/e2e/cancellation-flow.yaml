@@ -1,0 +1,97 @@
+# cancellation-flow.yaml
+#
+# Covers the customer-initiated cancellation journey and the server-enforced
+# cancellation policy (Blocker #5):
+#   Bookings list → Booking detail → Cancel Booking → review policy → Confirm
+#
+# Policy surfaced to the customer:
+#   • > 24h before the appointment → full deposit refund.
+#   • <= 24h before the appointment → $15 flat fee retained, remainder refunded.
+# (The fee math and refund are enforced server-side in the stripe-webhook Edge
+# Function; this flow asserts the UI copy and the resulting Cancelled status.)
+#
+# Preconditions:
+#   • User is authenticated (run auth-flow.yaml first, or seed a session)
+#   • The customer has at least one upcoming, cancellable booking
+#     (status pending / pending_provider_approval / confirmed / en_route)
+#   • Stripe is in test mode
+#
+# Run: maestro test e2e/cancellation-flow.yaml
+
+appId: com.emre.carapp
+---
+
+# ── Open the Bookings tab ─────────────────────────────────────────────
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Bookings"
+    timeout: 10000
+
+- tapOn:
+    text: "Bookings"
+
+- waitForAnimationToEnd
+
+# ── Open the first upcoming booking ───────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Status"
+    timeout: 10000
+
+# Tap into the first booking card in the list.
+- tapOn:
+    index: 0
+    childOf:
+      text: "Upcoming"
+
+- waitForAnimationToEnd
+
+# ── Booking detail → start cancellation ───────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Status"
+    timeout: 8000
+
+- scrollUntilVisible:
+    element:
+      text: "Cancel Booking"
+    direction: DOWN
+
+- tapOn:
+    text: "Cancel Booking"
+
+- waitForAnimationToEnd
+
+# ── Cancel confirmation sheet — policy is shown to the customer ────────
+# The sheet copy differs by window:
+#   • outside 24h → "refunded in full"
+#   • within 24h  → "late-cancellation fee applies"
+# Assert the sheet opened with its confirm/keep actions regardless of window.
+
+- assertVisible: "Cancel Booking"
+- assertVisible: "Confirm Cancellation"
+- assertVisible: "Keep Booking"
+
+# Confirm the cancellation (policy + refund enforced server-side).
+- tapOn:
+    text: "Confirm Cancellation"
+
+- waitForAnimationToEnd
+
+# ── Booking is now cancelled ──────────────────────────────────────────
+# The StatusTimeline collapses to a single "Cancelled" pill.
+
+- extendedWaitUntil:
+    visible:
+      text: "Cancelled"
+    timeout: 10000
+
+- assertVisible: "Cancelled"
+
+# The Cancel Booking action should no longer be offered.
+- assertNotVisible: "Confirm Cancellation"

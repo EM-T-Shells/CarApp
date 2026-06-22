@@ -318,7 +318,7 @@ const ACTIVE_BOOKING_STATUSES = [
   'in_progress',
 ] as const
 
-const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled'] as const
+const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled', 'no_show'] as const
 
 export function getBookingById(
   bookingId: string,

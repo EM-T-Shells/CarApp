@@ -167,7 +167,7 @@ CREATE TABLE bookings (
   vehicle_id       UUID REFERENCES vehicles(id) ON DELETE SET NULL,
   package_id       UUID REFERENCES service_packages(id) ON DELETE SET NULL,
   services         JSONB NOT NULL DEFAULT '[]',        -- snapshot at booking time
-  status           VARCHAR NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'pending_provider_approval', 'confirmed', 'en_route', 'in_progress', 'completed', 'cancelled')),
+  status           VARCHAR NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'pending_provider_approval', 'confirmed', 'en_route', 'in_progress', 'completed', 'cancelled', 'no_show')),
   total_amount     NUMERIC(10,2),
   deposit_amount   NUMERIC(10,2),
   platform_fee     NUMERIC(10,2),
@@ -179,6 +179,9 @@ CREATE TABLE bookings (
   location_lng     NUMERIC(9,6),
   notes            TEXT,
   deposit_forfeited BOOLEAN DEFAULT FALSE,
+  cancellation_fee NUMERIC(10,2),                   -- $15 late-cancel fee (customer) or $25 penalty (provider); NULL if none
+  cancelled_by     TEXT CHECK (cancelled_by IN ('customer', 'provider', 'system')), -- who cancelled; 'system' = 2h auto-cancel sweep
+  no_show_at       TIMESTAMPTZ,                     -- set when provider marks the job a no-show
   approval_expires_at TIMESTAMPTZ,                  -- 2-hour provider-accept deadline (set on deposit success)
   confirmed_at     TIMESTAMPTZ,                     -- when the provider accepted
   declined_reason  TEXT,                            -- provider's reason on decline

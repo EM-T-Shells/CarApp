@@ -49,6 +49,25 @@ below are deployed:
   supabase functions deploy notify-booking-declined   ✅
 
 
+Cancellation policy (Blocker #5) — ✅ DEPLOYED
+
+Server-enforced cancellation policy ($15 customer late-cancel fee / $25 provider
+penalty / no-show forfeit). Applied to project apbubklogxgqkokbctwz:
+
+  1. Migration 20260622120000_cancellation_policy.sql applied (supabase db push) —
+     adds cancellation_fee / cancelled_by / no_show_at and the 'no_show' status
+     to the bookings.status CHECK. Verified live. ✅
+       (Note: db push first required `supabase migration repair --status reverted`
+       on 7 older remote-only history rows that were applied outside the local
+       migrations dir — bookkeeping only, no schema was reverted.)
+
+  2. supabase functions deploy stripe-webhook            ✅ (v11)
+       adds cancel_booking / provider_cancel_booking / mark_no_show + partial refunds
+  3. supabase functions deploy notify-booking-cancelled  ✅ (v1)
+
+No new env vars or Vault secrets are required for this blocker.
+
+
 Third-Party Accounts
 
 Stripe — Connect platform account for payments/payouts

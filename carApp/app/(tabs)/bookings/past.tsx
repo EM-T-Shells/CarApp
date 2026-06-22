@@ -45,6 +45,7 @@ interface StatusConfig {
 const STATUS_MAP: Record<string, StatusConfig> = {
   completed: { label: 'Completed', colorKey: 'emeraldGreen' },
   cancelled: { label: 'Cancelled', colorKey: 'midGray' },
+  no_show: { label: 'No-Show', colorKey: 'midGray' },
 };
 
 function getStatusConfig(status: string): StatusConfig {

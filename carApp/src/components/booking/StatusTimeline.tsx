@@ -19,7 +19,8 @@ export type BookingStatus =
   | 'en_route'
   | 'in_progress'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'no_show';
 
 export interface StatusTimelineProps {
   status: BookingStatus;
@@ -49,9 +50,10 @@ export function StatusTimeline({
   const isDark = scheme === 'dark';
   const palette = isDark ? colors.dark : colors.light;
 
-  // Cancelled — rendered as a danger pill, not a progress bar.
-  if (status === 'cancelled') {
+  // Cancelled / no-show — rendered as a danger pill, not a progress bar.
+  if (status === 'cancelled' || status === 'no_show') {
     const dangerRed = isDark ? '#FF6B6B' : '#E74C3C';
+    const label = status === 'no_show' ? 'No-Show' : 'Cancelled';
     return (
       <View
         style={[
@@ -59,11 +61,11 @@ export function StatusTimeline({
           { backgroundColor: dangerRed + '22', borderColor: dangerRed },
         ]}
         accessibilityRole="text"
-        accessibilityLabel="Booking cancelled"
+        accessibilityLabel={`Booking ${label.toLowerCase()}`}
       >
         <X size={16} color={dangerRed} strokeWidth={2.5} />
         <Text variant="label" style={{ color: dangerRed }}>
-          Cancelled
+          {label}
         </Text>
       </View>
     );

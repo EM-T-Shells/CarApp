@@ -64,7 +64,13 @@ import {
   type ProviderJobSummary,
 } from '../../../../src/lib/supabase/queries';
 import { updateBooking, insertMessageThread } from '../../../../src/lib/supabase/mutations';
-import { captureBalance, acceptBooking, declineBooking } from '../../../../src/lib/stripe';
+import {
+  captureBalance,
+  acceptBooking,
+  declineBooking,
+  providerCancelBooking,
+  markNoShow,
+} from '../../../../src/lib/stripe';
 import { sendProviderLocation } from '../../../../src/lib/location/tracking';
 import { useAuthStore } from '../../../../src/state/auth';
 import { centsToDisplay } from '../../../../src/utils/money';
@@ -262,6 +268,84 @@ export default function ProviderJobScreen(): React.ReactElement {
     ]);
   }, [job, runDecline]);
 
+  // ── Provider cancellation & no-show (Blocker #5) ─────────────────────
+  // Both run server-side. Provider-cancel refunds the customer in full and
+  // records the $25 penalty (if within 24h). No-show forfeits the customer's
+  // full booking amount with no refund.
+  const handleProviderCancel = useCallback(() => {
+    if (!job) return;
+    const confirmCancel = (reason?: string) =>
+      Alert.alert(
+        'Cancel this job?',
+        "The customer's deposit will be refunded in full. If you're within 24 hours of the appointment, a $25 penalty applies and may be deducted from a future payout.",
+        [
+          { text: 'Keep Job', style: 'cancel' },
+          {
+            text: 'Cancel Job',
+            style: 'destructive',
+            onPress: async () => {
+              setIsMutating(true);
+              const result = await providerCancelBooking(job.id, reason?.trim() || undefined);
+              setIsMutating(false);
+              if (result.error) {
+                Alert.alert('Could not cancel', result.error.message);
+                fetchJob(true);
+                return;
+              }
+              fetchJob(true);
+              const penalty = result.data?.penalty_cents ?? 0;
+              Alert.alert(
+                'Job cancelled',
+                penalty > 0
+                  ? `The customer was refunded in full. A ${centsToDisplay(penalty)} penalty was recorded.`
+                  : 'The customer was refunded in full.',
+              );
+            },
+          },
+        ],
+      );
+
+    if (Platform.OS === 'ios' && typeof Alert.prompt === 'function') {
+      Alert.prompt(
+        'Cancel this job?',
+        'Tell the customer why (optional).',
+        [
+          { text: 'Keep Job', style: 'cancel' },
+          { text: 'Continue', onPress: (reason?: string) => confirmCancel(reason) },
+        ],
+        'plain-text',
+      );
+      return;
+    }
+    confirmCancel();
+  }, [job, fetchJob]);
+
+  const handleNoShow = useCallback(() => {
+    if (!job) return;
+    Alert.alert(
+      'Mark as no-show?',
+      'Confirm the customer did not show up for the appointment. Per the cancellation policy they forfeit the full booking amount and are not refunded.',
+      [
+        { text: 'Back', style: 'cancel' },
+        {
+          text: 'Mark No-Show',
+          style: 'destructive',
+          onPress: async () => {
+            setIsMutating(true);
+            const result = await markNoShow(job.id);
+            setIsMutating(false);
+            if (result.error) {
+              Alert.alert('Could not mark no-show', result.error.message);
+              fetchJob(true);
+              return;
+            }
+            fetchJob(true);
+          },
+        },
+      ],
+    );
+  }, [job, fetchJob]);
+
   // ── Lifecycle transitions ────────────────────────────────────────────
   const transition = useCallback(
     async (next: BookingStatus, extra: Record<string, unknown> = {}) => {
@@ -410,7 +494,8 @@ export default function ProviderJobScreen(): React.ReactElement {
     );
   }
 
-  const isTerminal = status === 'completed' || status === 'cancelled';
+  const isTerminal =
+    status === 'completed' || status === 'cancelled' || status === 'no_show';
 
   return (
     <>
@@ -655,6 +740,34 @@ export default function ProviderJobScreen(): React.ReactElement {
                   leftIcon={<CheckCircle2 size={18} color={palette.offWhite} strokeWidth={2} />}
                   testID="job-complete"
                 />
+              )}
+
+              {/* Provider cancel + customer no-show (Blocker #5). Available
+                  once the booking is confirmed or the provider is en route. */}
+              {(status === 'confirmed' || status === 'en_route') && (
+                <>
+                  <Spacer size="sm" />
+                  <View style={styles.actionRow}>
+                    <Button
+                      label="No-Show"
+                      variant="secondary"
+                      size="md"
+                      loading={isMutating}
+                      onPress={handleNoShow}
+                      style={styles.flexBtn}
+                      testID="job-no-show"
+                    />
+                    <Button
+                      label="Cancel Job"
+                      variant="ghost"
+                      size="md"
+                      loading={isMutating}
+                      onPress={handleProviderCancel}
+                      style={styles.flexBtn}
+                      testID="job-provider-cancel"
+                    />
+                  </View>
+                </>
               )}
 
               <Spacer size="sm" />
