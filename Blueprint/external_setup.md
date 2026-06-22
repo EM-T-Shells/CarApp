@@ -27,6 +27,28 @@ PERSONA_WEBHOOK_SECRET
 ANTHROPIC_API_KEY
 REDIS_URL
 
+Scheduled Jobs (Blocker #4 — provider-approval auto-cancel) ✅ DEPLOYED
+
+The 2-hour provider-approval window auto-cancels and refunds via a pg_cron job
+created in carApp/supabase/migrations/20260618195809_booking_provider_approval_model.sql.
+The job reads the Edge Function URL + service-role key from Supabase Vault
+(this project cannot ALTER DATABASE ... SET, so the usual GUC-settings approach
+is not available). Seed the two Vault secrets once per project:
+
+  DELETE FROM vault.secrets WHERE name IN ('edge_url','service_role_key');
+  SELECT vault.create_secret('https://<project-ref>.supabase.co/functions/v1/stripe-webhook', 'edge_url');
+  SELECT vault.create_secret('<service-role-key>', 'service_role_key');
+
+Status on project apbubklogxgqkokbctwz: extensions pg_cron + pg_net enabled,
+both Vault secrets seeded, job 'expire-pending-approvals' scheduled (every
+minute) and verified returning HTTP 200 {ok:true}. The three Edge Functions
+below are deployed:
+
+  supabase functions deploy stripe-webhook            ✅
+  supabase functions deploy notify-booking-requested  ✅
+  supabase functions deploy notify-booking-declined   ✅
+
+
 Third-Party Accounts
 
 Stripe — Connect platform account for payments/payouts

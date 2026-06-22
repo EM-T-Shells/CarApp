@@ -46,20 +46,26 @@ CREATE INDEX IF NOT EXISTS idx_bookings_pending_approval_expiry
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
--- These two settings must be configured once per project (Dashboard → SQL):
---   ALTER DATABASE postgres SET app.settings.edge_url        = 'https://<ref>.supabase.co/functions/v1/stripe-webhook';
---   ALTER DATABASE postgres SET app.settings.service_role_key = '<service-role-key>';
--- They are read at job-execution time below. See Blueprint/external_setup.md.
+-- The job reads the Edge Function URL + service-role key from Supabase Vault
+-- (this project cannot ALTER DATABASE ... SET, so GUC settings are not an
+-- option). Seed the two secrets once per project before/with this migration —
+-- see Blueprint/external_setup.md:
+--   DELETE FROM vault.secrets WHERE name IN ('edge_url','service_role_key');
+--   SELECT vault.create_secret('https://<ref>.supabase.co/functions/v1/stripe-webhook', 'edge_url');
+--   SELECT vault.create_secret('<service-role-key>', 'service_role_key');
+
+SELECT cron.unschedule('expire-pending-approvals')
+  WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'expire-pending-approvals');
 
 SELECT cron.schedule(
   'expire-pending-approvals',
   '* * * * *',
   $$
   SELECT net.http_post(
-    url     := current_setting('app.settings.edge_url', true),
+    url     := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'edge_url'),
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key', true)
+      'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'service_role_key')
     ),
     body    := jsonb_build_object('action', 'expire_pending_approvals')
   );

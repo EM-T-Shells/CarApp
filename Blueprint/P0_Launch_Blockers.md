@@ -11,13 +11,16 @@ Fix (done): capture_balance now calls stripe.transfers.create() (via a shared tr
 External setup required before live use: Stripe Connect (Express) must be enabled on the platform account; the carapp://provider/bank return/refresh deep links must be registered.
 Follow-on (not P0): retry for transfers that FAIL after onboarding (decline / insufficient platform balance) — currently left pending and logged; needs an ops-triggered or scheduled retry.
 
-3. Photo minimum is UI-only — Non-Negotiable #3 violated
-Root cause: The 4-photo gate lives in job/[bookingId].tsx:197 but capture_balance in the Edge Function has no check. A provider can complete a job with 0 photos via API.
-Fix: Add a photo-count query to capture_balance before allowing the capture; return 400 if < 4.
+3. Photo minimum is UI-only — Non-Negotiable #3 violated — ✅ RESOLVED
+Root cause: The 4-photo gate lived in job/[bookingId].tsx:197 but capture_balance in the Edge Function had no check. A provider could complete a job with 0 photos via API.
+Fix (done): capture_balance now counts booking_photos rows for the booking and returns 400 (`{ error, photo_count, required }`) when below MIN_PHOTOS_TO_COMPLETE (4) — same constant as the client. The check runs after the idempotency short-circuit so an already-captured booking is never re-blocked, and before any balance charge or completion. (carApp/supabase/functions/stripe-webhook/index.ts)
+Deploy note: the Edge Function must be redeployed (supabase functions deploy stripe-webhook) for the server-side gate to take effect.
 
-4. Provider accept/decline + 2-hour window removed but still P0
-Root cause: Both spec docs require manual approval → pending_provider_approval status → 2-hour auto-cancel-and-refund. The build auto-confirms on deposit. These are not the same model.
-Fix: Either (a) restore the model — add pending_provider_approval status, accept/decline UI in job/[bookingId].tsx, a scheduled timeout job, and deposit-refund on decline/timeout — or (b) formally amend both requirement docs before launch. This is a product decision, not just a code gap.
+4. Provider accept/decline + 2-hour window removed but still P0 — ✅ RESOLVED
+Root cause: Both spec docs require manual approval → pending_provider_approval status → 2-hour auto-cancel-and-refund. The build auto-confirmed on deposit. These are not the same model.
+Fix (done — option a, restore the model): deposit success now transitions pending → pending_provider_approval (not confirmed) and stamps approval_expires_at = now + 2h (onPaymentIntentSucceeded in stripe-webhook/index.ts). Three new Edge Function actions: accept_booking (→ confirmed), decline_booking (→ cancelled + full deposit refund, records declined_reason), and expire_pending_approvals (pg_cron sweep that auto-cancels + refunds any approval past its deadline). Client: acceptBooking/declineBooking in src/lib/stripe/index.ts; Accept/Decline buttons + live 2-hour countdown in the provider job screen (app/(tabs)/bookings/job/[bookingId].tsx). StatusTimeline + ACTIVE_BOOKING_STATUSES + bookings.status CHECK extended with the restored status. New notify functions: notify-booking-requested (deposit → provider gets the 2h-window alert, customer gets "request sent") and notify-booking-declined (customer refund notice on decline/timeout). DB: migration 20260618195809_booking_provider_approval_model.sql (columns approval_expires_at / confirmed_at / declined_reason, partial expiry index, pg_cron job reading the edge URL + service-role key from Supabase Vault).
+Deployed to project apbubklogxgqkokbctwz: schema applied; pg_cron/pg_net enabled; Vault secrets (edge_url, service_role_key) seeded; 'expire-pending-approvals' cron job scheduled (every minute) and verified returning HTTP 200 {ok:true}; stripe-webhook redeployed and notify-booking-requested / notify-booking-declined deployed (see Blueprint/external_setup.md).
+Follow-on (not P0): decline/expire refund FAILURES leave the booking cancelled with the refund pending+logged (same ops-retry gap as the #2 transfer-failure follow-on).
 
 5. Cancellation policy wrong (policy conflict must be resolved)
 Root cause: Spec says $15 flat fee retained; code forfeits the entire 15% deposit. No provider cancellation penalty ($25) exists. No no-show flow. Enforcement is client-side only.
