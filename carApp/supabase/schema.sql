@@ -84,8 +84,9 @@ CREATE TABLE provider_profiles (
   kudos_count         INT DEFAULT 0,
   stripe_account_id   TEXT,
   verification_status VARCHAR NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'approved', 'suspended')),
-  platform_fee_rate   NUMERIC(4,3) DEFAULT 0.05,
-  is_founding_provider BOOLEAN DEFAULT FALSE,
+  platform_fee_rate   NUMERIC(4,3) DEFAULT 0.030,  -- 3% MVP standard rate (Blocker #8)
+  is_founding_provider BOOLEAN DEFAULT FALSE,       -- first 100 approved providers (0% fee)
+  founding_provider_expires_at TIMESTAMPTZ,         -- founding 0% window ends here; sweep -> 3%
   approved_at         TIMESTAMPTZ,
   created_at          TIMESTAMPTZ DEFAULT now()
 );

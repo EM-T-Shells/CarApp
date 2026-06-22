@@ -8,6 +8,17 @@
 export const CUSTOMER_LATE_CANCEL_FEE_CENTS = 1500; // $15
 export const PROVIDER_CANCEL_PENALTY_CENTS = 2500; // $25
 
+// Founding Provider Program (Blocker #8 / spec §5/§10 + Workflow doc).
+// The first 100 providers to reach an approved verification status are enrolled
+// at a 0% platform fee for a 90-day window, after which they convert to the
+// standard MVP rate. Enrollment + conversion are enforced server-side (DB
+// trigger + daily pg_cron sweep, migration 20260622140000); these constants are
+// the single client-side source of truth for display and fee math.
+export const STANDARD_PLATFORM_FEE_RATE = 0.03; // 3% MVP standard rate
+export const FOUNDING_PLATFORM_FEE_RATE = 0.0; // 0% during the founding window
+export const FOUNDING_PROVIDER_CAP = 100; // first N approved providers
+export const FOUNDING_WINDOW_DAYS = 90; // founding 0% window length
+
 /**
  * Amount (cents) to refund a customer who cancels within the 24h window:
  * the deposit minus the $15 flat fee, never below zero. If the deposit is

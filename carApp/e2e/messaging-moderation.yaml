@@ -1,0 +1,92 @@
+# messaging-moderation.yaml
+#
+# Covers Spec §7 / Non-Negotiable #4: outbound messages that contain contact
+# info or an attempt to move off-platform must be BLOCKED (not stored, not
+# sanitized) and the sender warned inline.
+#
+#   Inbox → Thread → type a phone number → Send → blocked + warning shown
+#                  → edit the draft → warning clears → clean message sends
+#
+# Preconditions:
+#   • User is authenticated (run auth-flow.yaml first, or seed a session)
+#   • At least one existing message thread for this user
+#
+# Run: maestro test e2e/messaging-moderation.yaml
+
+appId: com.emre.carapp
+---
+
+- launchApp
+
+# ── Open the Inbox tab ────────────────────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      id: "message-input"
+    timeout: 10000
+    optional: true
+
+# If the input isn't immediately visible, navigate via Inbox → first thread.
+- runFlow:
+    when:
+      notVisible:
+        id: "message-input"
+    commands:
+      - tapOn: "Inbox"
+      - waitForAnimationToEnd
+      # ThreadRow accessibilityLabel is "Conversation with <Name>"
+      - tapOn:
+          index: 0
+          text: "Conversation with.*"
+      - extendedWaitUntil:
+          visible:
+            id: "message-input"
+          timeout: 8000
+
+- assertVisible:
+    id: "message-input"
+
+# ── Attempt to send a phone number — must be blocked ──────────────────
+
+- tapOn:
+    id: "message-input"
+
+- inputText: "call me at 555-867-5309"
+
+- tapOn:
+    id: "message-send"
+
+- waitForAnimationToEnd
+
+# The inline warning banner appears and the message was NOT sent.
+- extendedWaitUntil:
+    visible:
+      id: "send-warning"
+    timeout: 5000
+
+- assertVisible:
+    id: "send-warning"
+
+# The flagged text must never appear as a sent bubble.
+- assertNotVisible: "555-867-5309"
+
+# ── Editing the draft clears the warning ──────────────────────────────
+
+- tapOn:
+    id: "message-input"
+
+- clearText
+
+- inputText: "Sounds good, see you then!"
+
+- assertNotVisible:
+    id: "send-warning"
+
+# ── A clean message sends normally ────────────────────────────────────
+
+- tapOn:
+    id: "message-send"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Sounds good, see you then!"

@@ -65,6 +65,7 @@ import {
   insertKudos,
   insertMessageThread,
   insertMessage,
+  FlaggedContentError,
   markNotificationRead,
   markAllNotificationsRead,
   insertPromoRedemption,
@@ -406,24 +407,21 @@ describe('insertMessage', () => {
     )
   })
 
-  it('replaces body and sets is_flagged when content is flagged', async () => {
+  it('blocks the send and returns a FlaggedContentError when content is flagged', async () => {
     ;(containsFlaggedContent as jest.Mock).mockReturnValueOnce(true)
-    const msg = { id: 'm2', body: '[Message flagged for review]', is_flagged: true }
-    const builder = makeBuilder({ data: msg, error: null })
+    const builder = makeBuilder({ data: null, error: null })
     mockFrom.mockReturnValue(builder)
 
-    await insertMessage({
+    const result = await insertMessage({
       thread_id: 't1',
       sender_id: 'u1',
       body: 'call me at 555-1234',
     })
 
-    expect(builder.insert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: '[Message flagged for review]',
-        is_flagged: true,
-      }),
-    )
+    expect(result.data).toBeNull()
+    expect(result.error).toBeInstanceOf(FlaggedContentError)
+    // The message must never be stored, sanitized or otherwise.
+    expect(builder.insert).not.toHaveBeenCalled()
   })
 })
 

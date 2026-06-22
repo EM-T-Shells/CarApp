@@ -12,9 +12,19 @@ jest.mock('../../../../src/lib/supabase/queries', () => ({
   getThreadById: (...a: unknown[]) => mockGetThreadById(...a),
 }));
 
+class MockFlaggedContentError extends Error {
+  readonly flagged = true;
+  constructor(message = 'blocked') {
+    super(message);
+    this.name = 'FlaggedContentError';
+  }
+}
 const mockInsertMessage = jest.fn();
 jest.mock('../../../../src/lib/supabase/mutations', () => ({
   insertMessage: (...a: unknown[]) => mockInsertMessage(...a),
+  FlaggedContentError: MockFlaggedContentError,
+  isFlaggedContentError: (err: unknown) =>
+    err instanceof MockFlaggedContentError || (err as { flagged?: boolean })?.flagged === true,
 }));
 
 const channelToken = { __t: 'channel' };
@@ -129,6 +139,41 @@ describe('MessageThreadScreen', () => {
       body: 'Sounds good',
     });
     expect(await screen.findByText('Sounds good')).toBeTruthy();
+  });
+
+  it('warns inline and keeps the draft when a message is blocked as flagged', async () => {
+    mockInsertMessage.mockResolvedValue({
+      data: null,
+      error: new MockFlaggedContentError('Message blocked: remove contact info.'),
+    });
+    render(<MessageThreadScreen />);
+    await screen.findByText('On my way!');
+    fireEvent.changeText(screen.getByTestId('message-input'), 'call me at 555-867-5309');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('message-send'));
+    });
+
+    // Warning surfaced and the draft is preserved for editing.
+    expect(await screen.findByTestId('send-warning')).toBeTruthy();
+    expect(screen.getByText('Message blocked: remove contact info.')).toBeTruthy();
+    expect(screen.getByTestId('message-input').props.value).toBe('call me at 555-867-5309');
+  });
+
+  it('clears the flagged warning once the user edits the draft', async () => {
+    mockInsertMessage.mockResolvedValue({
+      data: null,
+      error: new MockFlaggedContentError('Message blocked.'),
+    });
+    render(<MessageThreadScreen />);
+    await screen.findByText('On my way!');
+    fireEvent.changeText(screen.getByTestId('message-input'), '555-867-5309');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('message-send'));
+    });
+    expect(await screen.findByTestId('send-warning')).toBeTruthy();
+
+    fireEvent.changeText(screen.getByTestId('message-input'), 'hello');
+    expect(screen.queryByTestId('send-warning')).toBeNull();
   });
 
   it('does not send an empty/whitespace message', async () => {

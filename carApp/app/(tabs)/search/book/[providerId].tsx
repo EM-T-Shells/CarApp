@@ -60,6 +60,7 @@ import {
   calculateServiceFee,
   calculatePlatformFee,
   calculateProviderPayout,
+  STANDARD_PLATFORM_FEE_RATE,
 } from '../../../../src/utils/money';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -200,7 +201,7 @@ export default function BookProviderScreen(): React.ReactElement {
 
     setIsSubmitting(true);
 
-    const platformFeeRate = Number(provider.platform_fee_rate ?? 0.05);
+    const platformFeeRate = Number(provider.platform_fee_rate ?? STANDARD_PLATFORM_FEE_RATE);
     const totalCents = total;
     const depositCents = deposit;
     const serviceFeeCents = serviceFee;

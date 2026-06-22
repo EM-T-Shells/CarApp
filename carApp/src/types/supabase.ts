@@ -666,6 +666,7 @@ export type Database = {
           bio: string | null
           coverage_area: string | null
           created_at: string | null
+          founding_provider_expires_at: string | null
           id: string
           is_founding_provider: boolean | null
           kudos_count: number | null
@@ -684,6 +685,7 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
@@ -702,6 +704,7 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null

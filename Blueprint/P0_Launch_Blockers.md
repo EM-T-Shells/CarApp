@@ -34,13 +34,15 @@ Fix (done): Implemented as part of #2 (payouts need a Connect account to transfe
 External setup required before live use: Stripe Connect (Express) must be enabled on the platform account; the carapp://provider/bank return/refresh deep links must be registered (same setup as #2 — see Blueprint/external_setup.md).
 Deploy note: redeploy stripe-webhook (supabase functions deploy stripe-webhook) for the Connect actions to be live (already covered by #2's redeploy).
 
-7. Contact-info detection sanitizes instead of blocks
-Root cause: containsFlaggedContent() is robust, but insertMessage() replaces the body with [Message flagged for review] and stores it — it does not block the send or warn the user. Spec §7 and Non-Negotiable #4 require blocking + user warning from Sprint 6.
-Fix: Return an error from insertMessage() when flagged; surface the warning inline to the sender; do not store the sanitized message.
+7. Contact-info detection sanitizes instead of blocks — Non-Negotiable #4 violated — ✅ RESOLVED
+Root cause: containsFlaggedContent() is robust, but insertMessage() replaced the body with [Message flagged for review] and stored it — it did not block the send or warn the user. Spec §7 and Non-Negotiable #4 require blocking + user warning from Sprint 6.
+Fix (done): insertMessage() now BLOCKS flagged sends — it returns a new FlaggedContentError (with a `flagged` marker + isFlaggedContentError() type guard) and never inserts, so no sanitized copy is stored (src/lib/supabase/mutations.ts). The thread screen surfaces the error inline as a red warning banner above the composer, keeps the draft so the sender can edit, and clears the warning as soon as the draft changes (app/(tabs)/inbox/[threadId].tsx). The legacy is_flagged bubble styling is retained only for rendering pre-existing flagged rows. Tests: mutations.test.ts (block + no insert), inbox/[threadId].test.tsx (inline warning shown, draft preserved, warning cleared on edit); e2e/messaging-moderation.yaml added (phone number blocked + warned → edit → clean message sends).
+Note: client-side only — server-side enforcement (an RLS/trigger reject on the messages table) is a follow-on if API-direct sends need blocking too.
 
-8. Founding Provider Program is marketing copy only
+8. Founding Provider Program is marketing copy only — ✅ RESOLVED
 Root cause: is_founding_provider column exists but nothing sets it. No count check (first 100), no 3-month expiry, no auto-convert to 3% at period end. The 0% fee is never actually applied to any real provider.
-Fix: Add provisioning logic: count check on vetting approval, expiry timestamp, and a scheduled job (or Edge Function invocation) that flips platform_fee_rate back to 0.03 after 90 days.
+Fix (done): Provisioning is enforced entirely in the DB so it works no matter how approval is triggered (manual SQL today, admin panel #9 later). A BEFORE INSERT/UPDATE trigger (provision_founding_provider) fires on the transition to verification_status = 'approved' and, under a transaction-scoped advisory lock (so the cap can't be exceeded by a race), enrolls the provider iff fewer than 100 providers are already founding: is_founding_provider = TRUE, platform_fee_rate = 0.000, founding_provider_expires_at = approved_at + 90 days. It is idempotent (already-approved/already-founding rows are skipped). A daily pg_cron sweep (expire-founding-providers @ 03:00 UTC → expire_founding_providers()) converts each elapsed window back to the standard 3% rate — pure DB, no money movement, so no Edge Function round-trip (unlike #4) — keeping is_founding_provider = TRUE as a historical badge and clearing the expiry sentinel. DB: migration 20260622140000_founding_provider_program.sql (new column founding_provider_expires_at, partial expiry index, trigger + sweep fn + cron job; schema.sql + supabase.ts types updated). Fee-rate conflict resolved here too — standard MVP provider fee is 3% (default 0.05 → 0.030, existing 5% non-founding rows re-pointed to 3%, seeds updated). Client: src/utils/money.ts gains STANDARD_PLATFORM_FEE_RATE/FOUNDING_PLATFORM_FEE_RATE/FOUNDING_PROVIDER_CAP/FOUNDING_WINDOW_DAYS as the single source of truth; the book screen's fallback default is now STANDARD_PLATFORM_FEE_RATE. Tests: money.test.ts (founding/standard fee math + constants) and a rollback-wrapped SQL behavioral test for the trigger + sweep (supabase/migrations/__tests__/founding_provider_program.test.sql — all 5 scenarios verified against the live project).
+Deployed to project apbubklogxgqkokbctwz: migration applied via supabase db push; trigger enabled, sweep fn + index present, 'expire-founding-providers' cron scheduled; existing data verified (4 founding @ 0%, 4 standard @ 3%, 0 left on 5%).
 
 9. Admin panel does not exist — vetting and disputes are blocked
 Root cause: more/admin.tsx is a 1-line empty file. There is no mechanism for ops to approve providers, resolve disputes, or issue refunds. Every provider is permanently stuck at pending until admin tooling exists.
@@ -48,5 +50,5 @@ Fix: Build the provider vetting queue as a desktop web app (spec: 1280px, Retool
 
 Two fee-rate conflicts to resolve before any of the above payment work lands:
 
-Provider fee: spec §5/§10 = 3% · current code = 5% → pick one, update money.ts + CLAUDE.md
+Provider fee: ✅ resolved — see #8 above. Standard MVP rate = 3% (spec §5/§10 + Workflow doc "3% at MVP"). DB default 0.05 → 0.030, existing rows migrated, money.ts constants added.
 Cancellation: ✅ resolved — see #5 above ($15 customer late-cancel fee / $25 provider penalty, per PRD v5)

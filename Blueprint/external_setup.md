@@ -68,6 +68,21 @@ penalty / no-show forfeit). Applied to project apbubklogxgqkokbctwz:
 No new env vars or Vault secrets are required for this blocker.
 
 
+Blocker #8 — Founding Provider Program (first 100 @ 0% → 3% after 90 days).
+Applied to project apbubklogxgqkokbctwz:
+
+  1. Migration 20260622140000_founding_provider_program.sql applied (supabase db
+     push) — adds founding_provider_expires_at + the provision_founding_provider
+     trigger and the expire_founding_providers() sweep; flips the standard
+     platform_fee_rate default 0.05 → 0.030 and re-points existing 5% rows. ✅
+  2. pg_cron job 'expire-founding-providers' scheduled (0 3 * * *, daily 03:00 UTC).
+     ✅  (pg_cron already enabled from blocker #4.)
+
+No Edge Function deploy, env vars, or Vault secrets are required for this blocker —
+provisioning + expiry are pure DB (trigger + in-SQL cron; no money movement, so no
+Stripe round-trip). No new external accounts required.
+
+
 Third-Party Accounts
 
 Stripe — Connect platform account for payments/payouts
