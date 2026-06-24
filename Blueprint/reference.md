@@ -227,3 +227,11 @@
 [carApp/supabase/functions/notify-kudos-received/index.ts] — Edge Function (Flow 5.8): pushes "You earned a kudos" to the provider on kudos insert; deep-links to More → Provider.
 [carApp/src/components/auth/OnboardingHeader.tsx] — Shared dark-indigo header for the account-creation flow: brand wordmark, optional back chevron, and progress dots; owns the top safe-area inset.
 [carApp/src/state/signUpSubmit.ts] — Single onboarding write path: inserts the users row (+ primary vehicle for customer/both), pushes the new row into the auth store, and resets the draft so the root gate routes into the app.
+[carApp/e2e/bookings-management.yaml] — Maestro E2E for User_Stories Workflow B (+ cancel/reschedule from G): My Bookings/My Jobs toggle, past-booking receipt, Book Again, cancellation policy sheet (non-destructive).
+[carApp/e2e/inbox-messaging.yaml] — Maestro E2E for Workflow C: open Inbox, open a thread, type+send a message, empty-state; contact-blocking left to validators unit tests.
+[carApp/e2e/more-settings.yaml] — Maestro E2E for Workflow E: More menu surface, edit/save display name, notification-category toggles, Privacy/Terms/version.
+[carApp/e2e/provider-dashboard.yaml] — Maestro E2E for Workflow D (+ payout view from M): Provider Dashboard hub, Earnings & Kudos, Services & Availability entry.
+[carApp/e2e/provider-job-flow.yaml] — Maestro E2E for Workflow H (provider side): job summary, payout summary, Start Travel, before/after photo completion gate (stops before destructive Complete).
+[carApp/e2e/config.yaml] — Maestro workspace config: runs all e2e/*.yaml as one suite, continueOnFailure.
+[carApp/e2e/run-e2e.sh] — Suite runner: verifies a booted iOS Simulator (Maestro has no physical-iOS support), installs the build if missing, runs all flows or a tag subset.
+[carApp/e2e/README.md] — E2E docs + User_Stories→flow trace table marking automated / partial / unit-covered / not-built / web-only per workflow.
