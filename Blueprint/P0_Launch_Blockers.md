@@ -1,7 +1,7 @@
 P0 Launch Blockers — Stabl MVP
 9 items. App cannot go live until all of these are resolved.
 
-1. Push notifications never deliver
+[X] 1. Push notifications never deliver
 Root cause: push.ts is imported by nothing. Device tokens are never registered. All 10 required lifecycle notifications are silently dropped.
 Fix: Call registerForPushNotifications() + updateUserPushToken() at the end of onboarding and on session resume.
 
