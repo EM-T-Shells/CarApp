@@ -1,0 +1,15 @@
+# Maestro workspace config — applies to every flow in this directory.
+# Docs: https://docs.maestro.dev/advanced/configuring-maestro
+#
+# `maestro test e2e/` discovers this file and runs all flows below as a
+# suite. Use --include-tags / --exclude-tags to slice by workflow.
+
+flows:
+  - "*.yaml"
+
+# Run order is alphabetical by default. Auth must establish a session
+# before the authenticated flows; the runner script (run-e2e.sh) seeds
+# state first, so explicit ordering is not required here.
+
+executionOrder:
+  continueOnFailure: true   # one failing flow should not abort the suite

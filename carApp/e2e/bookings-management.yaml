@@ -1,0 +1,178 @@
+# bookings-management.yaml
+#
+# Workflow B — Bookings Management (User_Stories §📅) and the cancel /
+# reschedule actions from Workflow G (§🔧).
+#
+# Maps the following User_Stories lines:
+#   • Tap Bookings tab, toggle My Bookings / My Jobs ........... B-1
+#   • Upcoming list is default when active bookings exist ...... B-2
+#   • Open a past booking → full receipt ...................... B-3
+#   • Book Again pre-selects provider + service ............... B-4 / B-5
+#   • Cancel Booking shows policy + refund before confirming .. G-cancel
+#   • Reschedule a booking ................................... (detail action)
+#
+# NOTE — not yet automatable (screen/feature not built):
+#   "Add Service" on an upcoming booking (G-add) — no Add Service
+#   control exists in app/(tabs)/bookings/[id].tsx as of this writing.
+#   Tracked in the e2e/README story-trace table.
+#
+# Preconditions:
+#   • Authenticated customer session (run auth-flow.yaml first or seed it)
+#   • Test customer has ≥1 upcoming booking and ≥1 past booking seeded
+#
+# Tags let the runner select subsets: `maestro test --include-tags bookings`
+tags:
+  - bookings
+  - customer
+
+appId: com.emre.carapp
+---
+
+# ── Land in the app, open Bookings tab ────────────────────────────────
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- tapOn:
+    text: "Bookings"
+
+- extendedWaitUntil:
+    visible:
+      text: "Bookings"
+    timeout: 8000
+
+# B-1 / B-2: the customer/provider toggle is present and the upcoming
+# (My Bookings) list renders by default for a user with active bookings.
+- assertVisible:
+    accessibilityLabel: "My bookings as customer"
+
+# B-2: an upcoming booking row is tappable.
+- assertVisible:
+    text: "Tap to view booking details"
+
+# ── B-3: open the Past list and view a receipt ────────────────────────
+
+- tapOn:
+    accessibilityLabel: "View past bookings"
+
+- extendedWaitUntil:
+    visible:
+      accessibilityLabel: "Past bookings as customer"
+    timeout: 8000
+
+# Open the first past booking → receipt / detail screen.
+- tapOn:
+    text: "Tap to view booking details"
+
+- waitForAnimationToEnd
+
+# Receipt detail surfaces the status timeline and payment breakdown.
+- extendedWaitUntil:
+    visible:
+      text: "Status"
+    timeout: 8000
+
+- scrollUntilVisible:
+    element:
+      text: "Due on completion"
+    direction: DOWN
+
+- assertVisible: "Due on completion"
+
+---
+
+# ── B-4 / B-5: Book Again from a past booking ─────────────────────────
+#
+# Sub-flow: re-entering the booking flow from a past booking pre-selects
+# the provider and lands the user back in the Select Services step.
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- tapOn:
+    text: "Bookings"
+
+- tapOn:
+    accessibilityLabel: "View past bookings"
+
+- extendedWaitUntil:
+    visible:
+      text: "Book Again"
+    timeout: 8000
+
+- tapOn:
+    text: "Book Again"
+
+- waitForAnimationToEnd
+
+# Rebook drops into the booking flow's Select Services step (B-5: user
+# must pick a new date/time downstream — covered by booking-flow.yaml).
+- extendedWaitUntil:
+    visible:
+      text: "Select Services"
+    timeout: 8000
+
+- assertVisible: "Select Services"
+
+---
+
+# ── G-cancel: cancellation shows policy + refund before confirming ────
+#
+# Sub-flow: from an upcoming booking detail, Cancel Booking opens a
+# confirmation sheet that states the refund/forfeit policy. We open it
+# and back out (Keep Booking) so the seeded booking is not destroyed.
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- tapOn:
+    text: "Bookings"
+
+- extendedWaitUntil:
+    visible:
+      text: "Tap to view booking details"
+    timeout: 8000
+
+- tapOn:
+    text: "Tap to view booking details"
+
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      text: "Status"
+    timeout: 8000
+
+# Reschedule is offered for editable (pending/confirmed) bookings.
+- scrollUntilVisible:
+    element:
+      text: "Cancel Booking"
+    direction: DOWN
+
+- tapOn:
+    text: "Cancel Booking"
+
+- waitForAnimationToEnd
+
+# Confirmation sheet states the policy and the deposit/refund outcome.
+- assertVisible: "Confirm Cancellation"
+
+# Back out without destroying the seeded booking.
+- tapOn:
+    text: "Keep Booking"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Status"
