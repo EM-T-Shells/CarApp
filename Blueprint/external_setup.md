@@ -85,36 +85,25 @@ provisioning + expiry are pure DB (trigger + in-SQL cron; no money movement, so 
 Stripe round-trip). No new external accounts required.
 
 
-Blocker #9 — Admin Panel (provider vetting: approve/reject). NOT YET APPLIED.
+Blocker #9 — Admin Panel (provider vetting: approve/reject).
+Backend is LIVE on project apbubklogxgqkokbctwz (2026-06-24). Remaining: Resend + Vercel.
 
-The MCP Supabase token in .mcp.json was Unauthorized at build time and the CLI
-was not installed, so the steps below still need to be RUN against project
-apbubklogxgqkokbctwz. The code/migration/web app are committed and ready.
-
-  1. Apply the migration: carApp/supabase/migrations/20260624120000_admin_panel.sql
-     (supabase db push, or paste into the SQL editor). Adds users.is_admin, the
-     is_admin() RLS helper, 'rejected' to verification_status, and admin read-all
-     RLS on provider_profiles / provider_vetting / users.
-  2. Regenerate types:
-       supabase gen types typescript --project-id apbubklogxgqkokbctwz \
-         > carApp/src/types/supabase.ts
-     (this picks up is_admin + the widened status; the app/admin already build
-     without it, but regen keeps types exact.)
-  3. Seed the admin allowlist (your two accounts must have signed in once so a
-     users row exists):
-       update public.users set is_admin = true
-       where email in ('<you@…>', '<partner@…>');
-  4. Resend (free tier ~100 emails/day): create an account, verify a sending
-     domain, create an API key. Then:
-       supabase secrets set RESEND_API_KEY='re_...'
-       supabase secrets set EMAIL_FROM='Stabl <noreply@your-verified-domain>'
-     (If unset, approve/reject still works; the email is reported not-sent.)
-  5. Deploy the Edge Function:
-       supabase functions deploy admin-review-provider
-  6. Run the verification SQL test (optional, read-write but rolls back):
-       supabase db query --linked \
-         -f carApp/supabase/migrations/__tests__/admin_panel.test.sql
-  7. Deploy the web app (free): build admin/ (npm run build) and host dist/ on
+  1. ✅ Migration 20260624120000_admin_panel applied (via MCP apply_migration).
+     Verified: users.is_admin col, is_admin() fn, 'rejected' in the status check,
+     3 admin read-all policies. RLS behavioral test passed (admin reads all /
+     non-admin blocked).
+  2. ✅ Types regenerated → carApp/src/types/supabase.ts (is_admin + is_admin()).
+     carApp suite green (698/698); admin app type-checks.
+  3. ✅ Admin allowlist seeded: taskaleg@gmail.com is_admin = true.
+     ⬜ Partner: add once they've signed into the app (need a users row):
+        update public.users set is_admin = true where email = '<partner@…>';
+  4. ✅ Edge Function admin-review-provider deployed (supabase functions deploy).
+  5. ⬜ Resend (free tier ~100/day) — DEFERRED to the Vercel session: create an
+     account, verify a sending domain, create an API key, then:
+        supabase secrets set RESEND_API_KEY='re_...'
+        supabase secrets set EMAIL_FROM='Stabl <noreply@your-verified-domain>'
+     (Until set, approve/reject works fully; the email is reported not-sent.)
+  6. ⬜ Deploy the web app (free): build admin/ (npm run build) and host dist/ on
      Vercel or Netlify free tier. Set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
      as build env vars; add an SPA rewrite (all routes → /index.html). Record the
      live URL here:  ADMIN PANEL URL: __________________________
