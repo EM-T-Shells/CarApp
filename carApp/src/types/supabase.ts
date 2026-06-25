@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       booking_photos: {
@@ -84,9 +59,9 @@ export type Database = {
           deposit_amount: number | null
           deposit_forfeited: boolean | null
           id: string
-          no_show_at: string | null
           location_lat: number | null
           location_lng: number | null
+          no_show_at: string | null
           notes: string | null
           package_id: string | null
           platform_fee: number | null
@@ -1097,6 +1072,7 @@ export type Database = {
           fcm_token_updated_at: string | null
           full_name: string | null
           id: string
+          is_admin: boolean
           is_verified: boolean | null
           phone: string | null
           phone_verified: boolean | null
@@ -1119,6 +1095,7 @@ export type Database = {
           fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
+          is_admin?: boolean
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
@@ -1141,6 +1118,7 @@ export type Database = {
           fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
+          is_admin?: boolean
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
@@ -1231,7 +1209,8 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      expire_founding_providers: { Args: never; Returns: number }
+      is_admin: { Args: { uid: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
@@ -1360,9 +1339,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
