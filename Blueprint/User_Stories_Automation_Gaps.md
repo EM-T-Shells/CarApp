@@ -84,10 +84,13 @@ Legend: 🚧 not built · 🟡 partially built · 🚫 out of automation scope.
 
 ## Out of automation scope
 
-### L — Admin Panel (🚫)
-Desktop web portal (1280px min width). Out of scope for Maestro mobile
-automation — use a web E2E tool (e.g. Playwright) if/when prioritized. All
-10 stories (§🛠️).
+### L — Admin Panel (🟡 partial — Playwright)
+Desktop web portal (1280px min width) — separate surface, out of scope for
+Maestro. The MVP slice (login + provider approve/reject + email) now ships with
+a hermetic Playwright suite at `admin/e2e/vetting.spec.ts` (mocks Supabase, so it
+runs without a live project; needs `npx playwright install chromium` once). The
+remaining 7 stories (KPI dashboard, disputes/refunds, ban/warn, promo codes,
+CSV export, force-cancel, RBAC tiers) are not built and not yet automated.
 
 ---
 
@@ -97,7 +100,7 @@ automation — use a web E2E tool (e.g. Playwright) if/when prioritized. All
   payment-methods & account-deletion (E), Add Service (G), recurring
   unavailability (D), 1099-K & annual summary (M), preview/publish/toggle/
   moderation (N).
-- **Out of scope:** Workflow **L** (web admin).
+- **Partial (web, Playwright):** Workflow **L** (web admin) — vetting approve/reject slice automated; rest not built.
 - **Everything else** in User_Stories is covered by the Maestro suite in
   `carApp/e2e/` (see that directory's README for the per-flow trace).
 

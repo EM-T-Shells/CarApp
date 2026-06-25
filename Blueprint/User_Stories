@@ -175,11 +175,11 @@
 
 ## 🛠️ Workflow L — Admin Panel
 
-- [ ] As an admin, I can log in to the **desktop web portal** (1280px minimum width)
+- [x] As an admin, I can log in to the **desktop web portal** (1280px minimum width)  _(magic-link; /admin)_
 - [ ] As an admin, I can see a KPI overview: **GMV, active providers, open disputes, and NPS** (refreshes every 5 min)
-- [ ] As an admin, I can **search and filter providers** and take actions: Approve, Suspend, Flag for Review
-- [ ] As an admin, I can **approve or reject a provider** with a reason code, and an approval email is triggered to the provider within 60 seconds
-- [ ] As an admin, I can **review insurance certificates** and manually approve or reject them
+- [~] As an admin, I can **search and filter providers** and take actions: Approve, Suspend, Flag for Review  _(search + Approve/Reject done; Suspend/Flag are follow-ups)_
+- [x] As an admin, I can **approve or reject a provider** with a reason code, and an approval email is triggered to the provider within 60 seconds  _(admin-review-provider Edge Fn + Resend)_
+- [~] As an admin, I can **review insurance certificates** and manually approve or reject them  _(insurance_status shown + overall approve/reject; in-panel signed-URL cert preview is a follow-up — bucket is service-role only)_
 - [ ] As an admin, I can open a dispute and view **booking details, message thread, and before/after photos**
 - [ ] As an admin, I can **issue full or partial refunds**, ban users, or send warnings — all audit-logged with my name and timestamp
 - [ ] As an admin, I can **create promo codes** with fields for type, value, expiry, max redemptions, and user segment

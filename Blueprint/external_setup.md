@@ -26,6 +26,8 @@ PERSONA_API_KEY
 PERSONA_WEBHOOK_SECRET
 ANTHROPIC_API_KEY
 REDIS_URL
+RESEND_API_KEY        (Blocker #9 — provider approval/rejection email)
+EMAIL_FROM            (Blocker #9 — e.g. 'Stabl <noreply@your-verified-domain>')
 
 Scheduled Jobs (Blocker #4 — provider-approval auto-cancel) ✅ DEPLOYED
 
@@ -83,6 +85,41 @@ provisioning + expiry are pure DB (trigger + in-SQL cron; no money movement, so 
 Stripe round-trip). No new external accounts required.
 
 
+Blocker #9 — Admin Panel (provider vetting: approve/reject). NOT YET APPLIED.
+
+The MCP Supabase token in .mcp.json was Unauthorized at build time and the CLI
+was not installed, so the steps below still need to be RUN against project
+apbubklogxgqkokbctwz. The code/migration/web app are committed and ready.
+
+  1. Apply the migration: carApp/supabase/migrations/20260624120000_admin_panel.sql
+     (supabase db push, or paste into the SQL editor). Adds users.is_admin, the
+     is_admin() RLS helper, 'rejected' to verification_status, and admin read-all
+     RLS on provider_profiles / provider_vetting / users.
+  2. Regenerate types:
+       supabase gen types typescript --project-id apbubklogxgqkokbctwz \
+         > carApp/src/types/supabase.ts
+     (this picks up is_admin + the widened status; the app/admin already build
+     without it, but regen keeps types exact.)
+  3. Seed the admin allowlist (your two accounts must have signed in once so a
+     users row exists):
+       update public.users set is_admin = true
+       where email in ('<you@…>', '<partner@…>');
+  4. Resend (free tier ~100 emails/day): create an account, verify a sending
+     domain, create an API key. Then:
+       supabase secrets set RESEND_API_KEY='re_...'
+       supabase secrets set EMAIL_FROM='Stabl <noreply@your-verified-domain>'
+     (If unset, approve/reject still works; the email is reported not-sent.)
+  5. Deploy the Edge Function:
+       supabase functions deploy admin-review-provider
+  6. Run the verification SQL test (optional, read-write but rolls back):
+       supabase db query --linked \
+         -f carApp/supabase/migrations/__tests__/admin_panel.test.sql
+  7. Deploy the web app (free): build admin/ (npm run build) and host dist/ on
+     Vercel or Netlify free tier. Set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+     as build env vars; add an SPA rewrite (all routes → /index.html). Record the
+     live URL here:  ADMIN PANEL URL: __________________________
+
+
 Third-Party Accounts
 
 Stripe — Connect platform account for payments/payouts
@@ -92,3 +129,5 @@ Sentry — Project for error monitoring
 Mixpanel — Project for analytics
 Persona — Account for provider identity verification
 Checkr — Account for provider background checks
+Resend — Transactional email (provider approval/rejection — Blocker #9)
+Vercel or Netlify — Free static hosting for the admin panel (Blocker #9)
