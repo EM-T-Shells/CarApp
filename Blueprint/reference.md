@@ -235,3 +235,12 @@
 [carApp/e2e/config.yaml] — Maestro workspace config: runs all e2e/*.yaml as one suite, continueOnFailure.
 [carApp/e2e/run-e2e.sh] — Suite runner: verifies a booted iOS Simulator (Maestro has no physical-iOS support), installs the build if missing, runs all flows or a tag subset.
 [carApp/e2e/README.md] — E2E docs + User_Stories→flow trace table marking automated / partial / unit-covered / not-built / web-only per workflow.
+[carApp/supabase/migrations/20260624120000_admin_panel.sql] — Blocker #9: adds users.is_admin, the is_admin() SECURITY DEFINER RLS helper, 'rejected' to verification_status, and admin read-all RLS on provider_profiles/provider_vetting/users. (Apply pending Supabase access.)
+[carApp/supabase/migrations/__tests__/admin_panel.test.sql] — Rollback-wrapped behavioral test: is_admin() correctness + admin-can-read / non-admin-cannot-read RLS.
+[carApp/supabase/functions/_shared/email.ts] — Shared Resend transactional-email helper (first email path; all notify-* are push). Best-effort: returns {ok,error}, never throws; no-ops to 'email_not_configured' if secrets unset.
+[carApp/supabase/functions/admin-review-provider/index.ts] — Privileged Edge Function for the provider approve/reject decision: verifies caller is_admin from JWT, applies status + provider_vetting audit via service role, emails the provider (Resend) within the request (<60s story). Seed for refund/dispute tools.
+[carApp/supabase/functions/admin-review-provider/__tests__/admin-review-provider.test.ts] — Jest pure-logic spec (Deno fn can't import into Jest): validate, 403 non-admin, reject-requires-reason, email template selection.
+[admin/] — Desktop web admin panel (Vite + React SPA, Blocker #9). Shares the app's Supabase project + generated types. Magic-link login, is_admin + RLS gate, vetting queue + provider detail with approve/reject.
+[admin/src/lib/api.ts] — Admin data layer: fetchIsAdmin, fetchPendingProviders, fetchProvider, reviewProvider (invokes admin-review-provider; never writes status from the client).
+[admin/src/auth.tsx] — AuthProvider: tracks Supabase session + resolves is_admin; powers the RequireAdmin route gate.
+[admin/e2e/vetting.spec.ts] — Hermetic Playwright E2E (mocks Supabase REST + functions, seeds an admin session): login→queue→approve, reject-requires-reason, non-admin denied.

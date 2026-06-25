@@ -39,6 +39,9 @@ CREATE TABLE users (
   fcm_token              TEXT,
   fcm_token_platform     VARCHAR CHECK (fcm_token_platform IN ('ios', 'android')),
   fcm_token_updated_at   TIMESTAMPTZ,
+  -- Ops/admin flag for the desktop web admin panel (Blocker #9). Seeded per
+  -- account via SQL — see Blueprint/external_setup.md. Gated by is_admin() in RLS.
+  is_admin           BOOLEAN NOT NULL DEFAULT FALSE,
   created_at         TIMESTAMPTZ DEFAULT now(),
   updated_at         TIMESTAMPTZ DEFAULT now()
 );
@@ -52,6 +55,19 @@ CREATE TABLE users (
 CREATE OR REPLACE VIEW users_public
   WITH (security_invoker = false) AS
   SELECT id, full_name, avatar_url FROM users;
+
+-- Admin check used by RLS (Blocker #9 admin panel). SECURITY DEFINER so it reads
+-- users as the table owner, bypassing users' own RLS — this avoids the recursion
+-- an RLS policy on users would hit if it queried users directly.
+CREATE OR REPLACE FUNCTION public.is_admin(uid UUID)
+  RETURNS BOOLEAN
+  LANGUAGE sql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+  SELECT COALESCE((SELECT u.is_admin FROM public.users u WHERE u.id = uid), FALSE);
+$$;
 
 GRANT SELECT ON users_public TO anon, authenticated;
 
@@ -83,7 +99,7 @@ CREATE TABLE provider_profiles (
   total_jobs          INT DEFAULT 0,
   kudos_count         INT DEFAULT 0,
   stripe_account_id   TEXT,
-  verification_status VARCHAR NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'approved', 'suspended')),
+  verification_status VARCHAR NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'approved', 'suspended', 'rejected')),
   platform_fee_rate   NUMERIC(4,3) DEFAULT 0.030,  -- 3% MVP standard rate (Blocker #8)
   is_founding_provider BOOLEAN DEFAULT FALSE,       -- first 100 approved providers (0% fee)
   founding_provider_expires_at TIMESTAMPTZ,         -- founding 0% window ends here; sweep -> 3%
@@ -419,6 +435,11 @@ CREATE POLICY "users: insert own" ON users
 CREATE POLICY "users: update own" ON users
   FOR UPDATE USING (auth.uid() = id);
 
+-- Admins (web admin panel, Blocker #9) can read every user row to show provider
+-- name/email in the vetting queue. Writes still go through the Edge Function.
+CREATE POLICY "users: admin read all" ON users
+  FOR SELECT USING (public.is_admin(auth.uid()));
+
 -- VEHICLES
 CREATE POLICY "vehicles: read own" ON vehicles
   FOR SELECT USING (auth.uid() = user_id);
@@ -436,6 +457,10 @@ CREATE POLICY "provider_profiles: read approved" ON provider_profiles
 CREATE POLICY "provider_profiles: write own" ON provider_profiles
   FOR ALL USING (auth.uid() = user_id);
 
+-- Admins read every provider (any verification_status) for the vetting queue.
+CREATE POLICY "provider_profiles: admin read all" ON provider_profiles
+  FOR SELECT USING (public.is_admin(auth.uid()));
+
 -- PROVIDER VETTING
 -- Only the provider and admins (service role) can read vetting records
 CREATE POLICY "provider_vetting: read own" ON provider_vetting
@@ -451,6 +476,10 @@ CREATE POLICY "provider_vetting: write own" ON provider_vetting
       SELECT user_id FROM provider_profiles WHERE id = provider_id
     )
   );
+
+-- Admins read every vetting record for the panel's provider-detail view.
+CREATE POLICY "provider_vetting: admin read all" ON provider_vetting
+  FOR SELECT USING (public.is_admin(auth.uid()));
 
 -- PROVIDER TYPES
 CREATE POLICY "provider_types: read active" ON provider_types
