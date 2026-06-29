@@ -103,10 +103,18 @@ Backend is LIVE on project apbubklogxgqkokbctwz (2026-06-24). Remaining: Resend 
         supabase secrets set RESEND_API_KEY='re_...'
         supabase secrets set EMAIL_FROM='Stabl <noreply@your-verified-domain>'
      (Until set, approve/reject works fully; the email is reported not-sent.)
-  6. ⬜ Deploy the web app (free): build admin/ (npm run build) and host dist/ on
-     Vercel or Netlify free tier. Set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
-     as build env vars; add an SPA rewrite (all routes → /index.html). Record the
-     live URL here:  ADMIN PANEL URL: __________________________
+  6. ⬜ Deploy the web app (free): host admin/ on Vercel free tier. admin/vercel.json
+     already pins framework=vite, build=`npm run build`, output=dist, and the SPA
+     rewrite (all routes → /index.html) — so the only manual steps are:
+        a. Vercel → New Project → import this GitHub repo.
+        b. Set Root Directory = `admin`  (build reads ../carApp types, so leave
+           "Include files outside the root directory" ON — it is by default).
+        c. Add env vars  VITE_SUPABASE_URL  +  VITE_SUPABASE_ANON_KEY
+           (URL = https://apbubklogxgqkokbctwz.supabase.co ; key = the
+           sb_publishable_… anon key from carApp/.env.local — public, safe to paste).
+        d. Pick the production branch (point at `dev` to go live now, or PR
+           dev→main and deploy `main` for prod hygiene). Deploy.
+     Record the live URL here:  ADMIN PANEL URL: __________________________
 
 
 Third-Party Accounts

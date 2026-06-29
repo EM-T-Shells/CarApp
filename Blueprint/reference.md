@@ -244,3 +244,4 @@
 [admin/src/lib/api.ts] — Admin data layer: fetchIsAdmin, fetchPendingProviders, fetchProvider, reviewProvider (invokes admin-review-provider; never writes status from the client).
 [admin/src/auth.tsx] — AuthProvider: tracks Supabase session + resolves is_admin; powers the RequireAdmin route gate.
 [admin/e2e/vetting.spec.ts] — Hermetic Playwright E2E (mocks Supabase REST + functions, seeds an admin session): login→queue→approve, reject-requires-reason, non-admin denied.
+[admin/vercel.json] — Vercel deploy config for the ops admin SPA: framework=vite, build=`npm run build`, output=dist, SPA rewrite (all routes → /index.html). Deploy with Root Directory=admin.
