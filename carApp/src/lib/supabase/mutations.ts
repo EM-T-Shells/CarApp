@@ -335,16 +335,37 @@ export function insertMessageThread(
 
 // ── Messages ───────────────────────────────────────────────────────────
 
+// Error thrown back to the sender when a message contains contact info or an
+// attempt to move off-platform. Carries a flag so callers can distinguish a
+// moderation block from a transport error (Spec §7 / Non-Negotiable #4: block
+// + warn the sender, never store the message).
+export class FlaggedContentError extends Error {
+  readonly flagged = true
+  constructor(message = 'Message blocked: remove phone numbers, emails, or off-platform contact info and try again.') {
+    super(message)
+    this.name = 'FlaggedContentError'
+  }
+}
+
+/** Type guard for distinguishing a moderation block from a transport error. */
+export function isFlaggedContentError(
+  err: Error | null,
+): err is FlaggedContentError {
+  return err instanceof FlaggedContentError || (err as { flagged?: boolean })?.flagged === true
+}
+
 export function insertMessage(
   message: MessageInsert,
 ): Promise<MutationResult<Message>> {
   const body = message.body ?? ''
-  const sanitizedMessage: MessageInsert = containsFlaggedContent(body)
-    ? { ...message, body: '[Message flagged for review]', is_flagged: true }
-    : message
+  if (containsFlaggedContent(body)) {
+    // Block the send entirely — do not store a sanitized copy. The sender is
+    // warned inline and can edit and retry.
+    return Promise.resolve({ data: null, error: new FlaggedContentError() })
+  }
 
   return runMutation<Message>(
-    supabase.from('messages').insert(sanitizedMessage).select().single(),
+    supabase.from('messages').insert(message).select().single(),
   )
 }
 

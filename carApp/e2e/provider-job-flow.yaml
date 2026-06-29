@@ -1,0 +1,107 @@
+# provider-job-flow.yaml
+#
+# Workflow H — Provider Job Flow (User_Stories §🚗), provider side.
+#
+# Maps the following User_Stories lines:
+#   • Open a confirmed job, see service/date/address/price ...... H-2
+#   • Advance status: Start Travel → Arrived → In Progress ...... H-7 / H-8
+#   • Before/after photo gallery is required before Complete .... H-9
+#   • Payout summary visible on the job ........................ H-10 / H-11
+#
+# NOTE — this flow STOPS before tapping "Complete Job". Completing a job
+# captures the remaining balance via Stripe and is destructive to seeded
+# state; the photo-required gate (H-9, min 4 photos, enforced API-side)
+# is asserted but not driven through camera capture, which Maestro cannot
+# reliably automate. The customer-side live-GPS view (H-12) is a separate
+# flow against tracking/[bookingId]. These gaps are listed in e2e/README.
+#
+# Preconditions:
+#   • Authenticated provider session, verification_status = 'approved'
+#   • A seeded booking assigned to this provider in status 'confirmed'
+#     scheduled for today (so the status-advance CTAs are enabled)
+tags:
+  - provider
+  - jobs
+
+appId: com.emre.carapp
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+# ── Navigate: More → Provider Dashboard → My Jobs ─────────────────────
+
+- tapOn:
+    text: "More"
+
+- extendedWaitUntil:
+    visible:
+      text: "Provider Dashboard"
+    timeout: 8000
+
+- tapOn:
+    text: "Provider Dashboard"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "My Jobs"
+
+- waitForAnimationToEnd
+
+# ── Open the first job → job detail ───────────────────────────────────
+
+- tapOn:
+    text: "Tap to view booking details"
+
+- waitForAnimationToEnd
+
+# ── H-2: job detail shows the booking summary fields ──────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Scheduled for"
+    timeout: 8000
+
+- assertVisible: "Scheduled for"
+- assertVisible: "Customer"
+
+- scrollUntilVisible:
+    element:
+      text: "Your payout"
+    direction: DOWN
+
+# ── H-10 / H-11: payout summary is visible on the job ─────────────────
+- assertVisible: "Your payout"
+- assertVisible: "Job total"
+
+# ── H-7: provider starts travel (en route) ────────────────────────────
+#
+# The primary CTA reflects the current status. For a confirmed job
+# scheduled today it reads "Start Travel". Advancing further requires
+# real status transitions; we verify the first transition is reachable.
+
+- scrollUntilVisible:
+    element:
+      text: "Start Travel"
+    direction: DOWN
+
+- assertVisible: "Start Travel"
+
+# ── H-9: the completion gate references before/after photos ───────────
+#
+# The Complete Job action is gated on a before/after photo gallery.
+# Assert the gallery section exists without driving a destructive
+# completion. (Camera capture + the 4-photo minimum are enforced
+# server-side and verified by mutations.ts unit tests.)
+
+- scrollUntilVisible:
+    element:
+      text: "Before / after photos"
+    direction: DOWN
+
+- assertVisible: "Before / after photos"

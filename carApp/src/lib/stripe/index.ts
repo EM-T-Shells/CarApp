@@ -203,3 +203,195 @@ export async function refundDeposit(
     };
   }
 }
+
+// ── Cancellation policy (Blocker #5 / Flow G2 / PRD v5) ───────────────
+//
+// Cancellation is enforced server-side in the stripe-webhook Edge Function:
+//   • cancel_booking          — customer cancels; full refund (>24h) or
+//                               deposit less a $15 flat fee (<=24h).
+//   • provider_cancel_booking — provider cancels; full customer refund + $25
+//                               penalty recorded on the booking.
+//   • mark_no_show            — provider marks a no-show; customer forfeits
+//                               the full amount, no refund.
+// The 24h window decision and all fee math live on the server — the client
+// never decides the refund amount.
+
+export interface CancelBookingResponse {
+  ok: boolean;
+  status?: string;
+  late?: boolean;
+  fee_cents?: number;
+  penalty_cents?: number;
+  refund?: unknown;
+}
+
+/**
+ * Customer cancels their own booking. The server applies the policy (full vs
+ * $15-fee refund) based on the 24h window — callers do not pass an amount.
+ */
+export async function cancelBooking(
+  bookingId: string,
+): Promise<StripeResult<CancelBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'cancel_booking', booking_id: bookingId },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+    }
+
+    const response = data as CancelBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer cancellable') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Provider cancels a booking they had accepted. Full deposit refund to the
+ * customer; the $25 penalty (if within 24h) is recorded server-side.
+ */
+export async function providerCancelBooking(
+  bookingId: string,
+  reason?: string,
+): Promise<StripeResult<CancelBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'provider_cancel_booking', booking_id: bookingId, reason },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+    }
+
+    const response = data as CancelBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer cancellable') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+export interface MarkNoShowResponse {
+  ok: boolean;
+  status?: string;
+}
+
+/**
+ * Provider marks the customer as a no-show. The customer forfeits the full
+ * booking amount (no refund) and the booking moves to no_show.
+ */
+export async function markNoShow(
+  bookingId: string,
+): Promise<StripeResult<MarkNoShowResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'mark_no_show', booking_id: bookingId },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Failed to mark no-show') };
+    }
+
+    const response = data as MarkNoShowResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking cannot be marked as a no-show') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+// ── Provider Accept / Decline (Blocker #4 / Flow H1) ──────────────────
+//
+// After the customer's deposit lands, the booking sits in
+// pending_provider_approval for 2 hours. The provider resolves it from the
+// job screen: accept moves it to confirmed; decline cancels it and refunds
+// the customer's deposit. Both run server-side in the stripe-webhook Edge
+// Function so the status transition and the refund stay atomic with auth.
+
+export interface AcceptBookingResponse {
+  ok: boolean;
+  status?: string;
+}
+
+export interface DeclineBookingResponse {
+  ok: boolean;
+  status?: string;
+  refund?: unknown;
+}
+
+/**
+ * Provider accepts a booking still in pending_provider_approval. Returns a
+ * 409-shaped error if the window already closed (accepted/declined/expired).
+ */
+export async function acceptBooking(
+  bookingId: string,
+): Promise<StripeResult<AcceptBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'accept_booking', booking_id: bookingId },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Accept failed') };
+    }
+
+    const response = data as AcceptBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer awaiting approval') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Provider declines a booking. Cancels it and refunds the deposit. An optional
+ * reason is recorded (spec H1b: provider provides a decline reason).
+ */
+export async function declineBooking(
+  bookingId: string,
+  reason?: string,
+): Promise<StripeResult<DeclineBookingResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'decline_booking', booking_id: bookingId, reason },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message ?? 'Decline failed') };
+    }
+
+    const response = data as DeclineBookingResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('Booking is no longer awaiting approval') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}

@@ -5,10 +5,12 @@
 #   → Vetting steps visible → Sign out
 #
 # Note: full vetting flows (identity, background check, insurance,
-# credentials, bank account) are tested in Phase 14 once those screens
-# are built. This file covers the currently-built portion: the
-# sign-up role selection, the pending-approval screen surface, and
-# the sign-out path.
+# credentials) are tested in Phase 14 once those screens are built.
+# The bank step (Stripe Connect onboarding) hands off to Stripe's hosted
+# browser session, which Maestro can't drive deterministically — its
+# orchestration is covered by app/(provider)/__tests__/bank.test.tsx.
+# This file covers the currently-built portion: the sign-up role
+# selection, the pending-approval screen surface, and the sign-out path.
 #
 # Preconditions:
 #   • A test provider account exists: provider@carapp.dev
@@ -69,7 +71,7 @@ appId: com.emre.carapp
 
 - assertVisible: "You're almost there"
 - assertVisible: "provider application"
-- assertVisible: "0 of 5 approved"
+- assertVisible: "0 of 6 approved"
 
 # ── Vetting step rows ─────────────────────────────────────────────────
 

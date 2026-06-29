@@ -6,14 +6,25 @@ jest.mock('../../lib/supabase/mutations', () => ({
   insertVehicle: jest.fn(),
 }));
 
+// Mock the push module so the pure submit logic can be tested without the
+// native @react-native-firebase/messaging module, and so we can assert that
+// device-token registration is triggered at the end of onboarding.
+jest.mock('../../lib/notifications/push', () => ({
+  registerPushNotifications: jest.fn().mockResolvedValue('fcm-token'),
+}));
+
 import { submitSignUp } from '../signUpSubmit';
 import { useAuthStore } from '../auth';
 import { useSignUpDraftStore } from '../signUpDraft';
 import { insertUser, insertVehicle } from '../../lib/supabase/mutations';
+import { registerPushNotifications } from '../../lib/notifications/push';
 
 const mockInsertUser = insertUser as jest.MockedFunction<typeof insertUser>;
 const mockInsertVehicle = insertVehicle as jest.MockedFunction<
   typeof insertVehicle
+>;
+const mockRegisterPush = registerPushNotifications as jest.MockedFunction<
+  typeof registerPushNotifications
 >;
 
 const session = {
@@ -79,6 +90,8 @@ describe('submitSignUp', () => {
     // Auth store now holds the new row, and the draft is cleared.
     expect(useAuthStore.getState().user?.id).toBe('u1');
     expect(useSignUpDraftStore.getState().fullName).toBe('');
+    // End-of-onboarding push registration is triggered for the new user.
+    expect(mockRegisterPush).toHaveBeenCalledWith({ userId: 'u1' });
   });
 
   it('inserts a provider without address or vehicle', async () => {
@@ -118,5 +131,7 @@ describe('submitSignUp', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('duplicate key');
     expect(useAuthStore.getState().user).toBeNull();
+    // No user row was created, so push registration must not fire.
+    expect(mockRegisterPush).not.toHaveBeenCalled();
   });
 });

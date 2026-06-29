@@ -102,7 +102,7 @@ SELECT
   s.total_jobs,
   s.kudos_count,
   'approved',
-  CASE WHEN s.is_founding THEN 0.000 ELSE 0.050 END,
+  CASE WHEN s.is_founding THEN 0.000 ELSE 0.030 END,
   s.is_founding,
   now()
 FROM provider_seed s

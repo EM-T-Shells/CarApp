@@ -2,8 +2,9 @@
 // Flow 2.6 list-tap target. Renders the booking summary, lifecycle timeline,
 // services snapshot, schedule, address, and payment breakdown. Surfaces
 // action buttons for tracking (live GPS), messaging the provider, rescheduling,
-// and cancelling. Cancellations within 24 hours of the scheduled time forfeit
-// the deposit per the policy in CLAUDE.md.
+// and cancelling. Cancellation policy (Blocker #5) is enforced server-side:
+// cancelling within 24 hours of the scheduled time retains a $15 flat fee and
+// refunds the remainder; earlier cancellations are refunded in full.
 //
 // Post-service additions (Flows 2.10 / 2.11 / 2.13):
 //   - Before/after photo gallery once the provider uploads photos
@@ -68,9 +69,14 @@ import {
   insertKudos,
   insertMessageThread,
 } from '../../../src/lib/supabase/mutations';
-import { refundDeposit } from '../../../src/lib/stripe';
+import { cancelBooking } from '../../../src/lib/stripe';
 import { useAuthStore } from '../../../src/state/auth';
-import { centsToDisplay } from '../../../src/utils/money';
+import {
+  centsToDisplay,
+  CUSTOMER_LATE_CANCEL_FEE_CENTS,
+  calculateLateCancelFee,
+  calculateLateCancelRefund,
+} from '../../../src/utils/money';
 import {
   formatDateTime,
   isWithin24Hours,
@@ -289,36 +295,34 @@ export default function BookingDetailScreen(): React.ReactElement {
     if (!booking) return;
     setIsMutating(true);
 
-    const { data, error: err } = await updateBooking(booking.id, {
-      status: 'cancelled',
-      deposit_forfeited: withinForfeitWindow,
-    });
-
-    if (err) {
-      setIsMutating(false);
-      setShowCancelSheet(false);
-      Alert.alert('Cancellation Failed', err.message);
-      return;
-    }
-
-    // Outside the forfeit window — issue a Stripe refund. If the refund
-    // call fails we still keep the cancellation; surface the error so the
-    // customer can follow up.
-    if (!withinForfeitWindow) {
-      const refundResult = await refundDeposit(booking.id);
-      if (refundResult.error) {
-        Alert.alert(
-          'Refund pending',
-          `The booking is cancelled, but the refund couldn't be processed automatically: ${refundResult.error.message}. Our team will follow up.`,
-        );
-      }
-    }
+    // Cancellation policy is enforced server-side (Blocker #5): the Edge
+    // Function transitions the booking, decides the 24h window, retains the
+    // $15 flat fee if late, and issues the refund — all atomically. The
+    // client never computes the refund amount.
+    const { data, error: err } = await cancelBooking(booking.id);
 
     setIsMutating(false);
     setShowCancelSheet(false);
 
-    if (data) setBooking((prev) => (prev ? { ...prev, ...data } : prev));
-  }, [booking, withinForfeitWindow]);
+    if (err) {
+      Alert.alert('Cancellation Failed', err.message);
+      return;
+    }
+
+    // Reflect the new state locally without a refetch.
+    setBooking((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: 'cancelled',
+            deposit_forfeited: Boolean(data?.late),
+            cancelled_by: 'customer',
+            cancellation_fee:
+              data?.late ? calculateLateCancelFee(depositCents) / 100 : null,
+          }
+        : prev,
+    );
+  }, [booking, depositCents]);
 
   // ─── Rating submit (Flow 2.11) ───────────────────────────────────
 
@@ -503,7 +507,8 @@ export default function BookingDetailScreen(): React.ReactElement {
               <>
                 <Spacer size="sm" />
                 <Text variant="caption" color="midGray">
-                  The 15% deposit was forfeited per the late-cancellation policy.
+                  A {centsToDisplay(CUSTOMER_LATE_CANCEL_FEE_CENTS)} late-cancellation
+                  fee was retained; the remainder of the deposit was refunded.
                 </Text>
               </>
             )}
@@ -810,14 +815,17 @@ export default function BookingDetailScreen(): React.ReactElement {
                   color="charcoal"
                   style={styles.warningText}
                 >
-                  This booking is within 24 hours. Cancelling now forfeits the{' '}
-                  {centsToDisplay(depositCents)} deposit.
+                  This booking is within 24 hours. A{' '}
+                  {centsToDisplay(calculateLateCancelFee(depositCents))} late-cancellation
+                  fee applies; the remaining{' '}
+                  {centsToDisplay(calculateLateCancelRefund(depositCents))} of your{' '}
+                  {centsToDisplay(depositCents)} deposit will be refunded.
                 </Text>
               </View>
             ) : (
               <Text variant="body" color="charcoal">
                 You can cancel for free — the {centsToDisplay(depositCents)}{' '}
-                deposit will be refunded.
+                deposit will be refunded in full.
               </Text>
             )}
 

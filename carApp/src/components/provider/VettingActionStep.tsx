@@ -27,6 +27,8 @@ export interface VettingActionStepProps {
   actionLabel: string;
   /** Performs the step's work (mutations) and resolves the new status or an error. */
   onAction: (providerId: string, userId: string) => Promise<VettingActionResult>;
+  /** Overrides the default "in progress" copy shown while status is `submitted`. */
+  submittedMessage?: string;
 }
 
 const STATUS_COPY: Record<StatusValue, string> = {
@@ -42,6 +44,7 @@ export function VettingActionStep({
   description,
   actionLabel,
   onAction,
+  submittedMessage,
 }: VettingActionStepProps): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -144,7 +147,8 @@ export function VettingActionStep({
           <Spacer size="md" />
           <Card variant="outlined">
             <Text variant="bodySmall" color="midGray">
-              In progress — we&apos;ll update this step when it completes.
+              {submittedMessage ??
+                "In progress — we'll update this step when it completes."}
             </Text>
           </Card>
         </>

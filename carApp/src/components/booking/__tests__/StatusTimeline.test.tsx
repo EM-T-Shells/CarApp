@@ -21,7 +21,7 @@ describe('StatusTimeline', () => {
   describe('active statuses', () => {
     it.each(STEPS)('renders all 5 step labels for status=%s', (status) => {
       render(<StatusTimeline status={status} />);
-      expect(screen.getByText('Pending')).toBeTruthy();
+      expect(screen.getByText('Requested')).toBeTruthy();
       expect(screen.getByText('Confirmed')).toBeTruthy();
       expect(screen.getByText('En Route')).toBeTruthy();
       expect(screen.getByText('In Progress')).toBeTruthy();
@@ -34,7 +34,7 @@ describe('StatusTimeline', () => {
         render(<StatusTimeline status={status} />);
         const expectedIndex = STEPS.indexOf(status);
         const expectedLabel = `Booking status: ${[
-          'Pending',
+          'Requested',
           'Confirmed',
           'En Route',
           'In Progress',
@@ -45,6 +45,16 @@ describe('StatusTimeline', () => {
         expect(bar.props.accessibilityValue?.max).toBe(STEPS.length - 1);
       },
     );
+  });
+
+  // ─── Provider-approval window (Blocker #4) ───────────────────────────
+
+  describe('pending_provider_approval', () => {
+    it('maps onto the first ("Requested") step', () => {
+      render(<StatusTimeline status="pending_provider_approval" />);
+      const bar = screen.getByLabelText('Booking status: Requested');
+      expect(bar.props.accessibilityValue?.now).toBe(0);
+    });
   });
 
   // ─── Cancelled ───────────────────────────────────────────────────────
@@ -63,13 +73,23 @@ describe('StatusTimeline', () => {
     });
   });
 
+  // ─── No-show (Blocker #5) ────────────────────────────────────────────
+
+  describe('no_show status', () => {
+    it('renders a single "No-Show" pill instead of the progress bar', () => {
+      render(<StatusTimeline status="no_show" />);
+      expect(screen.getByText('No-Show')).toBeTruthy();
+      expect(screen.queryByLabelText(/^Booking status:/)).toBeNull();
+    });
+  });
+
   // ─── Unknown status fallback ─────────────────────────────────────────
 
   describe('unknown status fallback', () => {
     it('does not crash and falls back to the first step', () => {
       // @ts-expect-error — exercising the runtime fallback path
       render(<StatusTimeline status="weird_state" />);
-      const bar = screen.getByLabelText('Booking status: Pending');
+      const bar = screen.getByLabelText('Booking status: Requested');
       expect(bar.props.accessibilityValue?.now).toBe(0);
     });
   });

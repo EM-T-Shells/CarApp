@@ -30,7 +30,7 @@ import {
   getThreadById,
   type MessageWithSender,
 } from '../../../src/lib/supabase/queries';
-import { insertMessage } from '../../../src/lib/supabase/mutations';
+import { insertMessage, isFlaggedContentError } from '../../../src/lib/supabase/mutations';
 import { formatTime } from '../../../src/utils/date';
 import type { MessageThreadParams } from '../../../src/types/navigation';
 
@@ -107,6 +107,7 @@ export default function MessageThreadScreen(): React.ReactElement {
   const [error, setError] = useState<Error | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendWarning, setSendWarning] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<MessageWithSender>>(null);
 
@@ -177,6 +178,7 @@ export default function MessageThreadScreen(): React.ReactElement {
     if (!body || !user || !threadId || sending) return;
 
     setSending(true);
+    setSendWarning(null);
     const result = await insertMessage({
       thread_id: threadId,
       sender_id: user.id,
@@ -185,7 +187,11 @@ export default function MessageThreadScreen(): React.ReactElement {
     setSending(false);
 
     if (result.error || !result.data) {
-      // Keep the draft so the user can retry.
+      // A flagged message is blocked outright — warn the sender inline and keep
+      // the draft so they can edit it. Any other error also keeps the draft.
+      if (isFlaggedContentError(result.error)) {
+        setSendWarning(result.error.message);
+      }
       return;
     }
 
@@ -269,6 +275,18 @@ export default function MessageThreadScreen(): React.ReactElement {
         }
       />
 
+      {sendWarning ? (
+        <View
+          style={[styles.warningBanner, { backgroundColor: isDark ? '#3A1F1F' : '#FDECEC' }]}
+          accessibilityRole="alert"
+          testID="send-warning"
+        >
+          <Text variant="caption" style={styles.warningText}>
+            {sendWarning}
+          </Text>
+        </View>
+      ) : null}
+
       <View
         style={[
           styles.composer,
@@ -281,7 +299,10 @@ export default function MessageThreadScreen(): React.ReactElement {
       >
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(text) => {
+            setDraft(text);
+            if (sendWarning) setSendWarning(null);
+          }}
           placeholder="Message"
           placeholderTextColor={palette.midGray}
           multiline
@@ -363,6 +384,16 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     maxWidth: 260,
+  },
+  warningBanner: {
+    marginHorizontal: spacing.base,
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.input,
+  },
+  warningText: {
+    color: '#D92B2B',
   },
   composer: {
     flexDirection: 'row',

@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       booking_photos: {
@@ -73,14 +48,20 @@ export type Database = {
       }
       bookings: {
         Row: {
+          approval_expires_at: string | null
+          cancellation_fee: number | null
+          cancelled_by: string | null
           completed_at: string | null
+          confirmed_at: string | null
           created_at: string | null
           customer_id: string | null
+          declined_reason: string | null
           deposit_amount: number | null
           deposit_forfeited: boolean | null
           id: string
           location_lat: number | null
           location_lng: number | null
+          no_show_at: string | null
           notes: string | null
           package_id: string | null
           platform_fee: number | null
@@ -98,14 +79,20 @@ export type Database = {
           vehicle_id: string | null
         }
         Insert: {
+          approval_expires_at?: string | null
+          cancellation_fee?: number | null
+          cancelled_by?: string | null
           completed_at?: string | null
+          confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
+          declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
           id?: string
           location_lat?: number | null
           location_lng?: number | null
+          no_show_at?: string | null
           notes?: string | null
           package_id?: string | null
           platform_fee?: number | null
@@ -123,14 +110,20 @@ export type Database = {
           vehicle_id?: string | null
         }
         Update: {
+          approval_expires_at?: string | null
+          cancellation_fee?: number | null
+          cancelled_by?: string | null
           completed_at?: string | null
+          confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
+          declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
           id?: string
           location_lat?: number | null
           location_lng?: number | null
+          no_show_at?: string | null
           notes?: string | null
           package_id?: string | null
           platform_fee?: number | null
@@ -648,6 +641,7 @@ export type Database = {
           bio: string | null
           coverage_area: string | null
           created_at: string | null
+          founding_provider_expires_at: string | null
           id: string
           is_founding_provider: boolean | null
           kudos_count: number | null
@@ -666,6 +660,7 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
@@ -684,6 +679,7 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
@@ -1076,6 +1072,7 @@ export type Database = {
           fcm_token_updated_at: string | null
           full_name: string | null
           id: string
+          is_admin: boolean
           is_verified: boolean | null
           phone: string | null
           phone_verified: boolean | null
@@ -1098,6 +1095,7 @@ export type Database = {
           fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
+          is_admin?: boolean
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
@@ -1120,6 +1118,7 @@ export type Database = {
           fcm_token_updated_at?: string | null
           full_name?: string | null
           id?: string
+          is_admin?: boolean
           is_verified?: boolean | null
           phone?: string | null
           phone_verified?: boolean | null
@@ -1210,7 +1209,8 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      expire_founding_providers: { Args: never; Returns: number }
+      is_admin: { Args: { uid: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
@@ -1339,9 +1339,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

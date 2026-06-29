@@ -345,6 +345,7 @@ describe('getUpcomingBookingsForCustomer', () => {
     expect(builder.eq).toHaveBeenCalledWith('customer_id', 'u1')
     expect(builder.in).toHaveBeenCalledWith('status', [
       'pending',
+      'pending_provider_approval',
       'confirmed',
       'en_route',
       'in_progress',
@@ -365,6 +366,7 @@ describe('getPastBookingsForCustomer', () => {
     expect(builder.in).toHaveBeenCalledWith('status', [
       'completed',
       'cancelled',
+      'no_show',
     ])
     expect(builder.order).toHaveBeenCalledWith('scheduled_at', {
       ascending: false,

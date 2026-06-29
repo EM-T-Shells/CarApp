@@ -312,12 +312,13 @@ const BOOKING_SUMMARY_SELECT = `*,
 
 const ACTIVE_BOOKING_STATUSES = [
   'pending',
+  'pending_provider_approval',
   'confirmed',
   'en_route',
   'in_progress',
 ] as const
 
-const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled'] as const
+const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled', 'no_show'] as const
 
 export function getBookingById(
   bookingId: string,

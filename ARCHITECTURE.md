@@ -35,6 +35,14 @@ CarApp/                                   # Git repo root
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
 ├── .claudeignore
+├── admin/                               # Desktop web admin panel (Blocker #9) — Vite + React SPA
+│   ├── src/
+│   │   ├── pages/                       # Login, Queue, ProviderDetail
+│   │   ├── lib/                         # supabase.ts (anon key), api.ts (queue + reviewProvider)
+│   │   ├── auth.tsx                     # AuthProvider: session + is_admin gate
+│   │   ├── types.ts                     # type-imports carApp/src/types/supabase.ts (single source)
+│   │   └── App.tsx                      # RequireAdmin routes
+│   └── e2e/vetting.spec.ts             # Playwright (hermetic)
 └── carApp/                               # Expo app root
     ├── app/ 
     │   ├── _layout.tsx                   # Root auth gate 
@@ -66,7 +74,7 @@ CarApp/                                   # Git repo root
     │           ├── provider.tsx 
     │           ├── settings.tsx 
     │           ├── lug.tsx 
-    │           └── admin.tsx 
+    │           └── admin.tsx              # (empty stub — the real admin panel is the web app in /admin) 
     ├── src/ 
     │   ├── lib/ 
     │   │   ├── supabase/ 
@@ -219,6 +227,7 @@ app/_layout.tsx — onAuthStateChange
 - **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).
 - **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `carApp/supabase/schema.sql` for all policies.
+- **Admin panel (Blocker #9)**: A separate desktop web surface (`/admin`, Vite + React SPA) — not the RN app. It shares the same Supabase project + generated types, so a decision there flips the same row the app reads. Admins are identified by `users.is_admin` (allowlist) and the `is_admin()` SECURITY DEFINER helper; admins get read-all RLS on `provider_profiles`/`provider_vetting`/`users` for the queue. The privileged approve/reject **write** never happens from the client — it goes through the `admin-review-provider` Edge Function (service role), which re-verifies the caller is an admin, sets `verification_status` (+ founding trigger) and `provider_vetting` audit fields, and emails the provider via Resend (`_shared/email.ts`). This is the seed for the later server-side refund/dispute admin tools.
 - **Lug AI**: Lug is powered by the Anthropic Claude API via the `lug-ai` Edge Function. Responses are constrained by a system prompt referencing the CarApp service catalog. Always provides a human escalation path.
 
 ---

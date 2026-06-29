@@ -193,6 +193,8 @@ export function resolvePushRoute(
 
   switch (payload.type) {
     case 'booking_confirmed':
+    case 'booking_requested':
+    case 'booking_declined':
     case 'rate_now':
     case 'job_complete':
       return payload.bookingId ? `/bookings/${payload.bookingId}` : null;

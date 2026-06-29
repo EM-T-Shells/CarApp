@@ -1,0 +1,90 @@
+# provider-dashboard.yaml
+#
+# Workflow D — Provider Dashboard (User_Stories §📊) and the payout
+# surface from Workflow M (§💸), reached via More > Provider Dashboard.
+#
+# Maps the following User_Stories lines:
+#   • Provider Dashboard hub with My Jobs / Earnings / Services .. D-1/D-2
+#   • Earnings & Kudos card → earnings + kudos detail ........... D-3/D-4/M-3
+#   • Services & Availability entry ............................ D-6 / N-*
+#
+# NOTE — the app surfaces provider tooling through the More tab's
+# "Provider Dashboard" hub (app/(tabs)/more/provider.tsx), not a
+# dedicated bottom-tab dashboard. Stories that assume a default
+# Dashboard tab on launch (D-1 "land on Dashboard tab by default") map
+# to this hub. Items still using mocked data (1099-K download M-4,
+# recurring unavailability D-8) are tracked as gaps in e2e/README.
+#
+# Preconditions:
+#   • Authenticated session for a user with the Provider role and
+#     verification_status = 'approved' (seed provider@carapp.dev)
+tags:
+  - provider
+  - dashboard
+  - earnings
+
+appId: com.emre.carapp
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+# ── Open More → Provider Dashboard hub ────────────────────────────────
+
+- tapOn:
+    text: "More"
+
+- extendedWaitUntil:
+    visible:
+      text: "Provider Dashboard"
+    timeout: 8000
+
+- tapOn:
+    text: "Provider Dashboard"
+
+- waitForAnimationToEnd
+
+# ── D-1 / D-2: hub shows the provider tool cards ──────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "My Jobs"
+    timeout: 8000
+
+- assertVisible: "My Jobs"
+- assertVisible: "Earnings & Kudos"
+- assertVisible: "Services & Availability"
+
+# ── D-3 / D-4 / M-3: Earnings & Kudos detail ──────────────────────────
+
+- tapOn:
+    text: "Earnings & Kudos"
+
+- waitForAnimationToEnd
+
+# Earnings screen renders (net earnings, kudos). Data-dependent content;
+# assert the screen mounted by waiting on a stable kudos label, then go back.
+- extendedWaitUntil:
+    visible:
+      text: "Kudos from customer"
+    timeout: 8000
+
+- back
+
+- waitForAnimationToEnd
+
+# ── D-6: Services & Availability entry is reachable ───────────────────
+
+- assertVisible: "Services & Availability"
+
+- tapOn:
+    text: "Services & Availability"
+
+- waitForAnimationToEnd
+
+# Manage screen mounts; back out to leave a clean state.
+- back

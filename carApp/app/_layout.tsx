@@ -15,6 +15,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase/client';
 import { getProviderByUserId } from '../src/lib/supabase/queries';
+import { registerPushNotifications } from '../src/lib/notifications/push';
 import { useAuthStore, type ProviderVerificationStatus } from '../src/state/auth';
 import type { User } from '../src/types/models';
 import tokens from '../src/design/tokens';
@@ -132,6 +133,15 @@ export default function RootLayout(): React.ReactElement {
       const userRow = await fetchUserRow(session.user.id);
       if (!isMounted) return;
       setSession(session, userRow);
+
+      // Session resume — re-register the device's FCM token so the
+      // notify-* Edge Functions can target this user. Idempotent and
+      // fire-and-forget; failures are swallowed inside the module and must
+      // not block hydration. Skipped until the user has finished onboarding
+      // (no users row yet → nothing to attach the token to).
+      if (userRow) {
+        void registerPushNotifications({ userId: userRow.id });
+      }
 
       // Resolve provider verification so the gate can hold provider-only
       // accounts on pending-approval until they're approved.

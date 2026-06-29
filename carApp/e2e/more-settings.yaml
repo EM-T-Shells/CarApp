@@ -1,0 +1,110 @@
+# more-settings.yaml
+#
+# Workflow E — More & Settings (User_Stories §⚙️).
+#
+# Maps the following User_Stories lines:
+#   • More tab shows Profile/Account, Notifications, Help, Logout ... E-1
+#   • Edit display name from Account Settings; auto-saves ........... E-3 / E-4
+#   • Toggle notification preferences by category .................. E-6
+#   • Privacy Policy / Terms reachable from Settings ............... (about)
+#
+# NOTE — not yet automatable (feature not built / external):
+#   • Add/remove Stripe payment method (E-5) — no payment-methods
+#     screen wired in app/(tabs)/more.
+#   • Account deletion + 30-day grace (E-7) — control not present in
+#     settings.tsx as of this writing.
+#   Tracked in the e2e/README story-trace table.
+#
+# Preconditions:
+#   • Authenticated session (run auth-flow.yaml first or seed it)
+tags:
+  - more
+  - settings
+
+appId: com.emre.carapp
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+# ── E-1: open the More tab, verify the menu surface ───────────────────
+
+- tapOn:
+    text: "More"
+
+- extendedWaitUntil:
+    visible:
+      text: "Account"
+    timeout: 8000
+
+- assertVisible: "Account"
+- assertVisible: "Settings"
+- assertVisible:
+    accessibilityLabel: "Sign out"
+
+# ── E-3 / E-4: edit display name in Account, auto-save on blur ─────────
+
+- tapOn:
+    accessibilityLabel: "View account"
+
+- extendedWaitUntil:
+    visible:
+      text: "Full name"
+    timeout: 8000
+
+- tapOn:
+    placeholder: "Your name"
+
+- clearText
+
+- inputText: "Alex Tester"
+
+- tapOn:
+    text: "Save name"
+
+- waitForAnimationToEnd
+
+- assertVisible: "Alex Tester"
+
+# Return to the More tab.
+- back
+
+- waitForAnimationToEnd
+
+# ── E-6 + about: open Settings, toggle a category, reach legal links ──
+
+- tapOn:
+    text: "Settings"
+
+- extendedWaitUntil:
+    visible:
+      text: "NOTIFICATIONS"
+    timeout: 8000
+
+- assertVisible: "Booking updates"
+- assertVisible: "New messages"
+- assertVisible: "Promotions & offers"
+
+# Toggle Promotions off then on — store persists locally; just verify
+# the row is interactive and does not crash.
+- tapOn:
+    text: "Promotions & offers"
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "Promotions & offers"
+
+# About section links.
+- scrollUntilVisible:
+    element:
+      text: "ABOUT"
+    direction: DOWN
+
+- assertVisible: "Privacy Policy"
+- assertVisible: "Terms of Service"
+- assertVisible: "App version"

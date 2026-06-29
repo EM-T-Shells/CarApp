@@ -11,6 +11,7 @@
 import { useAuthStore } from './auth';
 import { useSignUpDraftStore } from './signUpDraft';
 import { insertUser, insertVehicle } from '../lib/supabase/mutations';
+import { registerPushNotifications } from '../lib/notifications/push';
 import type { UserInsert, VehicleInsert } from '../types/models';
 
 export interface SignUpSubmitResult {
@@ -82,5 +83,12 @@ export async function submitSignUp(): Promise<SignUpSubmitResult> {
   // the main nav instead of looping back to (auth)/.
   setSession(session, newUser);
   useSignUpDraftStore.getState().reset();
+
+  // End-of-onboarding push registration. The root layout's hydrate() does
+  // not re-run for this in-place users-row insert, so register the device
+  // token here. Fire-and-forget — a denied prompt or token failure must not
+  // block the user from entering the app (the module swallows both).
+  void registerPushNotifications({ userId: newUser.id });
+
   return { ok: true, vehicleWarning };
 }
