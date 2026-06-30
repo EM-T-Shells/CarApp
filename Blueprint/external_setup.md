@@ -103,18 +103,20 @@ Backend is LIVE on project apbubklogxgqkokbctwz (2026-06-24). Remaining: Resend 
         supabase secrets set RESEND_API_KEY='re_...'
         supabase secrets set EMAIL_FROM='Stabl <noreply@your-verified-domain>'
      (Until set, approve/reject works fully; the email is reported not-sent.)
-  6. ⬜ Deploy the web app (free): host admin/ on Vercel free tier. admin/vercel.json
-     already pins framework=vite, build=`npm run build`, output=dist, and the SPA
-     rewrite (all routes → /index.html) — so the only manual steps are:
-        a. Vercel → New Project → import this GitHub repo.
-        b. Set Root Directory = `admin`  (build reads ../carApp types, so leave
-           "Include files outside the root directory" ON — it is by default).
-        c. Add env vars  VITE_SUPABASE_URL  +  VITE_SUPABASE_ANON_KEY
-           (URL = https://apbubklogxgqkokbctwz.supabase.co ; key = the
-           sb_publishable_… anon key from carApp/.env.local — public, safe to paste).
-        d. Pick the production branch (point at `dev` to go live now, or PR
-           dev→main and deploy `main` for prod hygiene). Deploy.
-     Record the live URL here:  ADMIN PANEL URL: __________________________
+  6. ✅ Deployed on Vercel (free) from admin/. admin/vercel.json pins framework=vite,
+     build=`npm run build`, output=dist, and the SPA rewrite (all routes → /index.html).
+     Project: emtshells' projects, root directory = admin, deployed from `main`
+     (dev was merged → main so the admin/ folder is present on the deploy branch).
+     Env vars set: VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (sb_publishable_… anon
+     key — public). Build verified green; login page renders.
+        ADMIN PANEL URL:  https://car-app-five-ebon.vercel.app
+
+  7. ⬜ Supabase Auth URL allowlist — REQUIRED before magic-link login works on the
+     deployed site (Supabase only redirects to allowlisted URLs; otherwise the link
+     bounces to localhost / errors). Dashboard → Authentication → URL Configuration:
+        Site URL:       https://car-app-five-ebon.vercel.app
+        Redirect URLs:  https://car-app-five-ebon.vercel.app/**
+     (Keep http://localhost:5173/** too if you still run the panel locally.)
 
 
 Third-Party Accounts
@@ -127,4 +129,5 @@ Mixpanel — Project for analytics
 Persona — Account for provider identity verification
 Checkr — Account for provider background checks
 Resend — Transactional email (provider approval/rejection — Blocker #9)
-Vercel or Netlify — Free static hosting for the admin panel (Blocker #9)
+Vercel — Free static hosting for the admin panel (Blocker #9) ✅ DEPLOYED
+         https://car-app-five-ebon.vercel.app  (root dir = admin, deploys from main)
