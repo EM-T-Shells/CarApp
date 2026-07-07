@@ -31,8 +31,8 @@ Here's the updated dependencies list we produced earlier in this conversation:
 - React Context — built-in, no package required; feature-scoped localized state
 
 **Maps & Location**
-- `react-native-maps` — live GPS map, provider tracking, service location pin _(approved — not yet installed; Maps deferred post-MVP)_
-- `@googlemaps/js-api-loader` — Google Maps SDK integration _(approved — not yet installed; Maps deferred post-MVP)_
+- `react-native-maps` — live GPS map, provider tracking, service location pin _(installed, v1.27.2; renders OpenStreetMap `<UrlTile>` — no Google Maps API key; used by `LiveMap.tsx`)_
+- `@googlemaps/js-api-loader` — Google Maps SDK integration _(approved — not installed; Google Maps out for MVP due to billing)_
 
 **Notifications**
 - `@react-native-firebase/app` — Firebase core (required by FCM)

@@ -5,6 +5,7 @@ import {
   selectIsAuthenticated,
   selectIsProvider,
   selectIsCustomer,
+  type ProviderVerificationStatus,
 } from '../auth';
 
 const baseSession: Session = {
@@ -97,6 +98,23 @@ describe('useAuthStore', () => {
     expect(useAuthStore.getState().providerVerification).toBe('pending');
     useAuthStore.getState().setProviderVerification('approved');
     expect(useAuthStore.getState().providerVerification).toBe('approved');
+  });
+
+  it('providerVerification accepts every schema status incl. rejected', () => {
+    // Mirrors the provider_profiles.verification_status CHECK constraint
+    // ('pending','approved','suspended','rejected'). If the
+    // ProviderVerificationStatus type drops any of these, this array fails to
+    // type-check — locking the type to the DB.
+    const statuses: ProviderVerificationStatus[] = [
+      'pending',
+      'approved',
+      'suspended',
+      'rejected',
+    ];
+    for (const status of statuses) {
+      useAuthStore.getState().setProviderVerification(status);
+      expect(useAuthStore.getState().providerVerification).toBe(status);
+    }
   });
 
   it('clear resets to signed-out state', () => {

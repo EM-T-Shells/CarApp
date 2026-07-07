@@ -115,8 +115,9 @@
 - [x] Supabase Edge Function — booking confirmed trigger
 - [x] Supabase Edge Function — provider en route trigger
 - [x] Supabase Edge Function — job complete / rate now trigger
-- [ ] Supabase Edge Function — payout processed trigger (Flow 5.x)
-- [ ] Supabase Edge Function — kudos received trigger (Flow 5.x)
+- [x] Supabase Edge Function — payout processed trigger (`notify-payout-processed`)
+- [x] Supabase Edge Function — kudos received trigger (`notify-kudos-received`)
+- [x] Supabase Edge Functions — booking requested / declined / cancelled triggers (provider-approval + cancellation model)
 
 ---
 
@@ -136,10 +137,11 @@
 ## Phase 13 — Provider Dashboard
 - [x] `src/components/provider/AvailabilityCalendar.tsx`
 - [x] `src/components/provider/ServiceMenuEditor.tsx`
-- [ ] `src/components/provider/EarningsDashboard.tsx`
+- [x] `src/components/provider/EarningsDashboard.tsx` (surfaced via `app/(tabs)/more/provider-earnings.tsx`)
 - [x] `src/components/provider/VettingStepIndicator.tsx`
 - [x] `src/components/provider/CredentialUpload.tsx`
 - [x] `app/(tabs)/more/provider.tsx` — provider opt-in / status (dashboard is Section 5)
+- [x] `app/(tabs)/more/provider-manage.tsx` — manage services + availability
 
 ---
 
@@ -167,9 +169,11 @@
 ---
 
 ## Phase 17 — Admin Panel (React Web)
-- [ ] Admin app scaffold (React web, separate from mobile)
+> Shipped as a standalone Vite + React SPA in the top-level `/admin` folder (not the RN app),
+> deployed on Vercel. MVP slice = provider vetting only; the rest is genuinely unbuilt.
+- [x] Admin app scaffold (React web, separate from mobile) — `/admin` (Vite + React + react-router)
+- [x] Provider vetting queue — review + approve/reject (`admin-review-provider` Edge Function, `is_admin` RLS)
 - [ ] User management — search, view, suspend
-- [ ] Provider vetting queue — review docs, approve/reject
 - [ ] Booking management — view all, force-cancel, reassign
 - [ ] Dispute resolution — review flagged bookings, issue refunds
 - [ ] Content moderation — review flagged messages
@@ -184,8 +188,8 @@
 - [ ] Error states — empty states, network failures, timeout handling
 - [ ] Sentry integration — `@sentry/react-native` wired up
 - [ ] Mixpanel integration — booking funnel events instrumented
-- [ ] `app/+not-found.tsx` — 404 screen
-- [x] E2E flows — `e2e/auth-flow.yaml`, `e2e/booking-flow.yaml`, `e2e/provider-onboarding.yaml`
+- [x] `app/+not-found.tsx` — 404 screen
+- [x] E2E flows — 12 Maestro flows in `e2e/` (auth, oauth, booking, bookings-management, cancellation, inbox, messaging-moderation, more-settings, provider-onboarding, provider-dashboard, provider-job-flow)
 
 ---
 

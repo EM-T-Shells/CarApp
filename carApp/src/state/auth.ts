@@ -18,8 +18,17 @@ import type { User } from '../types/models';
  */
 export type UserRole = 'customer' | 'provider' | 'both';
 
-/** Mirrors provider_profiles.verification_status. */
-export type ProviderVerificationStatus = 'pending' | 'approved' | 'suspended';
+/**
+ * Mirrors `provider_profiles.verification_status` and its schema CHECK
+ * constraint (see carApp/supabase/schema.sql). `'rejected'` was added by the
+ * admin_panel migration — a rejected provider is still held out of the tabs by
+ * the root gate (rejected !== approved) and surfaced on pending-approval.
+ */
+export type ProviderVerificationStatus =
+  | 'pending'
+  | 'approved'
+  | 'suspended'
+  | 'rejected';
 
 // ── State Shape ─────────────────────────────────────────────────────────
 
