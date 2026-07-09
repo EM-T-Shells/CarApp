@@ -10,12 +10,14 @@
 //   supabase secrets set PERSONA_WEBHOOK_SECRET=...
 //   supabase functions deploy persona-webhook
 //   + configure the webhook URL + inquiry template in the Persona dashboard
-// Until PERSONA_WEBHOOK_SECRET is set this returns 503. The signature
-// verification + status mapping below are scaffolded but intentionally minimal.
+// Until PERSONA_WEBHOOK_SECRET is set this returns 503. The Persona-Signature
+// header (t=<ts>,v1=<hex HMAC-SHA256 of "<t>.<body>">) is verified before the
+// payload is trusted; the status mapping is intentionally minimal.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { verifyPersonaSignature } from '../_shared/webhookSignature.ts';
 
 const PERSONA_WEBHOOK_SECRET = Deno.env.get('PERSONA_WEBHOOK_SECRET') ?? '';
 
@@ -37,8 +39,18 @@ serve(async (req: Request) => {
     return json({ error: 'persona-webhook is not configured yet.' }, 503);
   }
 
-  // TODO(🔒): verify the Persona-Signature header against PERSONA_WEBHOOK_SECRET
-  // before trusting the payload.
+  // Read the raw body once — the signature is computed over these exact bytes,
+  // so we must verify before JSON.parse (re-serializing would change them).
+  const rawBody = await req.text();
+  const signature = req.headers.get('Persona-Signature');
+  const validSignature = await verifyPersonaSignature(
+    rawBody,
+    signature,
+    PERSONA_WEBHOOK_SECRET,
+  );
+  if (!validSignature) {
+    return json({ error: 'Invalid signature' }, 401);
+  }
 
   let event: {
     data?: {
@@ -50,7 +62,7 @@ serve(async (req: Request) => {
     };
   };
   try {
-    event = await req.json();
+    event = JSON.parse(rawBody);
   } catch {
     return json({ error: 'Invalid body' }, 400);
   }

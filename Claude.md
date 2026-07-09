@@ -98,15 +98,20 @@ Deno runtime — use Deno import syntax, never `require()`. Secrets via `Deno.en
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `stripe-webhook` | Stripe event + app invocation | Webhook verification + `create_deposit_intent` action |
-| `checkr-webhook` | Checkr event | Background check status update |
-| `persona-webhook` | Persona event | Identity verification update |
-| `notify-booking-confirmed` | DB insert on bookings | Push to customer + provider |
+| `stripe-webhook` | Stripe event + app invocation | Webhook verification + all payment actions: deposit intent, balance capture, refunds, accept/decline, cancel (customer/provider), no-show, expire-pending, Connect onboarding/status, payout transfers |
+| `admin-review-provider` | Admin panel invocation | Service-role approve/reject of a provider (re-verifies admin, sets `verification_status`, emails via Resend) |
+| `update-provider-location` | Provider GPS post | Verifies ownership, upserts `provider_location_cache` (Flow 5.4) |
+| `checkr-webhook` | Checkr event | Background check status update (stub — awaits `CHECKR_API_KEY`) |
+| `persona-webhook` | Persona event | Identity verification update (stub — awaits `PERSONA_API_KEY`) |
+| `notify-booking-requested` | Deposit → pending_provider_approval | Push provider the 2h-window request + customer "request sent" |
+| `notify-booking-confirmed` | Booking → confirmed | Push to customer + provider |
+| `notify-booking-declined` | Booking declined / expired | Push customer the refund notice |
+| `notify-booking-cancelled` | Booking cancelled / no-show | Push the affected party for each cancel path |
 | `notify-provider-enroute` | Booking → en_route | Push to customer |
 | `notify-job-complete` | Booking → completed | Push to customer |
 | `notify-payout-processed` | Payout → paid | Push to provider |
 | `notify-kudos-received` | Kudos insert | Push to provider |
-| `lug-ai` | App request | Anthropic Claude API proxy |
+| `lug-ai` | App request | Anthropic Claude API proxy (returns 503 until `ANTHROPIC_API_KEY` set) |
 
 ---
 
@@ -144,9 +149,10 @@ Deferred to post-MVP. On failure: show error state + retry action. No offline qu
 - **OTP**: Email + phone via `signInWithOtp`. Phone requires Twilio in Supabase dashboard.
 - **Roles**: All users default to Customer. Provider mode is opt-in, requires full vetting before first booking.
 - **Service snapshots**: Services snapshotted as JSONB at booking — provider edits don't affect existing bookings.
-- **Content moderation**: All outbound messages through `containsFlaggedContent()` in `validators.ts` before insert.
-- **Deposit**: 15% at booking, remainder on completion. `deposit_forfeited = true` for cancellations within 24h.
-- **Fees**: Provider 5% (0% Founding Providers for 3 months). Customer 2% at checkout.
+- **Content moderation**: All outbound messages run through `containsFlaggedContent()` in `validators.ts` before insert. Flagged content **blocks the send** — `insertMessage()` throws `FlaggedContentError` and never inserts; the thread screen shows an inline warning and preserves the draft to edit. (Legacy `is_flagged` bubble styling only renders pre-existing flagged rows.)
+- **Deposit**: 15% at booking, remainder captured on completion.
+- **Cancellation policy** (server-enforced in `stripe-webhook`; the client never decides the refund amount): customer cancels ≤24h → $15 flat late-cancel fee retained, remainder of deposit refunded (>24h → full refund); provider cancels ≤24h → full customer refund + $25 penalty recorded on the booking; customer no-show → provider marks No Show, customer forfeits the full amount.
+- **Fees**: Provider standard platform fee is **3%** (`0.030`). Founding Providers (first 100 approved) pay **0% for 90 days**, then auto-convert to 3% via a daily sweep. Customer 2% at checkout.
 - **Vetting**: 6 steps required before `verification_status = approved`.
 - **Live GPS**: Updates every 5s → Redis → `provider_location_cache` in Postgres.
 - **Kudos**: Separate from gear ratings. Badges: Meticulous, Reliable, Magic Hands, Great Value, Fast Worker, Communicator.
@@ -195,7 +201,7 @@ Run `npm test` after every source change and confirm it passes. All tests must b
 - Only touch what's necessary — no opportunistic refactoring.
 - Ask when domain logic is unclear.
 - Update `ARCHITECTURE.md` after introducing new files, models, or patterns.
-- Planning source of truth: `Blueprint/end_user_flows.md`. Checklist tracker: `Blueprint/build_checklist.md`.
+- Checklist tracker: `Blueprint/build_checklist.md`.
 
 ---
 
@@ -206,6 +212,5 @@ Run `npm test` after every source change and confirm it passes. All tests must b
 | `ARCHITECTURE.md` | ERD, tables, patterns | Before any new file |
 | `carApp/supabase/schema.sql` | Schema + RLS + seeds | Before any DB work |
 | `Blueprint/dependencies_list` | Approved packages | Before `npm install` |
-| `Blueprint/end_user_flows.md` | Planning source of truth | Before any feature |
 | `Blueprint/build_checklist.md` | Build order tracker | Mark complete as you go |
 | `Blueprint/reference.md` | Per-file notes | Append after each task |

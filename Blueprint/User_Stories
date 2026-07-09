@@ -1,4 +1,4 @@
-# ✅ Stabl MVP — User Story Testing Checklist
+# ✅ CarApp MVP — User Story Testing Checklist
 
 ---
 
@@ -192,19 +192,19 @@
 ## 💸 Workflow M — Provider Payout & Tax
 
 - [ ] As a provider, I can navigate to **More > Payout Settings** and see my linked bank account and payout schedule
-- [ ] As a provider, I can **add a bank account** via Stripe's secure input (Stabl never stores raw bank details)
+- [ ] As a provider, I can **add a bank account** via Stripe's secure input (CarApp never stores raw bank details)
 - [ ] As a provider, I can view **payout history** with per-booking breakdown (gross, fee, net, transfer date)
 - [ ] As a provider, I can **download my 1099-K** for the applicable tax year (generated if I earn > $600/year)
 - [ ] As a provider below the threshold, I still receive an **annual earnings summary**
 - [ ] As a provider, my **payout is blocked** until Stripe Connect onboarding is fully complete
-- [ ] As a provider in the Founding Program, I am on **0% platform fee** for 3 months, auto-converting to 3% after
+- [ ] As a provider in the Founding Program, I am on **0% platform fee** for 90 days, auto-converting to 3% after
 
 ---
 
 ## 🛒 Workflow N — Provider Service Setup
 
 - [ ] As a provider, I can navigate to the **Services tab** and see an empty state prompting me to add my first service
-- [ ] As a provider, I can browse the **Stabl platform service catalog** and add services
+- [ ] As a provider, I can browse the **CarApp platform service catalog** and add services
 - [ ] As a provider, I can **edit description, price, and estimated duration** for each service (price and duration required)
 - [ ] As a provider, I can add up to **3 custom services** (subject to moderation before approval)
 - [ ] As a provider, custom services are **not searchable platform-wide** — only discoverable on my profile

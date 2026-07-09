@@ -2,7 +2,7 @@
 
 ## Stack
 
-The table below reflects the **target** architecture. Items marked **(planned)** are not yet wired into the app — see [CLAUDE.md §Tech Stack](CLAUDE.md) for the current installed vs. planned breakdown before importing or referencing.
+The table below reflects the **target** architecture. Items marked **(planned)** are not yet wired into the app — see [Claude.md §Tech Stack](Claude.md) for the current installed vs. planned breakdown before importing or referencing.
 
 | Layer | Technology | Notes |
 |---|---|---|
@@ -15,7 +15,7 @@ The table below reflects the **target** architecture. Items marked **(planned)**
 | OAuth | Expo Auth Session + Web Browser | Google & Apple SSO |
 | Payments | Stripe Connect | Deposits, split payments, payouts, 1099s |
 | Push Notifications | Firebase Cloud Messaging | iOS + Android push |
-| Maps / Geo | _(MVP: address text only)_ | Google Maps is **out for MVP** due to billing; live tracking deferred post-MVP |
+| Maps / Geo | `react-native-maps` + OpenStreetMap `<UrlTile>` | Google Maps is **out for MVP** due to billing (no API key). Live tracking is built: `LiveMap.tsx` renders OSM tiles; distance/bearing/ETA math in `src/lib/location/` (Haversine, constant-speed ETA) |
 | Global State | Zustand | auth, search, bookingDraft, signUpDraft, providerDraft |
 | Localized State | React Context | Feature-scoped trees only (forms, modals) |
 | Styling | React Native `StyleSheet` + design tokens | **(planned: NativeWind + Tailwind CSS — not yet wired)** |
@@ -33,7 +33,7 @@ The table below reflects the **target** architecture. Items marked **(planned)**
 CarApp/                                   # Git repo root
 ├── Blueprint/                            # Schema, policies, dependencies, build plan docs
 ├── ARCHITECTURE.md
-├── CLAUDE.md
+├── Claude.md
 ├── .claudeignore
 ├── admin/                               # Desktop web admin panel (Blocker #9) — Vite + React SPA
 │   ├── src/
@@ -46,11 +46,27 @@ CarApp/                                   # Git repo root
 └── carApp/                               # Expo app root
     ├── app/ 
     │   ├── _layout.tsx                   # Root auth gate 
+    │   ├── +not-found.tsx                # 404 fallback route 
     │   ├── (auth)/ 
+    │   │   ├── index.tsx                 # Landing / entry for signed-out users 
     │   │   ├── sign-in.tsx               # Google + Apple SSO + Email/Phone OTP 
     │   │   ├── otp-entry.tsx             # OTP code input screen (email + phone)
     │   │   ├── otp-verify.tsx            # OTP verification + session handoff
-    │   │   └── pending-approval.tsx      # Provider awaiting vetting approval 
+    │   │   ├── pending-approval.tsx      # Provider awaiting vetting approval 
+    │   │   └── onboarding/               # Customer multi-step signup (signUpDraft) 
+    │   │       ├── role.tsx              #   role selection (customer / provider / both) 
+    │   │       ├── profile.tsx          #   name / contact 
+    │   │       ├── vehicle.tsx          #   primary vehicle (customer path) 
+    │   │       └── review.tsx           #   confirm + insert users row 
+    │   ├── (provider)/                   # Full-screen provider vetting flow (outside tabs) 
+    │   │   ├── _layout.tsx 
+    │   │   ├── vetting.tsx               # Vetting hub — 6 steps + statuses 
+    │   │   ├── identity.tsx             # Persona (stub → manual gov-ID upload) 
+    │   │   ├── background.tsx           # Checkr (stub) 
+    │   │   ├── insurance.tsx            # Insurance doc upload 
+    │   │   ├── credentials.tsx          # IDA / ASE cert upload 
+    │   │   ├── bank.tsx                 # Real Stripe Connect Express onboarding 
+    │   │   └── profile.tsx              # Bio / coverage / services / availability 
     │   └── (tabs)/ 
     │       ├── _layout.tsx               # 5-tab bar config 
     │       ├── search/ 
@@ -63,7 +79,8 @@ CarApp/                                   # Git repo root
     │       ├── bookings/ 
     │       │   ├── index.tsx 
     │       │   ├── past.tsx 
-    │       │   ├── [id].tsx 
+    │       │   ├── [id].tsx                # Customer booking detail + cancel 
+    │       │   ├── job/[bookingId].tsx     # Provider active-job lifecycle (accept/decline, photos, complete, no-show) 
     │       │   └── tracking/[bookingId].tsx 
     │       ├── inbox/ 
     │       │   ├── index.tsx 
@@ -71,10 +88,11 @@ CarApp/                                   # Git repo root
     │       └── more/ 
     │           ├── index.tsx 
     │           ├── account.tsx 
-    │           ├── provider.tsx 
+    │           ├── provider.tsx           # Provider opt-in / dashboard hub 
+    │           ├── provider-manage.tsx    # Manage services + availability 
+    │           ├── provider-earnings.tsx  # Earnings + payout list 
     │           ├── settings.tsx 
-    │           ├── lug.tsx 
-    │           └── admin.tsx              # (empty stub — the real admin panel is the web app in /admin) 
+    │           └── lug.tsx                 # (ops admin is the separate web app in /admin, not a screen here) 
     ├── src/ 
     │   ├── lib/ 
     │   │   ├── supabase/ 
@@ -84,23 +102,25 @@ CarApp/                                   # Git repo root
     │   │   │   ├── mutations.ts          # All INSERT / UPDATE operations 
     │   │   │   └── storage.ts            # File uploads (photos, identity docs) 
     │   │   ├── redis/ 
-    │   │   │   └── index.ts              # GPS caching, rate limiting, short-lived tokens 
+    │   │   │   └── index.ts              # GPS caching / tokens — EMPTY STUB (deferred, do not import) 
     │   │   ├── stripe/ 
-    │   │   │   └── index.ts              # Connect, payment intents, payouts 
+    │   │   │   ├── index.ts              # Payment intents, deposit/balance capture, refunds 
+    │   │   │   └── connect.ts            # Stripe Connect onboarding + status 
     │   │   ├── checkr/ 
-    │   │   │   └── index.ts              # Background check webhook handling 
+    │   │   │   └── index.ts              # Background check — STUB (awaits CHECKR_API_KEY) 
     │   │   ├── persona/ 
-    │   │   │   └── index.ts              # Identity verification flow 
+    │   │   │   └── index.ts              # Identity verification — STUB (awaits PERSONA_API_KEY) 
     │   │   ├── notifications/ 
     │   │   │   └── push.ts               # Firebase Cloud Messaging 
     │   │   └── location/ 
     │   │       └── index.ts              # Geocoding, distance calc, GPS helpers 
-    │   ├── state/ 
-    │   │   ├── auth.ts                   # Authenticated user + session 
+    │   ├── state/                        # Zustand stores (no React Context for app state) 
+    │   │   ├── auth.ts                   # Session, users row, role, provider verification status 
     │   │   ├── search.ts                 # Provider search filters + results 
     │   │   ├── bookingDraft.ts           # In-progress booking builder 
     │   │   ├── signUpDraft.ts            # Customer multi-step registration state 
-    │   │   └── providerDraft.ts          # Provider onboarding multi-step form state 
+    │   │   ├── providerDraft.ts          # Provider onboarding multi-step form state 
+    │   │   └── settings.ts               # Notification prefs (AsyncStorage-persisted) 
     │   ├── types/ 
     │   │   ├── models.ts                 # Domain TypeScript interfaces 
     │   │   ├── supabase.ts               # Auto-generated Supabase types — never edit manually 
@@ -112,28 +132,33 @@ CarApp/                                   # Git repo root
     │   ├── components/ 
     │   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
     │   │   ├── search/                   # LocationSearchBar, ProviderCard, FiltersSheet 
-    │   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary 
+    │   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary, StatusTimeline, ReviewSheet, BookingPhotoGallery 
     │   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
-    │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, ServiceMenuEditor, EarningsDashboard 
+    │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, VettingUploadStep, VettingActionStep, ServiceMenuEditor, EarningsDashboard, JobPhotoCapture 
     │   │   ├── kudos/                    # KudosBadgeSelector, KudosDisplay 
     │   │   ├── lug/                      # LugBubble, LugThread 
-    │   │   └── auth/                     # StepIndicator, RoleSelector, ServicePicker, VehicleForm 
+    │   │   └── auth/                     # StepIndicator, OnboardingHeader, RoleSelector, ServicePicker, VehicleForm 
     │   └── design/ 
     │       ├── theme.ts 
     │       ├── tokens.ts                 # All color, spacing, radius tokens — source of truth 
     │       └── typography.ts 
     ├── supabase/ 
-    │   └── functions/                    # Edge Functions (Deno runtime — not Node) 
-    │       ├── stripe-webhook/ 
-    │       ├── checkr-webhook/ 
-    │       ├── persona-webhook/ 
+    │   └── functions/                    # Edge Functions (Deno runtime — not Node) — 14 total 
+    │       ├── _shared/                   # fcm.ts, email.ts (Resend), webhookSignature.ts (HMAC verify), shared helpers 
+    │       ├── stripe-webhook/            # Payment engine: intents, capture, refunds, accept/decline, cancel, no-show, Connect, payouts 
+    │       ├── admin-review-provider/     # Service-role provider approve/reject + Resend email 
+    │       ├── checkr-webhook/            # STUB (awaits CHECKR_API_KEY) — HMAC signature verified via _shared/webhookSignature.ts 
+    │       ├── persona-webhook/           # STUB (awaits PERSONA_API_KEY) — HMAC signature verified via _shared/webhookSignature.ts 
+    │       ├── notify-booking-requested/  # Deposit → provider 2h-window request + customer "sent" 
     │       ├── notify-booking-confirmed/ 
+    │       ├── notify-booking-declined/   # Decline / expiry refund notice 
+    │       ├── notify-booking-cancelled/  # Cancel / no-show notice 
     │       ├── notify-provider-enroute/ 
     │       ├── notify-job-complete/ 
     │       ├── notify-payout-processed/ 
     │       ├── notify-kudos-received/ 
     │       ├── update-provider-location/  # Provider GPS write path → provider_location_cache (Flow 5.4) 
-    │       └── lug-ai/ 
+    │       └── lug-ai/                     # Anthropic Claude proxy (503 until ANTHROPIC_API_KEY) 
     ├── e2e/                              # Maestro E2E flows 
     └── assets/ 
         ├── fonts/ 
@@ -218,12 +243,13 @@ app/_layout.tsx — onAuthStateChange
 ## Key Design Decisions
 
 - **Dual-role users**: All users default to Customer. Provider mode is opt-in post-signup (`role` column supports `'customer'`, `'provider'`, `'both'`). A user can be both simultaneously — the UI shows provider-specific views in the More tab when provider mode is active.
-- **Provider vetting gate**: A provider must pass all 6 vetting steps (identity via Persona, background check via Checkr, insurance, credentials, bank account via Stripe Connect, profile completeness ≥ 80%) before `verification_status` is set to `approved`. Until approved, the provider cannot receive bookings.
+- **Provider vetting gate**: A provider must pass all 6 vetting steps (identity via Persona, background check via Checkr, insurance, credentials, bank account via Stripe Connect, profile completeness ≥ 80%) before `verification_status` is set to `approved`. Until approved, the provider cannot receive bookings. **Routing (by design, `app/_layout.tsx` §useProtectedRoute):** a pure `provider` account with `verification_status != 'approved'` is held on `/(auth)/pending-approval` (or inside the `(provider)` vetting flow) on every session resume — the null-guard waits for status so the tabs never flash. A hybrid `'both'` account is **intentionally not blocked** — because they are also a customer, they pass through to the tabs and finish vetting at their own pace from More → Provider.
 - **Service snapshots**: Services are snapshotted as JSONB in the `bookings.services` column at booking time. Price or name changes by providers never alter existing bookings.
-- **Deposit model**: 15% of booking total collected at booking via Stripe; remainder captured on job completion. `deposit_forfeited = true` on late cancellations (within 24 hours of scheduled time).
-- **Fee structure**: Provider platform fee is 5% (0% for Founding Providers for first 3 months, controlled by `is_founding_provider` and `platform_fee_rate`). Customer service fee is 2% added at checkout.
+- **Deposit model**: 15% of booking total collected at booking via Stripe; remainder captured on job completion.
+- **Cancellation policy** (server-enforced in the `stripe-webhook` Edge Function — the client never decides the refund amount): customer cancels ≤24h before scheduled time → `$15` flat late-cancel fee retained, remainder of the deposit refunded (>24h → full refund); provider cancels ≤24h → full customer refund + `$25` penalty recorded on the booking (ops deducts from a future payout); customer no-show → provider marks No Show, customer forfeits the full amount. Columns: `cancellation_fee`, `cancelled_by`, `no_show_at`; `no_show` is a `bookings.status` value.
+- **Fee structure**: Provider platform fee is **3%** (`platform_fee_rate` default `0.030`). Founding Providers — the first 100 approved, controlled by `is_founding_provider` — pay **0% for 90 days** (`founding_provider_expires_at`), then auto-convert to 3% via a daily `pg_cron` sweep. Enrollment is a DB trigger on the transition to `verification_status = 'approved'` under an advisory lock (100-provider cap, race-safe). Customer service fee is 2% added at checkout.
 - **Live GPS architecture**: Provider location updates every 5 seconds during active bookings. The app never writes `provider_location_cache` directly — the provider app (`src/lib/location/tracking.ts`) posts each fix to the `update-provider-location` Edge Function, which verifies ownership and upserts the row with the service role (Flow 5.4). Redis (live cache + TTL) is deferred; the Edge Function persists straight to Postgres for now, and the same contract holds when Redis is added. Customers with an active booking (`en_route` or `in_progress`) read the cached location via RLS by polling `getProviderLocation` every 5s.
-- **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert. Flagged body is replaced with `[Message flagged for review]`. Auto-detection of phone numbers, email addresses, and external payment handles ('Venmo me') triggers flagging.
+- **Content moderation**: ALL outbound messages must pass through `containsFlaggedContent()` in `validators.ts` before insert. Flagged content **blocks the send** — `insertMessage()` throws `FlaggedContentError` and never inserts (no sanitized copy is stored); the thread screen surfaces an inline warning and preserves the draft so the sender can edit. Auto-detection of phone numbers, email addresses, and external payment handles ('Venmo me') triggers the block. (The legacy `is_flagged` bubble styling now only renders pre-existing flagged rows. Server-side RLS/trigger enforcement of API-direct sends is a noted follow-on.)
 - **Kudos vs Gear Ratings**: Kudos are freeform positive badges (`'meticulous'`, `'reliable'`, `'magic_hands'`, `'great_value'`, `'fast_worker'`, `'communicator'`) stored in the `kudos` table. Gear ratings are structured 4-dimension scores (Quality, Timeliness, Communication, Value — 1–5 each) stored in `ratings` with a weighted composite `overall_score`. Both are tied to a booking but serve different purposes.
 - **Dispute window**: 48 hours post-service for either party to flag a rating for admin review (`dispute_window_end` in `ratings`).
 - **RLS everywhere**: Every table has Row Level Security enabled. Queries must work under the correct Supabase auth role. See `carApp/supabase/schema.sql` for all policies.

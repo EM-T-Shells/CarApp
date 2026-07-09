@@ -9,12 +9,14 @@
 //   supabase secrets set CHECKR_WEBHOOK_SECRET=...
 //   supabase functions deploy checkr-webhook
 //   + configure the webhook in the Checkr dashboard
-// Returns 503 until CHECKR_WEBHOOK_SECRET is set. Signature verification is
-// scaffolded (TODO) and the status mapping is intentionally minimal.
+// Returns 503 until CHECKR_WEBHOOK_SECRET is set. The X-Checkr-Signature header
+// (hex HMAC-SHA256 of the raw body) is verified before the payload is trusted;
+// the status mapping is intentionally minimal.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { verifyCheckrSignature } from '../_shared/webhookSignature.ts';
 
 const CHECKR_WEBHOOK_SECRET = Deno.env.get('CHECKR_WEBHOOK_SECRET') ?? '';
 
@@ -36,11 +38,22 @@ serve(async (req: Request) => {
     return json({ error: 'checkr-webhook is not configured yet.' }, 503);
   }
 
-  // TODO(🔒): verify the X-Checkr-Signature header before trusting the payload.
+  // Read the raw body once — the signature is computed over these exact bytes,
+  // so we must verify before JSON.parse (re-serializing would change them).
+  const rawBody = await req.text();
+  const signature = req.headers.get('X-Checkr-Signature');
+  const validSignature = await verifyCheckrSignature(
+    rawBody,
+    signature,
+    CHECKR_WEBHOOK_SECRET,
+  );
+  if (!validSignature) {
+    return json({ error: 'Invalid signature' }, 401);
+  }
 
   let event: { type?: string; data?: { object?: { status?: string; provider_id?: string } } };
   try {
-    event = await req.json();
+    event = JSON.parse(rawBody);
   } catch {
     return json({ error: 'Invalid body' }, 400);
   }

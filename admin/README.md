@@ -1,4 +1,4 @@
-# Stabl Admin Panel
+# CarApp Admin Panel
 
 Desktop web ops panel (Blocker #9). MVP slice: **provider vetting queue → approve/reject**.
 Shares the mobile app's Supabase project (`apbubklogxgqkokbctwz`) and its generated types — that
