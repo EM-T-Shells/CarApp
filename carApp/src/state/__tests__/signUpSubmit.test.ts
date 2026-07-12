@@ -44,6 +44,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   useSignUpDraftStore.getState().reset();
   useAuthStore.getState().setSession(session, null);
+  // setSession does not touch providerVerification, so clear it explicitly to
+  // keep the per-role assertions below independent of test order.
+  useAuthStore.getState().setProviderVerification(null);
   mockInsertVehicle.mockResolvedValue({ data: null, error: null } as never);
 });
 
@@ -90,6 +93,9 @@ describe('submitSignUp', () => {
     // Auth store now holds the new row, and the draft is cleared.
     expect(useAuthStore.getState().user?.id).toBe('u1');
     expect(useSignUpDraftStore.getState().fullName).toBe('');
+    // Customers do not use provider verification — it stays null so the gate
+    // routes them straight into the tabs.
+    expect(useAuthStore.getState().providerVerification).toBeNull();
     // End-of-onboarding push registration is triggered for the new user.
     expect(mockRegisterPush).toHaveBeenCalledWith({ userId: 'u1' });
   });
@@ -113,6 +119,31 @@ describe('submitSignUp', () => {
       }),
     );
     expect(mockInsertVehicle).not.toHaveBeenCalled();
+    // A brand-new provider has no provider_profiles row yet, so verification is
+    // 'pending'. This non-null value is what lets the root auth gate move the
+    // provider off the review screen instead of hanging on its spinner.
+    expect(useAuthStore.getState().providerVerification).toBe('pending');
+  });
+
+  it('resolves provider verification for a hybrid "both" account', async () => {
+    mockInsertUser.mockResolvedValue({ data: newUserRow('both'), error: null });
+
+    const draft = useSignUpDraftStore.getState();
+    draft.setRole('both');
+    draft.setProfile({
+      fullName: 'Sam Both',
+      phone: '5551234567',
+      addressLine1: '1 A St',
+      city: 'Reston',
+      state: 'VA',
+      postalCode: '20190',
+    });
+    draft.setVehicle({ year: '2021', make: 'Toyota', model: 'Corolla' });
+
+    const result = await submitSignUp();
+
+    expect(result.ok).toBe(true);
+    expect(useAuthStore.getState().providerVerification).toBe('pending');
   });
 
   it('returns an error and does not touch the auth store when the insert fails', async () => {

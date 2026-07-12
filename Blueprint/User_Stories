@@ -4,16 +4,16 @@
 
 ## 🔐 Account Creation & Onboarding
 
-- [ ] As a new user, I can tap **Get Started** and land on the Sign Up screen
+- [X] As a new user, I can tap **Get Started** and land on the Sign Up screen
 - [ ] As a new user, I can sign up with **email + password** (min 8 chars, unique email validation)
-- [ ] As a new user, I can sign up via **Google or Apple SSO**
-- [ ] As a new user, I receive an **OTP** to verify my email/phone
-- [ ] As a new user, I can add my **vehicle year, make, and model** during onboarding
-- [ ] As a new user, I can **skip vehicle entry** at signup but am prompted before confirming a booking
-- [ ] As a new user, I can select my role: **Customer** or **Provider**
-- [ ] As a returning user, I can **sign in** and skip directly to Home
-- [ ] As a new user, I am prompted to grant **push notification permission** at the end of onboarding
-- [ ] As a customer, I land on the **Search tab** after completing onboarding
+- [X] As a new user, I can sign up via **Google or Apple SSO**
+- [X] As a new user, I receive an **OTP** to verify my email/phone
+- [X] As a new user, I can add my **vehicle year, make, and model** during onboarding
+- [X] As a new user, I can **skip vehicle entry** at signup but am prompted before confirming a booking
+- [X] As a new user, I can select my role: **Customer** or **Provider**
+- [X] As a returning user, I can **sign in** and skip directly to Home
+- [0] As a new user, I am prompted to grant **push notification permission** at the end of onboarding
+- [X] As a customer, I land on the **Search tab** after completing onboarding
 - [ ] As a provider, I am routed to **Provider Onboarding** (screen 05) after role selection
 - [ ] As a provider, I can upload a **government-issued ID** during onboarding
 - [ ] As a provider, I see a **Pending Approval** screen after submitting onboarding docs
