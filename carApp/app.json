@@ -49,6 +49,13 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "CarApp needs access to your photos so you can upload your government ID, insurance card, and credentials for vetting.",
+          "cameraPermission": "CarApp needs camera access so you can photograph your government ID, insurance card, and credentials for vetting."
+        }
+      ],
+      [
         "@stripe/stripe-react-native",
         {
           "merchantIdentifier": "merchant.com.emre.carapp",

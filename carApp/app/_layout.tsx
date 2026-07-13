@@ -8,6 +8,7 @@
 
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import Constants from 'expo-constants';
@@ -185,25 +186,32 @@ export default function RootLayout(): React.ReactElement {
 
   if (isHydrating) {
     return (
-      <View style={styles.splash} testID="auth-hydrating-splash">
-        <ActivityIndicator
-          size="large"
-          color={tokens.colors.light.electricBlue}
-        />
-      </View>
+      <GestureHandlerRootView style={styles.root}>
+        <View style={styles.splash} testID="auth-hydrating-splash">
+          <ActivityIndicator
+            size="large"
+            color={tokens.colors.light.electricBlue}
+          />
+        </View>
+      </GestureHandlerRootView>
     );
   }
 
   return (
-    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-      <Slot />
-    </StripeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+        <Slot />
+      </StripeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   splash: {
     flex: 1,
     alignItems: 'center',

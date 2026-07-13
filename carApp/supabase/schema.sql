@@ -636,3 +636,66 @@ CREATE POLICY "location_cache: provider update own" ON provider_location_cache
       SELECT user_id FROM provider_profiles WHERE id = provider_id
     )
   );
+
+-- ============================================================================
+-- STORAGE BUCKETS + POLICIES
+-- Mirrors migration 20260713000000_storage_buckets.sql. Three buckets back the
+-- upload paths in src/lib/supabase/storage.ts. All uploads are constrained to
+-- image mime types (jpeg/png/webp) and 10 MB at the bucket level.
+-- ============================================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES
+  ('avatars',           'avatars',           true,  10485760, ARRAY['image/jpeg','image/png','image/webp']),
+  ('booking-photos',    'booking-photos',    false, 10485760, ARRAY['image/jpeg','image/png','image/webp']),
+  ('vetting-documents', 'vetting-documents', false, 10485760, ARRAY['image/jpeg','image/png','image/webp'])
+ON CONFLICT (id) DO UPDATE
+  SET public             = EXCLUDED.public,
+      file_size_limit    = EXCLUDED.file_size_limit,
+      allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- AVATARS — public read; a user writes only their own `{userId}.{ext}` object.
+CREATE POLICY "avatars: public read" ON storage.objects
+  FOR SELECT USING (bucket_id = 'avatars');
+
+CREATE POLICY "avatars: owner insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%');
+
+CREATE POLICY "avatars: owner update" ON storage.objects
+  FOR UPDATE TO authenticated
+  USING (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%')
+  WITH CHECK (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%');
+
+-- BOOKING-PHOTOS — participants only. First path segment is the booking id; a
+-- participant is the booking's customer or the user behind its provider_profile.
+CREATE POLICY "booking-photos: participant read" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'booking-photos' AND EXISTS (
+      SELECT 1 FROM bookings b
+      LEFT JOIN provider_profiles p ON p.id = b.provider_id
+      WHERE b.id::text = (storage.foldername(name))[1]
+        AND (b.customer_id = auth.uid() OR p.user_id = auth.uid())
+    )
+  );
+
+CREATE POLICY "booking-photos: participant insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'booking-photos' AND EXISTS (
+      SELECT 1 FROM bookings b
+      LEFT JOIN provider_profiles p ON p.id = b.provider_id
+      WHERE b.id::text = (storage.foldername(name))[1]
+        AND (b.customer_id = auth.uid() OR p.user_id = auth.uid())
+    )
+  );
+
+-- VETTING-DOCUMENTS — a provider may INSERT only under their own `{userId}/`
+-- folder. No SELECT policy: reads are service-role only (admin-review-provider).
+CREATE POLICY "vetting-documents: owner insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'vetting-documents'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );

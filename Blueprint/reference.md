@@ -245,3 +245,6 @@
 [admin/src/auth.tsx] — AuthProvider: tracks Supabase session + resolves is_admin; powers the RequireAdmin route gate.
 [admin/e2e/vetting.spec.ts] — Hermetic Playwright E2E (mocks Supabase REST + functions, seeds an admin session): login→queue→approve, reject-requires-reason, non-admin denied.
 [admin/vercel.json] — Vercel deploy config for the ops admin SPA: framework=vite, build=`npm run build`, output=dist, SPA rewrite (all routes → /index.html). Deploy with Root Directory=admin.
+[carApp/app/_layout.tsx] — Wrapped root tree in GestureHandlerRootView (both splash + main). Required ancestor for any GestureDetector (e.g. Sheet.tsx drag-to-dismiss); missing it crashed the provider ServiceMenuEditor sheet.
+[carApp/app.json] — Added expo-image-picker config plugin with photos/camera usage strings. iOS crashed (SIGABRT) on requestMediaLibraryPermissionsAsync without NSPhotoLibraryUsageDescription; requires prebuild --clean + native rebuild.
+[carApp/supabase/migrations/20260713000000_storage_buckets.sql] — Creates the avatars/booking-photos/vetting-documents buckets + storage.objects RLS (fixes "Bucket not found" on vetting uploads). Buckets never existed; policies mirror the Image & File Upload access model. Also folded into schema.sql.

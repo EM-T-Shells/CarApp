@@ -40,7 +40,7 @@ Never hardcode secrets. `EXPO_PUBLIC_*` vars are bundled into the client — onl
 - **App** (`/.env.local`): `EXPO_PUBLIC_SUPABASE_URL/KEY`, `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, Firebase vars — see `.env.example`
 - **Edge Functions** (`supabase secrets set`): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKR_API_KEY/SECRET`, `PERSONA_API_KEY/SECRET`, `ANTHROPIC_API_KEY`, `REDIS_URL`
 - **Stripe secret keys must never carry `EXPO_PUBLIC_`** — reference via `Deno.env.get('STRIPE_SECRET_KEY')` in Edge Functions only.
-- `.mcp.json` is gitignored — holds a Supabase PAT; never commit or paste it. Rotate at https://supabase.com/dashboard/account/tokens if leaked.
+- `.mcp.json` is gitignored and configures the **hosted Supabase MCP** (`type: http`, `url: https://mcp.supabase.com/mcp?project_ref=…`). It holds **no token** — auth is OAuth via `/mcp` (interactive Claude Code), cached per machine. Nothing secret lives in this file; never commit it regardless.
 
 ---
 

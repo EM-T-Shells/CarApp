@@ -1,1 +1,3 @@
 - when signing up with phone number, i dont see it in the database.
+- 
+- building a bucket in supabase to store photos for government id
