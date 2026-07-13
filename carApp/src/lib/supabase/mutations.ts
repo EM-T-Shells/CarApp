@@ -100,6 +100,17 @@ export function insertUser(
   )
 }
 
+// Rollback helper for onboarding: if a follow-on write (e.g. the provider
+// profile) fails after the users row was inserted, remove the orphaned row so
+// the account isn't left half-created and a retry can start clean.
+export function deleteUser(
+  userId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('users').delete().eq('id', userId),
+  )
+}
+
 export function updateUser(
   userId: string,
   updates: UserUpdate,

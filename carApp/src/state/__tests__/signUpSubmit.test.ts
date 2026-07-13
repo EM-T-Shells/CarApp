@@ -4,6 +4,8 @@ import type { User } from '../../types/models';
 jest.mock('../../lib/supabase/mutations', () => ({
   insertUser: jest.fn(),
   insertVehicle: jest.fn(),
+  insertProviderProfile: jest.fn(),
+  deleteUser: jest.fn(),
 }));
 
 // Mock the push module so the pure submit logic can be tested without the
@@ -16,16 +18,29 @@ jest.mock('../../lib/notifications/push', () => ({
 import { submitSignUp } from '../signUpSubmit';
 import { useAuthStore } from '../auth';
 import { useSignUpDraftStore } from '../signUpDraft';
-import { insertUser, insertVehicle } from '../../lib/supabase/mutations';
+import {
+  insertUser,
+  insertVehicle,
+  insertProviderProfile,
+  deleteUser,
+} from '../../lib/supabase/mutations';
 import { registerPushNotifications } from '../../lib/notifications/push';
 
 const mockInsertUser = insertUser as jest.MockedFunction<typeof insertUser>;
 const mockInsertVehicle = insertVehicle as jest.MockedFunction<
   typeof insertVehicle
 >;
+const mockInsertProviderProfile =
+  insertProviderProfile as jest.MockedFunction<typeof insertProviderProfile>;
+const mockDeleteUser = deleteUser as jest.MockedFunction<typeof deleteUser>;
 const mockRegisterPush = registerPushNotifications as jest.MockedFunction<
   typeof registerPushNotifications
 >;
+
+const providerProfileRow = {
+  id: 'p1',
+  user_id: 'u1',
+} as never;
 
 const session = {
   user: { id: 'u1', email: 'jane@example.com', phone: null },
@@ -48,6 +63,12 @@ beforeEach(() => {
   // keep the per-role assertions below independent of test order.
   useAuthStore.getState().setProviderVerification(null);
   mockInsertVehicle.mockResolvedValue({ data: null, error: null } as never);
+  // Provider profile creation succeeds by default; individual tests override.
+  mockInsertProviderProfile.mockResolvedValue({
+    data: providerProfileRow,
+    error: null,
+  });
+  mockDeleteUser.mockResolvedValue({ data: true, error: null });
 });
 
 describe('submitSignUp', () => {
@@ -119,9 +140,15 @@ describe('submitSignUp', () => {
       }),
     );
     expect(mockInsertVehicle).not.toHaveBeenCalled();
-    // A brand-new provider has no provider_profiles row yet, so verification is
-    // 'pending'. This non-null value is what lets the root auth gate move the
-    // provider off the review screen instead of hanging on its spinner.
+    // The provider_profiles row is created so the vetting hub has something to
+    // read (a DB trigger seeds provider_vetting off it). Without this the
+    // provider dead-ends on "We could not find your provider application".
+    // provider_type_id is intentionally omitted here — set later in the profile
+    // step.
+    expect(mockInsertProviderProfile).toHaveBeenCalledWith({ user_id: 'u1' });
+    // The freshly-created row defaults to 'pending'. This non-null value is what
+    // lets the root auth gate move the provider off the review screen instead of
+    // hanging on its spinner.
     expect(useAuthStore.getState().providerVerification).toBe('pending');
   });
 
@@ -143,7 +170,64 @@ describe('submitSignUp', () => {
     const result = await submitSignUp();
 
     expect(result.ok).toBe(true);
+    // A `both` account is a provider too, so it gets a provider_profiles row.
+    expect(mockInsertProviderProfile).toHaveBeenCalledWith({ user_id: 'u1' });
     expect(useAuthStore.getState().providerVerification).toBe('pending');
+  });
+
+  it('rolls back the user and fails when a provider-only profile insert fails', async () => {
+    mockInsertUser.mockResolvedValue({ data: newUserRow('provider'), error: null });
+    mockInsertProviderProfile.mockResolvedValue({
+      data: null,
+      error: { message: 'profile insert boom', name: 'PostgrestError' } as never,
+    });
+
+    const draft = useSignUpDraftStore.getState();
+    draft.setRole('provider');
+    draft.setProfile({ fullName: 'Max Power', phone: '5551234567' });
+
+    const result = await submitSignUp();
+
+    // Provider-only is blocked: without the profile row they would dead-end on
+    // the vetting hub, so the whole signup fails.
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('profile insert boom');
+    // The orphaned users row is rolled back so a retry starts clean and the
+    // account isn't left stuck half-created.
+    expect(mockDeleteUser).toHaveBeenCalledWith('u1');
+    // Auth store was never advanced to the new user.
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(mockRegisterPush).not.toHaveBeenCalled();
+  });
+
+  it('lets a "both" account through with a warning when its profile insert fails', async () => {
+    mockInsertUser.mockResolvedValue({ data: newUserRow('both'), error: null });
+    mockInsertProviderProfile.mockResolvedValue({
+      data: null,
+      error: { message: 'profile insert boom', name: 'PostgrestError' } as never,
+    });
+
+    const draft = useSignUpDraftStore.getState();
+    draft.setRole('both');
+    draft.setProfile({
+      fullName: 'Sam Both',
+      phone: '5551234567',
+      addressLine1: '1 A St',
+      city: 'Reston',
+      state: 'VA',
+      postalCode: '20190',
+    });
+    draft.setVehicle({ year: '2021', make: 'Toyota', model: 'Corolla' });
+
+    const result = await submitSignUp();
+
+    // A `both` user is also a customer, so a failed provider profile is
+    // non-blocking: they enter the app and can create it later from
+    // More → Provider. Nothing is rolled back.
+    expect(result.ok).toBe(true);
+    expect(result.providerWarning).toBe(true);
+    expect(mockDeleteUser).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().user?.id).toBe('u1');
   });
 
   it('returns an error and does not touch the auth store when the insert fails', async () => {

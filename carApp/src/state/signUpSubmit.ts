@@ -10,7 +10,12 @@
 
 import { useAuthStore } from './auth';
 import { useSignUpDraftStore } from './signUpDraft';
-import { insertUser, insertVehicle } from '../lib/supabase/mutations';
+import {
+  deleteUser,
+  insertProviderProfile,
+  insertUser,
+  insertVehicle,
+} from '../lib/supabase/mutations';
 import { registerPushNotifications } from '../lib/notifications/push';
 import type { UserInsert, VehicleInsert } from '../types/models';
 
@@ -18,6 +23,11 @@ export interface SignUpSubmitResult {
   ok: boolean;
   /** Set when the user row saved but a non-blocking step (vehicle) failed. */
   vehicleWarning?: boolean;
+  /**
+   * Set when a `both` account saved but its provider_profiles row failed to
+   * create. Non-blocking — they can create it later from More → Provider.
+   */
+  providerWarning?: boolean;
   error?: string;
 }
 
@@ -52,6 +62,7 @@ export async function submitSignUp(): Promise<SignUpSubmitResult> {
 
   const authUser = session.user;
   const isCustomerLike = draft.role === 'customer' || draft.role === 'both';
+  const isProviderLike = draft.role === 'provider' || draft.role === 'both';
 
   const payload: UserInsert = {
     id: authUser.id,
@@ -105,6 +116,46 @@ export async function submitSignUp(): Promise<SignUpSubmitResult> {
     if (vehicleResult.error) vehicleWarning = true;
   }
 
+  // Provider / both accounts need a provider_profiles row so the vetting flow
+  // has something to read — a DB trigger seeds the provider_vetting row off it.
+  // provider_type_id is left null here (onboarding doesn't ask for it) and set
+  // later from the profile step.
+  //
+  // Severity differs by role:
+  //   • provider-only — BLOCKING. Without the row the root gate parks them on
+  //     pending-approval and "Continue your application" dead-ends on the
+  //     vetting hub ("We could not find your provider application"), with no way
+  //     forward. Roll the users row back (a provider-only signup has no vehicle,
+  //     and the FKs are ON DELETE CASCADE anyway) so the account isn't stuck
+  //     half-created and a retry starts clean.
+  //   • both — non-blocking. They're also a customer, so let them into the app
+  //     with a soft warning; they can create the profile later from
+  //     More → Provider ("Start application"), same as a customer opting in.
+  let providerWarning = false;
+  if (isProviderLike) {
+    const profileResult = await withTimeout(
+      insertProviderProfile({ user_id: newUser.id }),
+      {
+        data: null,
+        error: new Error(
+          'Timed out setting up your provider application. Check your connection and try again.',
+        ),
+      },
+    );
+    if (profileResult.error || !profileResult.data) {
+      if (draft.role === 'provider') {
+        await deleteUser(newUser.id);
+        return {
+          ok: false,
+          error:
+            profileResult.error?.message ??
+            'Could not set up your provider application. Please try again.',
+        };
+      }
+      providerWarning = true;
+    }
+  }
+
   // Hand the new user row to the auth store so the root gate routes into
   // the main nav instead of looping back to (auth)/.
   setSession(session, newUser);
@@ -114,12 +165,9 @@ export async function submitSignUp(): Promise<SignUpSubmitResult> {
   // `providerVerification` is non-null, and this in-place users-row insert does
   // NOT trigger the root layout's hydrate() (the auth session is unchanged), so
   // without this the gate would deadlock and leave the review screen spinning
-  // forever. A brand-new provider/both account has no provider_profiles row yet,
-  // so its status is 'pending'; customers don't use this field (null), mirroring
-  // hydrate().
-  setProviderVerification(
-    newUser.role === 'provider' || newUser.role === 'both' ? 'pending' : null,
-  );
+  // forever. The provider_profiles row we just created defaults to 'pending';
+  // customers don't use this field (null), mirroring hydrate().
+  setProviderVerification(isProviderLike ? 'pending' : null);
 
   useSignUpDraftStore.getState().reset();
 
@@ -129,5 +177,5 @@ export async function submitSignUp(): Promise<SignUpSubmitResult> {
   // block the user from entering the app (the module swallows both).
   void registerPushNotifications({ userId: newUser.id });
 
-  return { ok: true, vehicleWarning };
+  return { ok: true, vehicleWarning, providerWarning };
 }
