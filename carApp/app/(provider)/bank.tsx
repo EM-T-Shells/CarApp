@@ -1,56 +1,29 @@
 // (provider)/bank.tsx — vetting Bank step (Flow 4.6).
 //
-// Connects a Stripe Connect (Express) account for payouts. Tapping the action
-// opens Stripe's hosted onboarding in an in-app auth session (the same
-// mechanism the OAuth sign-in flow uses, see src/lib/supabase/auth.ts). Stripe
-// returns the provider to carapp://provider/bank, which the auth session
-// intercepts; we then re-check the account and advance bank_status to approved
-// once payouts are enabled (or keep it in-progress while Stripe is reviewing).
+// MVP prototype: real Stripe Connect (Express) payout onboarding is deferred.
+// Tapping the action simply marks the bank step approved so providers can
+// finish vetting without connecting a real bank. When wiring live payouts,
+// restore the Stripe flow: startConnectOnboarding + refreshConnectStatus from
+// src/lib/stripe/connect.ts, opened in a WebBrowser auth session that returns
+// to an https redirect (accountLinks require http/https, not carapp://).
 
 import React, { useCallback } from 'react';
-import * as WebBrowser from 'expo-web-browser';
 import {
   VettingActionStep,
   type VettingActionResult,
 } from '../../src/components/provider/VettingActionStep';
-import {
-  startConnectOnboarding,
-  refreshConnectStatus,
-} from '../../src/lib/stripe/connect';
-
-// Must match the return_url the stripe-webhook Edge Function passes to
-// accountLinks.create (CONNECT_RETURN_URL). The app scheme is "carapp".
-const CONNECT_RETURN_URL = 'carapp://provider/bank';
+import { updateProviderVetting } from '../../src/lib/supabase/mutations';
 
 export default function BankStep(): React.ReactElement {
   const onAction = useCallback(
     async (providerId: string): Promise<VettingActionResult> => {
-      const result = await startConnectOnboarding(providerId);
-      if (!result.configured || !result.url) {
-        return { error: result.error ?? 'Bank payouts are not set up yet.' };
+      const result = await updateProviderVetting(providerId, {
+        bank_status: 'approved',
+      });
+      if (result.error) {
+        return { error: result.error.message };
       }
-
-      // Open Stripe's hosted onboarding and wait for the return deep link. The
-      // in-app session reliably intercepts carapp:// on iOS and Android.
-      const session = await WebBrowser.openAuthSessionAsync(
-        result.url,
-        CONNECT_RETURN_URL,
-      );
-
-      // Dismissed/cancelled before finishing — leave the step as submitted so
-      // they can resume; the account already exists server-side.
-      if (session.type !== 'success') {
-        return { status: 'submitted' };
-      }
-
-      // Returned from Stripe — verify whether payouts are actually enabled.
-      const status = await refreshConnectStatus(providerId);
-      if (status.error) {
-        return { error: status.error };
-      }
-      if (status.state === 'approved') return { status: 'approved' };
-      // pending (still under review) or not_started → keep it in progress.
-      return { status: 'submitted' };
+      return { status: 'approved' };
     },
     [],
   );
@@ -59,10 +32,9 @@ export default function BankStep(): React.ReactElement {
     <VettingActionStep
       statusField="bank_status"
       title="Bank account"
-      description="Connect a bank account through Stripe so you can receive payouts. Your details are handled securely by Stripe — CarApp never sees them."
-      actionLabel="Connect with Stripe"
+      description="Connect a bank account so you can receive payouts. (Prototype: payout setup is simulated for now — no real bank details are collected.)"
+      actionLabel="Connect bank account"
       onAction={onAction}
-      submittedMessage="Still processing — Stripe is reviewing your account. We'll update this step once payouts are enabled."
     />
   );
 }
