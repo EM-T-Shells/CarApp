@@ -5,7 +5,7 @@
 ## 🔐 Account Creation & Onboarding
 
 - [X] As a new user, I can tap **Get Started** and land on the Sign Up screen
-- [ ] As a new user, I can sign up with **email + password** (min 8 chars, unique email validation)
+- [X] As a new user, I can sign up with **email + password** (min 8 chars, unique email validation)
 - [X] As a new user, I can sign up via **Google or Apple SSO**
 - [X] As a new user, I receive an **OTP** to verify my email/phone
 - [X] As a new user, I can add my **vehicle year, make, and model** during onboarding
@@ -14,9 +14,9 @@
 - [X] As a returning user, I can **sign in** and skip directly to Home
 - [0] As a new user, I am prompted to grant **push notification permission** at the end of onboarding
 - [X] As a customer, I land on the **Search tab** after completing onboarding
-- [ ] As a provider, I am routed to **Provider Onboarding** (screen 05) after role selection
-- [ ] As a provider, I can upload a **government-issued ID** during onboarding
-- [ ] As a provider, I see a **Pending Approval** screen after submitting onboarding docs
+- [X] As a provider, I am routed to **Provider Onboarding** (screen 05) after role selection
+- [X] As a provider, I can upload a **government-issued ID** during onboarding
+- [X] As a provider, I see a **Pending Approval** screen after submitting onboarding docs
 - [ ] As a provider, I receive a **push notification + email** when my background check clears
 - [ ] As a provider, I **cannot accept bookings** until my account status is approved
 - [ ] As a user, I can **add the Provider role later** from More > Account Settings (with re-verification)
@@ -26,16 +26,15 @@
 
 ## 🔍 Workflow A — Search & Discovery
 
-- [ ] As a customer, I can enter a **zip code or allow location detection** to search providers
-- [ ] As a customer, I see provider cards showing **name, avatar, distance, Shines rating, and starting price**
-- [ ] As a customer, **unavailable providers are greyed out** and show their next available date
-- [ ] As a customer, providers with **no availability in the next 7 days** are suppressed from default results
-- [ ] As a customer, I can open the **Filter Sheet** and filter by service type, max distance (1–25 mi), date, and price tier
-- [ ] As a customer, my **filters persist for the session** and the active filter count shows on the button
-- [ ] As a customer, I can tap a provider card to view their **full profile** (bio, services, Kudos, Shines reviews)
-- [ ] As a customer, I can tap a service and tap **Book Now** to enter the booking flow
-- [ ] As a customer, I can **heart/save a provider** as a favorite for quick re-booking
-- [ ] As a customer, my **favorites are accessible from the More tab**
+- [X] As a customer, I can enter a **zip code or allow location detection** to search providers
+- [X] As a customer, I see provider cards showing **name, avatar, distance, Shines rating, and starting price**
+- [-] As a customer, **unavailable providers are greyed out** and show their next available date
+- [P] As a customer, I can open the **Filter Sheet** and filter by service type, max distance (1–25 mi), date, and price tier
+- [-] As a customer, my **filters persist for the session** and the active filter count shows on the button
+- [X] As a customer, I can tap a provider card to view their **full profile** (bio, services, Kudos, Shines reviews)
+- [0] As a customer, I can tap a service and tap **Book Now** to enter the booking flow
+- [0] As a customer, I can **heart/save a provider** as a favorite for quick re-booking
+- [0] As a customer, my **favorites are accessible from the More tab**
 
 ---
 
