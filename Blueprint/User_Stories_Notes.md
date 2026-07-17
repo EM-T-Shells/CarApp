@@ -17,6 +17,7 @@
 - [0] As a customer, I can tap a service and tap **Book Now** to enter the booking flow
     -- on the booking page where im putting in address and date, if the user doesnt have a car yet inputted they should be able to do so on that page =, either by button and redirect or something else?
     -- when i do try booking i ssee payment failed card details not enter and theres nothing i see to enter a card 
+    -- but the booking still goes through
     ![alt text](image.png)
 
 - [ ] As a provider, I land on the **Dashboard tab** by default when opening the app
@@ -26,3 +27,7 @@
 
 ** Provider/Customer button need like Turo. Eitehr cannot see the other dashboard unless hitting that button to change up the screens. 
                     -- IF Dual user--
+
+
+- [ ] As a provider, I can see my **today's job queue, earnings snapshot, and Shines rating summary**
+    -- i see the my jobs queue but i dont see anything for earning snapsshot and shines rating summary
