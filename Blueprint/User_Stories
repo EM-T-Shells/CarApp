@@ -68,7 +68,7 @@
 
 ## 📊 Workflow D — Provider Dashboard
 
-- [ ] As a provider, I land on the **Dashboard tab** by default when opening the app
+- [X] As a provider, I land on the **Dashboard tab** by default when opening the app
 - [ ] As a provider, I can see my **today's job queue, earnings snapshot, and Shines rating summary**
 - [ ] As a provider, jobs awaiting approval show a **2-hour countdown timer** prominently
 - [ ] As a provider, I can tap the **Earnings card** and see weekly and monthly breakdowns
