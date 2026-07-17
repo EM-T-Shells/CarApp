@@ -40,7 +40,8 @@
 
 ## 📅 Workflow B — Bookings Management
 
-- [ ] As a customer, I can tap the **Bookings tab** and toggle between Upcoming and Past tabs
+- [-] As a customer, I can tap the **Bookings tab** and toggle between Upcoming and Past tabs
+    -- cant book due to payment issues with "no card details"
 - [ ] As a customer, the **Upcoming tab is default** when I have active bookings
 - [ ] As a customer, I can tap a past booking and view the **full receipt** (provider, services, total paid, date, before/after photos)
 - [ ] As a customer, I can tap **Book Again** to initiate a rebook with the same provider and service pre-selected
@@ -51,8 +52,9 @@
 ---
 
 ## 💬 Workflow C — Inbox & Messaging
+--- need seed data for this
 
-- [ ] As a user, I can tap the **Inbox tab** and see conversations sorted by most recent message
+- [X] As a user, I can tap the **Inbox tab** and see conversations sorted by most recent message
 - [ ] As a user, I see an **unread dot badge** on the Inbox tab and individual thread rows
 - [ ] As a user, I can tap a conversation and see the **booking context card** (date, service, status) pinned at the top
 - [ ] As a user, I can **type and send a message** and the recipient receives a push notification within 2 seconds
