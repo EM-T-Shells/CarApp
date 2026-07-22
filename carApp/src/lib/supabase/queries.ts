@@ -335,7 +335,7 @@ export function getBookingById(
 
 // Provider job detail — joins the customer's public profile in addition to
 // the provider + vehicle, so the active-job screen can show who the job is
-// for. Reached from the Bookings "My Jobs" tab (Flows 5.4–5.6).
+// for. Reached from the provider dashboard Jobs tab (Flows 5.4–5.6).
 const PROVIDER_JOB_SELECT = `*,
   provider_profiles(
     id, bio, avg_gear_rating,

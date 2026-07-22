@@ -1,14 +1,16 @@
-// Provider screen (Flow 4.1) — the More → Provider entry point.
+// Provider screen (Flow 4.1) — the More → Provider entry point on the customer
+// side. It handles the pre-dashboard states only; the approved-provider
+// dashboard now lives in its own (provider-tabs) group.
 //
-// Three states based on the signed-in user:
+// States based on the signed-in user:
 //   • Customer (no provider role yet): the "Become a Provider" intro — what's
 //     expected, fees, the founding-provider program — plus a provider-type
 //     pick. "Start application" creates the provider_profiles row (a DB trigger
 //     seeds provider_vetting), flips the user's role to 'both', seeds the
 //     providerDraft, and routes into the (provider) vetting flow.
 //   • Provider, not yet approved: a short status card → "Continue application".
-//   • Approved provider: the provider dashboard hub (Flow 5.1) with rows into
-//     My Jobs, Services & Availability, Earnings & Kudos, and the application.
+//   • Approved provider (e.g. a stale link lands here): switch into provider
+//     mode and redirect to the provider dashboard.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -21,22 +23,14 @@ import {
   useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import {
-  BadgeCheck,
-  Briefcase,
-  Check,
-  ChevronRight,
-  ShieldCheck,
-  SlidersHorizontal,
-  Wallet,
-  Wrench,
-} from 'lucide-react-native';
+import { Check, ShieldCheck, Wrench } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { colors, borderRadius, spacing } from '../../../src/design/tokens';
 import { useAuthStore, selectIsProvider } from '../../../src/state/auth';
+import { useModeStore } from '../../../src/state/mode';
 import { useProviderDraftStore } from '../../../src/state/providerDraft';
 import {
   getProviderByUserId,
@@ -232,126 +226,6 @@ function ProviderStatus({ palette, onOpen }: StatusProps): React.ReactElement {
   );
 }
 
-// ── Dashboard (approved provider) — Flow 5.1 ────────────────────────────────
-
-interface DashboardRowProps {
-  palette: Palette;
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-  testID: string;
-}
-
-function DashboardRow({
-  palette,
-  icon,
-  title,
-  subtitle,
-  onPress,
-  testID,
-}: DashboardRowProps): React.ReactElement {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      testID={testID}
-      style={styles.rowPressable}
-    >
-      <Card>
-        <View style={styles.row}>
-          <View style={styles.rowIcon}>{icon}</View>
-          <Spacer size="md" horizontal />
-          <View style={styles.flex}>
-            <Text variant="label" color="charcoal">
-              {title}
-            </Text>
-            <Spacer size="xs" />
-            <Text variant="caption" color="midGray">
-              {subtitle}
-            </Text>
-          </View>
-          <ChevronRight size={20} color={palette.midGray} strokeWidth={2} />
-        </View>
-      </Card>
-    </Pressable>
-  );
-}
-
-interface DashboardProps {
-  palette: Palette;
-  onJobs: () => void;
-  onManage: () => void;
-  onEarnings: () => void;
-  onOpenApplication: () => void;
-}
-
-function ProviderDashboard({
-  palette,
-  onJobs,
-  onManage,
-  onEarnings,
-  onOpenApplication,
-}: DashboardProps): React.ReactElement {
-  return (
-    <ScrollView
-      style={{ backgroundColor: palette.offWhite }}
-      contentContainerStyle={styles.content}
-    >
-      <View style={styles.heroIcon}>
-        <BadgeCheck size={30} color={palette.emeraldGreen} strokeWidth={2} />
-      </View>
-      <Spacer size="md" />
-      <Text variant="heading" color="charcoal">
-        Provider Dashboard
-      </Text>
-      <Spacer size="sm" />
-      <Text variant="body" color="midGray">
-        You&apos;re approved and ready for work. Manage your jobs, menu, and
-        earnings here.
-      </Text>
-
-      <Spacer size="lg" />
-      <View style={styles.rowList}>
-        <DashboardRow
-          palette={palette}
-          icon={<Briefcase size={20} color={palette.deepIndigo} strokeWidth={2} />}
-          title="My Jobs"
-          subtitle="View and manage your scheduled jobs"
-          onPress={onJobs}
-          testID="dashboard-jobs"
-        />
-        <DashboardRow
-          palette={palette}
-          icon={<SlidersHorizontal size={20} color={palette.deepIndigo} strokeWidth={2} />}
-          title="Services & Availability"
-          subtitle="Edit your menu, prices, and weekly availability"
-          onPress={onManage}
-          testID="dashboard-manage"
-        />
-        <DashboardRow
-          palette={palette}
-          icon={<Wallet size={20} color={palette.deepIndigo} strokeWidth={2} />}
-          title="Earnings & Kudos"
-          subtitle="Track payouts and the kudos customers gave you"
-          onPress={onEarnings}
-          testID="dashboard-earnings"
-        />
-      </View>
-
-      <Spacer size="lg" />
-      <Button
-        label="View application"
-        variant="ghost"
-        size="md"
-        onPress={onOpenApplication}
-        testID="provider-continue"
-      />
-    </ScrollView>
-  );
-}
-
 // ── Screen ─────────────────────────────────────────────────────────────────
 
 export default function ProviderScreen(): React.ReactElement {
@@ -361,6 +235,7 @@ export default function ProviderScreen(): React.ReactElement {
 
   const user = useAuthStore((s) => s.user);
   const isProvider = useAuthStore(selectIsProvider);
+  const setActiveMode = useModeStore((s) => s.setActiveMode);
 
   const [loading, setLoading] = useState(isProvider);
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
@@ -382,40 +257,28 @@ export default function ProviderScreen(): React.ReactElement {
     };
   }, [isProvider, user]);
 
+  const isApproved =
+    isProvider && !!profile && profile.verification_status === 'approved';
+
+  // An approved provider shouldn't sit on this customer-side screen (they may
+  // arrive via a stale link). Switch into provider mode and hand off to the
+  // provider dashboard.
+  useEffect(() => {
+    if (isApproved) {
+      setActiveMode('provider');
+      router.replace('/(provider-tabs)/jobs');
+    }
+  }, [isApproved, setActiveMode, router]);
+
   const openVetting = useCallback(() => {
     router.push('/(provider)/vetting');
   }, [router]);
 
-  const openManage = useCallback(() => {
-    router.push('/(tabs)/more/provider-manage');
-  }, [router]);
-
-  const openEarnings = useCallback(() => {
-    router.push('/(tabs)/more/provider-earnings');
-  }, [router]);
-
-  const openJobs = useCallback(() => {
-    router.push('/(tabs)/bookings');
-  }, [router]);
-
-  if (loading) {
+  if (loading || isApproved) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.offWhite }]}>
         <ActivityIndicator size="large" color={palette.electricBlue} />
       </View>
-    );
-  }
-
-  // Approved provider → dashboard hub (Flow 5.1).
-  if (isProvider && profile && profile.verification_status === 'approved') {
-    return (
-      <ProviderDashboard
-        palette={palette}
-        onJobs={openJobs}
-        onManage={openManage}
-        onEarnings={openEarnings}
-        onOpenApplication={openVetting}
-      />
     );
   }
 
@@ -453,15 +316,4 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   finePrint: { textAlign: 'center' },
-  rowList: { gap: spacing.md },
-  rowPressable: { borderRadius: borderRadius.card },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.input,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(61,59,142,0.08)',
-  },
 });

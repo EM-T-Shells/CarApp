@@ -1,6 +1,7 @@
 // index.test.tsx — unit tests for the upcoming bookings list screen.
-// Covers loading, empty, error, and populated states; customer vs. provider
-// tab toggle; navigation on card press; and pull-to-refresh behaviour.
+// Covers loading, empty, error, and populated states; navigation on card
+// press; and pull-to-refresh behaviour. This screen is customer-only — provider
+// jobs live in their own (provider-tabs) dashboard.
 
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native';
@@ -8,24 +9,17 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockGetUpcomingCustomer = jest.fn();
-const mockGetUpcomingProvider = jest.fn();
-const mockGetProviderByUserId = jest.fn();
 
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getUpcomingBookingsForCustomer: (...args: unknown[]) =>
     mockGetUpcomingCustomer(...args),
-  getUpcomingBookingsForProvider: (...args: unknown[]) =>
-    mockGetUpcomingProvider(...args),
-  getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
 }));
 
 let mockUser: { id: string } | null = { id: 'user-123' };
-let mockIsProvider = false;
 
 jest.mock('../../../../src/state/auth', () => ({
   useAuthStore: (selector: (s: { user: unknown }) => unknown) =>
     selector({ user: mockUser }),
-  selectIsProvider: (_s: unknown) => mockIsProvider,
 }));
 
 const mockPush = jest.fn();
@@ -135,13 +129,7 @@ import BookingsScreen from '../index';
 beforeEach(() => {
   jest.clearAllMocks();
   mockUser = { id: 'user-123' };
-  mockIsProvider = false;
   mockGetUpcomingCustomer.mockResolvedValue({ data: [], error: null });
-  mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
-  mockGetProviderByUserId.mockResolvedValue({
-    data: { id: 'provider-profile-1' },
-    error: null,
-  });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -239,85 +227,12 @@ describe('BookingsScreen', () => {
       });
       expect(mockGetUpcomingCustomer).toHaveBeenCalledTimes(2);
     });
-  });
 
-  describe('provider tab toggle', () => {
-    beforeEach(() => {
-      mockIsProvider = true;
-    });
-
-    it('renders the tab switcher for provider users', async () => {
-      render(<BookingsScreen />);
-      await waitFor(() => {
-        expect(screen.getByText('My Bookings')).toBeTruthy();
-        expect(screen.getByText('My Jobs')).toBeTruthy();
-      });
-    });
-
-    it('does not render the tab switcher for customer-only users', async () => {
-      mockIsProvider = false;
+    it('does not render a customer/provider view toggle', async () => {
       render(<BookingsScreen />);
       await screen.findByText('No upcoming bookings');
       expect(screen.queryByText('My Bookings')).toBeNull();
       expect(screen.queryByText('My Jobs')).toBeNull();
-    });
-
-    it('fetches provider bookings after switching to My Jobs tab', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await waitFor(() => {
-        expect(mockGetProviderByUserId).toHaveBeenCalledWith('user-123');
-        expect(mockGetUpcomingProvider).toHaveBeenCalledWith('provider-profile-1');
-      });
-    });
-
-    it('shows provider-specific empty message on My Jobs tab', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      expect(
-        await screen.findByText(
-          'No jobs scheduled yet. New bookings from customers will appear here.',
-        ),
-      ).toBeTruthy();
-    });
-
-    it('shows error when provider profile lookup fails', async () => {
-      mockGetProviderByUserId.mockResolvedValue({
-        data: null,
-        error: new Error('Profile not found'),
-      });
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      expect(await screen.findByText('Something went wrong')).toBeTruthy();
-    });
-
-    it('caches provider id and does not re-fetch profile on second switch', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await screen.findByText('No upcoming bookings');
-
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Bookings'));
-      });
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await waitFor(() => {
-        expect(mockGetProviderByUserId).toHaveBeenCalledTimes(1);
-      });
     });
   });
 });

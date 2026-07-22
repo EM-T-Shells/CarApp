@@ -1,15 +1,12 @@
-// More tab hub (Flow 3.3) — the entry point for everything that doesn't get
-// its own bottom tab: Account, Settings, Bookings history, Lug AI, Provider
-// mode, and Sign out.
+// Provider More hub — the entry point for provider-side settings and the
+// dashboard switch. Hosts: the provider profile summary, Services &
+// Availability (manage), the vetting application, shared Account & Settings
+// (reused from the customer group via absolute routes), the "Switch to Customer
+// Dashboard" control, and Sign out.
 //
-// Reads the signed-in user straight from the hydrated auth store (no fetch,
-// so there's no loading/empty/error state to manage here). The Provider row
-// adapts to the user's provider state: customers see "Become a Provider",
-// providers mid-vetting see "Provider Application" (both route to
-// (tabs)/more/provider), and approved providers see "Switch to Provider
-// Dashboard", which flips the active mode and replaces into the (provider-tabs)
-// group. Sign out keeps the confirmation alert so an accidental tap can't drop
-// the session.
+// The switch flips the persisted active mode and replaces into the customer
+// tabs. It is only reachable by dual-role ('both') users — a pure provider
+// account has no customer side to switch to, so the row is hidden for them.
 
 import React, { useCallback, useState } from 'react';
 import {
@@ -24,20 +21,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import {
-  Bot,
   ChevronRight,
-  Clock,
   LogOut,
+  Repeat,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
   User,
-  Wrench,
 } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { borderRadius, colors, spacing } from '../../../src/design/tokens';
 import { signOut } from '../../../src/lib/supabase/auth';
-import { useAuthStore, selectIsProvider } from '../../../src/state/auth';
+import { useAuthStore } from '../../../src/state/auth';
 import { useModeStore } from '../../../src/state/mode';
 
 type Palette = (typeof colors)['light'] | (typeof colors)['dark'];
@@ -72,9 +69,7 @@ function NavRow({
       testID={testID}
       style={({ pressed }) => [
         styles.row,
-        {
-          backgroundColor: isDark ? '#1E1E2E' : '#FFFFFF',
-        },
+        { backgroundColor: isDark ? '#1E1E2E' : '#FFFFFF' },
         pressed && styles.rowPressed,
       ]}
     >
@@ -117,47 +112,29 @@ function SectionLabel({ children }: { children: string }): React.ReactElement {
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
-export default function MoreScreen(): React.ReactElement {
+export default function ProviderMoreScreen(): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const palette = isDark ? colors.dark : colors.light;
   const router = useRouter();
 
   const user = useAuthStore((s) => s.user);
-  const isProvider = useAuthStore(selectIsProvider);
-  const providerVerification = useAuthStore((s) => s.providerVerification);
+  const role = useAuthStore((s) => s.role);
   const setActiveMode = useModeStore((s) => s.setActiveMode);
 
   const [signingOut, setSigningOut] = useState(false);
 
   const iconColor = palette.deepIndigo;
 
-  const go = useCallback(
-    (href: Href) => () => router.push(href),
-    [router],
-  );
+  const go = useCallback((href: Href) => () => router.push(href), [router]);
 
-  // Provider row has three states. Approved providers switch into the provider
-  // dashboard (its own tab group); everyone else opens the customer-side
-  // provider intro / application-status screen.
-  const isApprovedProvider = isProvider && providerVerification === 'approved';
+  // Only dual-role users have a customer dashboard to switch back to.
+  const canSwitchToCustomer = role === 'both';
 
-  const switchToProvider = useCallback((): void => {
-    setActiveMode('provider');
-    router.replace('/(provider-tabs)/jobs');
+  const switchToCustomer = useCallback((): void => {
+    setActiveMode('customer');
+    router.replace('/(tabs)/search');
   }, [setActiveMode, router]);
-
-  const providerRowLabel = !isProvider
-    ? 'Become a Provider'
-    : isApprovedProvider
-      ? 'Switch to Provider Dashboard'
-      : 'Provider Application';
-
-  const providerRowSubtitle = !isProvider
-    ? 'Earn by detailing cars near you'
-    : isApprovedProvider
-      ? 'Jobs, earnings & your profile'
-      : 'Finish vetting to go live';
 
   const handleSignOut = useCallback(async (): Promise<void> => {
     setSigningOut(true);
@@ -198,8 +175,8 @@ export default function MoreScreen(): React.ReactElement {
           onPress={go('/(tabs)/more/account')}
           accessibilityRole="button"
           accessibilityLabel="View account"
-          accessibilityHint="Edit your profile, photo, and vehicles"
-          testID="more-profile-card"
+          accessibilityHint="Edit your profile and photo"
+          testID="provider-more-profile-card"
           style={({ pressed }) => [
             styles.profileCard,
             { backgroundColor: isDark ? '#1E1E2E' : '#FFFFFF' },
@@ -220,6 +197,55 @@ export default function MoreScreen(): React.ReactElement {
           <ChevronRight size={20} color={palette.midGray} strokeWidth={2} />
         </Pressable>
 
+        {/* Dashboard switch — dual-role users only */}
+        {canSwitchToCustomer && (
+          <>
+            <Spacer size="lg" />
+            <Pressable
+              onPress={switchToCustomer}
+              accessibilityRole="button"
+              accessibilityLabel="Switch to customer dashboard"
+              accessibilityHint="Leave the provider dashboard and return to the customer app"
+              testID="provider-switch-to-customer"
+              style={({ pressed }) => [
+                styles.switchButton,
+                { backgroundColor: palette.deepIndigo },
+                pressed && styles.rowPressed,
+              ]}
+            >
+              <Repeat size={18} color="#FFFFFF" strokeWidth={2} />
+              <Text variant="label" style={{ color: '#FFFFFF' }}>
+                Switch to Customer Dashboard
+              </Text>
+            </Pressable>
+          </>
+        )}
+
+        <Spacer size="lg" />
+
+        {/* Provider group */}
+        <SectionLabel>Provider</SectionLabel>
+        <View style={styles.group}>
+          <NavRow
+            palette={palette}
+            isDark={isDark}
+            icon={<SlidersHorizontal size={20} color={iconColor} strokeWidth={2} />}
+            label="Services & Availability"
+            subtitle="Edit your menu, prices, and weekly availability"
+            onPress={go('/(provider-tabs)/more/manage')}
+            testID="provider-more-manage"
+          />
+          <NavRow
+            palette={palette}
+            isDark={isDark}
+            icon={<ShieldCheck size={20} color={iconColor} strokeWidth={2} />}
+            label="Application"
+            subtitle="View your vetting steps and status"
+            onPress={go('/(provider)/vetting')}
+            testID="provider-more-application"
+          />
+        </View>
+
         <Spacer size="lg" />
 
         {/* Account group */}
@@ -232,7 +258,7 @@ export default function MoreScreen(): React.ReactElement {
             label="Account"
             subtitle="Profile, photo & vehicles"
             onPress={go('/(tabs)/more/account')}
-            testID="more-account"
+            testID="provider-more-account"
           />
           <NavRow
             palette={palette}
@@ -241,50 +267,7 @@ export default function MoreScreen(): React.ReactElement {
             label="Settings"
             subtitle="Notifications & preferences"
             onPress={go('/(tabs)/more/settings')}
-            testID="more-settings"
-          />
-          <NavRow
-            palette={palette}
-            isDark={isDark}
-            icon={<Clock size={20} color={iconColor} strokeWidth={2} />}
-            label="Booking history"
-            subtitle="Past & cancelled bookings"
-            onPress={go('/(tabs)/bookings/past')}
-            testID="more-history"
-          />
-        </View>
-
-        <Spacer size="lg" />
-
-        {/* Assistant */}
-        <SectionLabel>Assistant</SectionLabel>
-        <View style={styles.group}>
-          <NavRow
-            palette={palette}
-            isDark={isDark}
-            icon={<Bot size={20} color={palette.gearGold} strokeWidth={2} />}
-            label="Ask Lug"
-            subtitle="Car-care help & recommendations"
-            onPress={go('/(tabs)/more/lug')}
-            testID="more-lug"
-          />
-        </View>
-
-        <Spacer size="lg" />
-
-        {/* Provider */}
-        <SectionLabel>Provider</SectionLabel>
-        <View style={styles.group}>
-          <NavRow
-            palette={palette}
-            isDark={isDark}
-            icon={<Wrench size={20} color={iconColor} strokeWidth={2} />}
-            label={providerRowLabel}
-            subtitle={providerRowSubtitle}
-            onPress={
-              isApprovedProvider ? switchToProvider : go('/(tabs)/more/provider')
-            }
-            testID="more-provider"
+            testID="provider-more-settings"
           />
         </View>
 
@@ -296,7 +279,7 @@ export default function MoreScreen(): React.ReactElement {
           disabled={signingOut}
           accessibilityRole="button"
           accessibilityLabel="Sign out"
-          testID="more-sign-out"
+          testID="provider-more-sign-out"
           style={({ pressed }) => [
             styles.signOutButton,
             { borderColor: palette.deepIndigo },
@@ -344,6 +327,16 @@ const styles = StyleSheet.create({
   profileText: {
     flex: 1,
     gap: spacing.xs,
+  },
+  switchButton: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.button,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionLabel: {
     marginBottom: spacing.sm,

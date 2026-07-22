@@ -1,12 +1,15 @@
-// (tabs)/more/provider-manage.tsx — provider profile management (Flows 5.2 / 5.3).
+// (provider-tabs)/more/manage — provider profile management (Flows 5.2 / 5.3).
 //
 // Post-approval companion to the vetting Profile step: lets an active provider
 // edit their public profile (bio, coverage area, travel radius), set their
 // weekly availability (persisted to provider_profiles.availability), and manage
-// their service menu via ServiceMenuEditor. Reached from the provider dashboard
-// (More → Provider). Unlike the vetting step, it does not recompute
-// profile_completeness or route back into the vetting stack — it's a standalone
-// editable screen with explicit Save.
+// their service menu via ServiceMenuEditor. Pushed from the provider More hub.
+// Unlike the vetting step, it does not recompute profile_completeness or route
+// back into the vetting stack — it's a standalone editable screen with explicit
+// Save.
+//
+// Moved from (tabs)/more/provider-manage.tsx when the provider dashboard got its
+// own tab bar.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {

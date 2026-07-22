@@ -1,6 +1,7 @@
 // Provider active-job screen (Flows 5.4 / 5.5 / 5.6).
 //
-// Reached from the Bookings tab "My Jobs" toggle. Shows the job from the
+// The detail route for the provider dashboard's Jobs tab — pushed from the job
+// queue (jobs/index) and past jobs (jobs/past). Shows the job from the
 // provider's side (customer, vehicle, address, schedule, payout) and drives the
 // job lifecycle:
 //   pending_provider_approval → [Accept] → confirmed → [Start Travel] →
@@ -48,35 +49,35 @@ import {
   X,
   Clock,
 } from 'lucide-react-native';
-import { Text } from '../../../../src/components/ui/Text';
-import { Button } from '../../../../src/components/ui/Button';
-import { Card } from '../../../../src/components/ui/Card';
-import { Avatar } from '../../../../src/components/ui/Avatar';
-import { Spacer } from '../../../../src/components/ui/Spacer';
-import { StatusTimeline } from '../../../../src/components/booking/StatusTimeline';
-import { JobPhotoCapture } from '../../../../src/components/provider/JobPhotoCapture';
-import type { BookingStatus } from '../../../../src/components/booking/StatusTimeline';
-import { colors, spacing } from '../../../../src/design/tokens';
+import { Text } from '../../../src/components/ui/Text';
+import { Button } from '../../../src/components/ui/Button';
+import { Card } from '../../../src/components/ui/Card';
+import { Avatar } from '../../../src/components/ui/Avatar';
+import { Spacer } from '../../../src/components/ui/Spacer';
+import { StatusTimeline } from '../../../src/components/booking/StatusTimeline';
+import { JobPhotoCapture } from '../../../src/components/provider/JobPhotoCapture';
+import type { BookingStatus } from '../../../src/components/booking/StatusTimeline';
+import { colors, spacing } from '../../../src/design/tokens';
 import {
   getProviderJobById,
   getBookingPhotos,
   getThreadByBooking,
   type ProviderJobSummary,
-} from '../../../../src/lib/supabase/queries';
-import { updateBooking, insertMessageThread } from '../../../../src/lib/supabase/mutations';
+} from '../../../src/lib/supabase/queries';
+import { updateBooking, insertMessageThread } from '../../../src/lib/supabase/mutations';
 import {
   captureBalance,
   acceptBooking,
   declineBooking,
   providerCancelBooking,
   markNoShow,
-} from '../../../../src/lib/stripe';
-import { sendProviderLocation } from '../../../../src/lib/location/tracking';
-import { useAuthStore } from '../../../../src/state/auth';
-import { centsToDisplay } from '../../../../src/utils/money';
-import { formatDateTime } from '../../../../src/utils/date';
-import type { ProviderJobParams } from '../../../../src/types/navigation';
-import type { BookingPhoto } from '../../../../src/types/models';
+} from '../../../src/lib/stripe';
+import { sendProviderLocation } from '../../../src/lib/location/tracking';
+import { useAuthStore } from '../../../src/state/auth';
+import { centsToDisplay } from '../../../src/utils/money';
+import { formatDateTime } from '../../../src/utils/date';
+import type { ProviderJobParams } from '../../../src/types/navigation';
+import type { BookingPhoto } from '../../../src/types/models';
 
 // Minimum before/after photos before a job can be completed (CLAUDE.md / Flow 5.5).
 const MIN_PHOTOS_TO_COMPLETE = 4;
@@ -440,7 +441,9 @@ export default function ProviderJobScreen(): React.ReactElement {
       threadId = created.data.id;
     }
     setIsMutating(false);
-    router.push(`/inbox/${threadId}`);
+    // Thread detail is shared across both dashboards — it keys off the
+    // authenticated user, so the provider reuses the customer group's screen.
+    router.push(`/(tabs)/inbox/${threadId}`);
   }, [job, router]);
 
   // ── Loading / error / authorization ──────────────────────────────────

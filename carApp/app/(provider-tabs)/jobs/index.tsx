@@ -1,10 +1,13 @@
-// Past bookings — history view for completed and cancelled bookings.
-// Mirrors the upcoming-bookings list layout (Card per row with provider,
-// date, vehicle, status pill, total) but adds a "Book Again" CTA that
-// routes back into the booking flow for the same provider, so customers
-// can re-engage their favourite providers with one tap.
+// Provider job queue — the Jobs tab root in the provider dashboard. Lists the
+// provider's active jobs (pending approval → confirmed → en_route → in_progress)
+// and routes into the active-job detail screen. Handles loading, empty, and
+// error states per convention.
+//
+// Extracted from the provider branch of the customer bookings list when the
+// provider dashboard got its own tab bar — this is provider-only, so there is
+// no customer/provider view toggle here anymore.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   FlatList,
@@ -15,23 +18,24 @@ import {
   RefreshControl,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Archive, RotateCcw, Car, Clock } from 'lucide-react-native';
+import { Briefcase, ChevronRight, Clock, Car } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
-import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { colors, spacing } from '../../../src/design/tokens';
 import { useAuthStore } from '../../../src/state/auth';
 import {
-  getPastBookingsForCustomer,
+  getUpcomingBookingsForProvider,
+  getProviderByUserId,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
 import { centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 
-// ── Types ──────────────────────────────────────────────────────────────
+// ── Status config ──────────────────────────────────────────────────────
 
 interface StatusConfig {
   label: string;
@@ -39,33 +43,26 @@ interface StatusConfig {
 }
 
 const STATUS_MAP: Record<string, StatusConfig> = {
-  completed: { label: 'Completed', colorKey: 'emeraldGreen' },
-  cancelled: { label: 'Cancelled', colorKey: 'midGray' },
-  no_show: { label: 'No-Show', colorKey: 'midGray' },
+  pending: { label: 'Pending', colorKey: 'midGray' },
+  pending_provider_approval: { label: 'Action Needed', colorKey: 'gearGold' },
+  confirmed: { label: 'Confirmed', colorKey: 'electricBlue' },
+  en_route: { label: 'En Route', colorKey: 'gearGold' },
+  in_progress: { label: 'In Progress', colorKey: 'emeraldGreen' },
 };
 
 function getStatusConfig(status: string): StatusConfig {
-  return STATUS_MAP[status] ?? STATUS_MAP['completed'];
+  return STATUS_MAP[status] ?? STATUS_MAP['pending'];
 }
 
-// ── PastBookingCard ─────────────────────────────────────────────────────
+// ── JobCard ────────────────────────────────────────────────────────────
 
-interface PastBookingCardProps {
+interface JobCardProps {
   booking: BookingSummary;
-  palette: (typeof colors)['light'];
   onPress: () => void;
-  onRebook: () => void;
+  palette: (typeof colors)['light'];
 }
 
-function PastBookingCard({
-  booking,
-  palette,
-  onPress,
-  onRebook,
-}: PastBookingCardProps): React.ReactElement {
-  const providerName =
-    booking.provider_profiles?.users?.full_name ?? 'Provider';
-  const providerAvatar = booking.provider_profiles?.users?.avatar_url;
+function JobCard({ booking, onPress, palette }: JobCardProps): React.ReactElement {
   const vehicle = booking.vehicles;
   const vehicleLabel = vehicle
     ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
@@ -74,16 +71,17 @@ function PastBookingCard({
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
 
-  const canRebook = booking.status === 'completed' && !!booking.provider_id;
-
   return (
     <Card
       onPress={onPress}
-      accessibilityLabel={`${statusLabel} booking on ${formatShortDate(booking.scheduled_at)} with ${providerName}`}
-      accessibilityHint="Tap to view booking details"
+      accessibilityLabel={`Job on ${formatShortDate(booking.scheduled_at)}`}
+      accessibilityHint="Tap to manage this job"
     >
+      {/* Status + schedule row */}
       <View style={cardStyles.row}>
-        <Avatar uri={providerAvatar} name={providerName} size="sm" />
+        <View style={cardStyles.jobIcon}>
+          <Briefcase size={16} color={palette.deepIndigo} strokeWidth={2} />
+        </View>
         <Spacer size="sm" horizontal />
         <Text
           variant="label"
@@ -91,7 +89,7 @@ function PastBookingCard({
           numberOfLines={1}
           style={cardStyles.flex}
         >
-          {providerName}
+          {formatShortDate(booking.scheduled_at)}
         </Text>
         <View
           style={[
@@ -107,15 +105,16 @@ function PastBookingCard({
 
       <Spacer size="sm" />
 
+      {/* Time */}
       <View style={cardStyles.row}>
         <Clock size={13} color={palette.midGray} strokeWidth={2} />
         <Spacer size="xs" horizontal />
         <Text variant="bodySmall" color="midGray">
-          {formatShortDate(booking.scheduled_at)} ·{' '}
-          {formatTime(booking.scheduled_at)}
+          {formatShortDate(booking.scheduled_at)} · {formatTime(booking.scheduled_at)}
         </Text>
       </View>
 
+      {/* Vehicle */}
       {vehicleLabel && (
         <>
           <Spacer size="xs" />
@@ -131,38 +130,15 @@ function PastBookingCard({
 
       <Spacer size="sm" />
 
+      {/* Footer: total + chevron */}
       <View style={cardStyles.row}>
         {booking.total_amount != null && (
           <Text variant="price" color="charcoal">
-            {centsToDisplay(Math.round(booking.total_amount * 100))}
+            {centsToDisplay(booking.total_amount)}
           </Text>
         )}
         <Spacer flex />
-        {canRebook && (
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              onRebook();
-            }}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Book ${providerName} again`}
-            style={({ pressed }) => [
-              cardStyles.rebookButton,
-              { borderColor: palette.electricBlue },
-              pressed && cardStyles.pressed,
-            ]}
-          >
-            <RotateCcw
-              size={14}
-              color={palette.electricBlue}
-              strokeWidth={2}
-            />
-            <Text variant="label" style={{ color: palette.electricBlue }}>
-              Book Again
-            </Text>
-          </Pressable>
-        )}
+        <ChevronRight size={18} color={palette.midGray} strokeWidth={2} />
       </View>
     </Card>
   );
@@ -176,30 +152,25 @@ const cardStyles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  jobIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(61,59,142,0.08)',
+  },
   statusPill: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: 20,
     marginLeft: spacing.sm,
   },
-  rebookButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderWidth: 1.5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 20,
-    minHeight: 36,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
 });
 
-// ── Screen ──────────────────────────────────────────────────────────────
+// ── Screen ─────────────────────────────────────────────────────────────
 
-export default function PastBookingsScreen(): React.ReactElement {
+export default function ProviderJobsScreen(): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const palette = isDark ? colors.dark : colors.light;
@@ -212,13 +183,29 @@ export default function PastBookingsScreen(): React.ReactElement {
   const [error, setError] = useState<Error | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchBookings = useCallback(
+  // Cache the provider profile ID after the first lookup.
+  const providerIdRef = useRef<string | null>(null);
+
+  const fetchJobs = useCallback(
     async (refresh = false) => {
       if (!user) return;
       if (!refresh) setIsLoading(true);
       setError(null);
 
-      const { data, error: err } = await getPastBookingsForCustomer(user.id);
+      if (!providerIdRef.current) {
+        const { data: profile, error: profileError } = await getProviderByUserId(
+          user.id,
+        );
+        if (profileError || !profile) {
+          setError(profileError ?? new Error('Provider profile not found'));
+          setIsLoading(false);
+          return;
+        }
+        providerIdRef.current = profile.id;
+      }
+      const { data, error: err } = await getUpcomingBookingsForProvider(
+        providerIdRef.current,
+      );
       if (err) setError(err);
       else setBookings(data ?? []);
 
@@ -228,61 +215,89 @@ export default function PastBookingsScreen(): React.ReactElement {
   );
 
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    fetchJobs();
+  }, [fetchJobs]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchBookings(true).finally(() => setIsRefreshing(false));
-  }, [fetchBookings]);
+    fetchJobs(true).finally(() => setIsRefreshing(false));
+  }, [fetchJobs]);
 
-  const handleBookingPress = useCallback(
+  const handleJobPress = useCallback(
     (bookingId: string) => {
-      router.push(`/bookings/${bookingId}`);
-    },
-    [router],
-  );
-
-  const handleRebook = useCallback(
-    (providerId: string) => {
-      router.push(`/search/book/${providerId}`);
+      router.push(`/(provider-tabs)/jobs/${bookingId}`);
     },
     [router],
   );
 
   const renderItem = useCallback(
     ({ item }: { item: BookingSummary }) => (
-      <PastBookingCard
+      <JobCard
         booking={item}
         palette={palette}
-        onPress={() => handleBookingPress(item.id)}
-        onRebook={() => {
-          if (item.provider_id) handleRebook(item.provider_id);
-        }}
+        onPress={() => handleJobPress(item.id)}
       />
     ),
-    [palette, handleBookingPress, handleRebook],
+    [palette, handleJobPress],
   );
 
   const keyExtractor = useCallback((item: BookingSummary) => item.id, []);
 
-  // ── Loading ────────────────────────────────────────────────────────
+  const header = (
+    <View
+      style={[
+        styles.header,
+        {
+          borderBottomWidth: 1,
+          borderBottomColor: isDark
+            ? 'rgba(160,160,160,0.12)'
+            : 'rgba(119,119,119,0.12)',
+        },
+      ]}
+    >
+      <Text variant="heading" color="charcoal">
+        Jobs
+      </Text>
+      <Pressable
+        onPress={() => router.push('/(provider-tabs)/jobs/past')}
+        accessibilityRole="button"
+        accessibilityLabel="View past jobs"
+        style={styles.pastLink}
+      >
+        <Text variant="label" style={{ color: palette.electricBlue }}>
+          Past
+        </Text>
+      </Pressable>
+    </View>
+  );
 
+  // ── Loading ────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.offWhite }]}
+        edges={['top']}
+      >
+        {header}
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={palette.electricBlue} />
+          <Spacer size="md" />
+          <Text variant="body" color="midGray">
+            Loading jobs...
+          </Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // ── Error ──────────────────────────────────────────────────────────
-
   if (error) {
     return (
-      <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.offWhite }]}
+        edges={['top']}
+      >
+        {header}
         <View style={styles.centered}>
           <Text variant="subheading" color="charcoal">
             Something went wrong
@@ -291,23 +306,19 @@ export default function PastBookingsScreen(): React.ReactElement {
           <Text variant="body" color="midGray" style={styles.centeredText}>
             {error.message}
           </Text>
-          <Spacer size="lg" />
-          <Button
-            label="Retry"
-            variant="primary"
-            size="md"
-            onPress={() => fetchBookings()}
-          />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // ── Empty ──────────────────────────────────────────────────────────
-
   if (bookings.length === 0) {
     return (
-      <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.offWhite }]}
+        edges={['top']}
+      >
+        {header}
         <ScrollView
           contentContainerStyle={styles.centered}
           refreshControl={
@@ -318,32 +329,27 @@ export default function PastBookingsScreen(): React.ReactElement {
             />
           }
         >
-          <Archive size={48} color={palette.midGray} strokeWidth={1.5} />
+          <Briefcase size={48} color={palette.midGray} strokeWidth={1.5} />
           <Spacer size="md" />
           <Text variant="subheading" color="charcoal">
-            No past bookings
+            No jobs scheduled
           </Text>
           <Spacer size="sm" />
           <Text variant="body" color="midGray" style={styles.centeredText}>
-            You haven&apos;t completed any bookings yet. Find a provider to get
-            started.
+            New bookings from customers will appear here.
           </Text>
-          <Spacer size="lg" />
-          <Button
-            label="Find a Provider"
-            variant="primary"
-            size="md"
-            onPress={() => router.push('/(tabs)/search')}
-          />
         </ScrollView>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // ── List ───────────────────────────────────────────────────────────
-
   return (
-    <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: palette.offWhite }]}
+      edges={['top']}
+    >
+      {header}
       <FlatList
         data={bookings}
         renderItem={renderItem}
@@ -359,7 +365,7 @@ export default function PastBookingsScreen(): React.ReactElement {
           />
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -378,6 +384,19 @@ const styles = StyleSheet.create({
   centeredText: {
     textAlign: 'center',
     maxWidth: 280,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.base,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  pastLink: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
   },
   listContent: {
     padding: spacing.base,
