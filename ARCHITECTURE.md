@@ -67,8 +67,8 @@ CarApp/                                   # Git repo root
     │   │   ├── credentials.tsx          # IDA / ASE cert upload 
     │   │   ├── bank.tsx                 # Real Stripe Connect Express onboarding 
     │   │   └── profile.tsx              # Bio / coverage / services / availability 
-    │   └── (tabs)/ 
-    │       ├── _layout.tsx               # 5-tab bar config 
+    │   ├── (tabs)/                       # Customer dashboard (mounted for customers + 'both' in customer mode) 
+    │       ├── _layout.tsx               # 5-tab bar config (Search, Services, Bookings, Inbox, More) 
     │       ├── search/ 
     │       │   ├── index.tsx 
     │       │   ├── results.tsx 
@@ -76,23 +76,33 @@ CarApp/                                   # Git repo root
     │       │   └── book/[providerId].tsx 
     │       ├── services/ 
     │       │   └── index.tsx 
-    │       ├── bookings/ 
+    │       ├── bookings/                 # Customer bookings only (provider jobs live in (provider-tabs)) 
     │       │   ├── index.tsx 
     │       │   ├── past.tsx 
     │       │   ├── [id].tsx                # Customer booking detail + cancel 
-    │       │   ├── job/[bookingId].tsx     # Provider active-job lifecycle (accept/decline, photos, complete, no-show) 
     │       │   └── tracking/[bookingId].tsx 
     │       ├── inbox/ 
     │       │   ├── index.tsx 
-    │       │   └── [threadId].tsx 
+    │       │   └── [threadId].tsx          # Shared thread detail (reused by (provider-tabs) inbox) 
     │       └── more/ 
-    │           ├── index.tsx 
+    │           ├── index.tsx               # Hosts the "Switch to Provider Dashboard" control (dual-role only) 
     │           ├── account.tsx 
-    │           ├── provider.tsx           # Provider opt-in / dashboard hub 
-    │           ├── provider-manage.tsx    # Manage services + availability 
-    │           ├── provider-earnings.tsx  # Earnings + payout list 
+    │           ├── provider.tsx           # Provider opt-in intro / application status (approved → redirect to (provider-tabs)) 
     │           ├── settings.tsx 
     │           └── lug.tsx                 # (ops admin is the separate web app in /admin, not a screen here) 
+    │   └── (provider-tabs)/               # Provider dashboard (mounted for approved providers + 'both' in provider mode) 
+    │       ├── _layout.tsx               # 4-tab bar config (Jobs, Inbox, Earnings, More) 
+    │       ├── jobs/ 
+    │       │   ├── index.tsx              # Active job queue 
+    │       │   ├── past.tsx               # Past jobs history 
+    │       │   └── [bookingId].tsx        # Provider active-job lifecycle (accept/decline, photos, complete, no-show) 
+    │       ├── inbox/ 
+    │       │   └── index.tsx              # Provider thread list → shared (tabs)/inbox/[threadId] detail 
+    │       ├── earnings/ 
+    │       │   └── index.tsx              # Earnings + payout list + kudos 
+    │       └── more/ 
+    │           ├── index.tsx              # Provider hub + "Switch to Customer Dashboard" control 
+    │           └── manage.tsx             # Manage services + availability 
     ├── src/ 
     │   ├── lib/ 
     │   │   ├── supabase/ 
@@ -120,7 +130,8 @@ CarApp/                                   # Git repo root
     │   │   ├── bookingDraft.ts           # In-progress booking builder 
     │   │   ├── signUpDraft.ts            # Customer multi-step registration state 
     │   │   ├── providerDraft.ts          # Provider onboarding multi-step form state 
-    │   │   └── settings.ts               # Notification prefs (AsyncStorage-persisted) 
+    │   │   ├── settings.ts               # Notification prefs (AsyncStorage-persisted) 
+    │   │   └── mode.ts                    # Active dashboard (customer|provider) for dual-role users (AsyncStorage-persisted) 
     │   ├── types/ 
     │   │   ├── models.ts                 # Domain TypeScript interfaces 
     │   │   ├── supabase.ts               # Auto-generated Supabase types — never edit manually 
@@ -232,18 +243,21 @@ app/_layout.tsx — onAuthStateChange
      │                  │                         └── Provider → providerDraft → vetting flow → pending-approval
      │                  └── Existing user ──► (tabs)/
      │
-     └── Has session ──► (tabs)/
+     └── Has session ──► role + activeMode gate (app/_layout.tsx §useProtectedRoute)
                               │
-                         role check
-                         ├── customer: Search, Bookings, Inbox, Services, More
-                         └── provider mode: same tabs + provider views in More/provider.tsx
+                         ├── customer ───────────────► (tabs)/          [Search, Services, Bookings, Inbox, More]
+                         ├── provider (approved) ────► (provider-tabs)/ [Jobs, Inbox, Earnings, More]
+                         └── both:
+                              ├── activeMode 'customer' ──► (tabs)/
+                              └── activeMode 'provider' & approved ──► (provider-tabs)/
+                                   (switch via the "Switch Dashboard" control in either More hub)
 
 ---
 
 ## Key Design Decisions
 
-- **Dual-role users**: All users default to Customer. Provider mode is opt-in post-signup (`role` column supports `'customer'`, `'provider'`, `'both'`). A user can be both simultaneously — the UI shows provider-specific views in the More tab when provider mode is active.
-- **Provider vetting gate**: A provider must pass all 6 vetting steps (identity via Persona, background check via Checkr, insurance, credentials, bank account via Stripe Connect, profile completeness ≥ 80%) before `verification_status` is set to `approved`. Until approved, the provider cannot receive bookings. **Routing (by design, `app/_layout.tsx` §useProtectedRoute):** a pure `provider` account with `verification_status != 'approved'` is held on `/(auth)/pending-approval` (or inside the `(provider)` vetting flow) on every session resume — the null-guard waits for status so the tabs never flash. A hybrid `'both'` account is **intentionally not blocked** — because they are also a customer, they pass through to the tabs and finish vetting at their own pace from More → Provider.
+- **Dual-role users & isolated dashboards**: All users default to Customer. Provider mode is opt-in post-signup (`role` column supports `'customer'`, `'provider'`, `'both'`). A user can be both simultaneously, but the two personas get **fully separate tab bars** — the customer `(tabs)` group and the provider `(provider-tabs)` group — so a screen never blends customer and provider actions. `activeMode` (`src/state/mode.ts`, persisted, `customer` | `provider`) chooses which group a `'both'` user is mounted into; it is only consulted for `'both'` accounts. A `'both'` user flips it via the "Switch Dashboard" control in either More hub, which sets `activeMode` and `router.replace`s into the other group. Pure `customer`/`provider` accounts have no switcher (a single fixed destination).
+- **Provider vetting gate**: A provider must pass all 6 vetting steps (identity via Persona, background check via Checkr, insurance, credentials, bank account via Stripe Connect, profile completeness ≥ 80%) before `verification_status` is set to `approved`. Until approved, the provider cannot receive bookings. **Routing (by design, `app/_layout.tsx` §useProtectedRoute):** a pure `provider` account with `verification_status != 'approved'` is held on `/(auth)/pending-approval` (or inside the `(provider)` vetting flow) on every session resume — the null-guard waits for status so the tabs never flash. A hybrid `'both'` account is **intentionally not blocked** — because they are also a customer, they pass through to the customer tabs and finish vetting at their own pace from More → Provider; the gate only mounts `(provider-tabs)` for a `'both'` user once `activeMode === 'provider'` **and** they are approved.
 - **Service snapshots**: Services are snapshotted as JSONB in the `bookings.services` column at booking time. Price or name changes by providers never alter existing bookings.
 - **Deposit model**: 15% of booking total collected at booking via Stripe; remainder captured on job completion.
 - **Cancellation policy** (server-enforced in the `stripe-webhook` Edge Function — the client never decides the refund amount): customer cancels ≤24h before scheduled time → `$15` flat late-cancel fee retained, remainder of the deposit refunded (>24h → full refund); provider cancels ≤24h → full customer refund + `$25` penalty recorded on the booking (ops deducts from a future payout); customer no-show → provider marks No Show, customer forfeits the full amount. Columns: `cancellation_fee`, `cancelled_by`, `no_show_at`; `no_show` is a `bookings.status` value.

@@ -144,10 +144,10 @@ Deferred to post-MVP. On failure: show error state + retry action. No offline qu
 ## Key Business Logic
 - **Auth gate**: `_layout.tsx` routes based on session + `users` row. Only `_layout.tsx` calls `getSession()` directly.
 - **Onboarding**: Customer → `profile→role→vehicle→review`. Provider → `profile→role→review` (no vehicle). Insert `users` row only on `review` submit. State in `signUpDraft` (shared) and `providerDraft` (provider vetting).
-- **Tabs**: All 5 tabs visible to all users — no role-gating in layout. Role-specific UI at screen level only.
+- **Tabs / dashboards**: Two separate tab groups. Customers use `(tabs)` (Search, Services, Bookings, Inbox, More — all customer-oriented). Approved providers use `(provider-tabs)` (Jobs, Inbox, Earnings, More). The root gate mounts one group per the user's role + `activeMode` (see Roles). Screens within a group are single-persona — never blend customer and provider actions in one screen.
 - **OAuth**: Google → `expo-auth-session` (PKCE). Apple → native on iOS, `expo-auth-session` on Android. OAuth handling in `auth.ts` — screens never call `signInWithOAuth` directly.
 - **OTP**: Email + phone via `signInWithOtp`. Phone requires Twilio in Supabase dashboard.
-- **Roles**: All users default to Customer. Provider mode is opt-in, requires full vetting before first booking.
+- **Roles & active mode**: All users default to Customer (`users.role`: `customer` | `provider` | `both`). Provider mode is opt-in, requires full vetting before first booking. `activeMode` (persisted client-side in `src/state/mode.ts`, `customer` | `provider`) decides which dashboard a **dual-role (`both`)** user sees; it is only consulted for `both` accounts — pure `customer` → `(tabs)`, pure approved `provider` → `(provider-tabs)`. Only `both` users see the "Switch to Provider/Customer Dashboard" control (customer More hub ⇄ provider More hub), which flips `activeMode` and `router.replace`s into the other group.
 - **Service snapshots**: Services snapshotted as JSONB at booking — provider edits don't affect existing bookings.
 - **Content moderation**: All outbound messages run through `containsFlaggedContent()` in `validators.ts` before insert. Flagged content **blocks the send** — `insertMessage()` throws `FlaggedContentError` and never inserts; the thread screen shows an inline warning and preserves the draft to edit. (Legacy `is_flagged` bubble styling only renders pre-existing flagged rows.)
 - **Deposit**: 15% at booking, remainder captured on completion.
