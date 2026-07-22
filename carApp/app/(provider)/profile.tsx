@@ -31,6 +31,7 @@ import {
   type WeeklyAvailability,
 } from '../../src/components/provider/AvailabilityCalendar';
 import { colors, spacing } from '../../src/design/tokens';
+import { geocodeAddress, normalizeCoverageArea } from '../../src/lib/location';
 import { useAuthStore } from '../../src/state/auth';
 import {
   getProviderByUserId,
@@ -79,13 +80,27 @@ export default function ProfileStep(): React.ReactElement {
   const handleSave = useCallback(async (): Promise<void> => {
     if (!providerId) return;
     const radiusNum = parseFloat(radius);
+    const trimmedCoverage = coverage.trim();
     setSaving(true);
+
+    // Geocode the coverage area so the provider shows up in distance-sorted
+    // search. Best-effort: if the lookup fails we leave the stored coords
+    // untouched rather than wiping them, so save never blocks on the network.
+    const geoUpdates: { base_lat?: number; base_lng?: number } = {};
+    if (trimmedCoverage) {
+      const coords = await geocodeAddress(normalizeCoverageArea(trimmedCoverage));
+      if (coords) {
+        geoUpdates.base_lat = coords.latitude;
+        geoUpdates.base_lng = coords.longitude;
+      }
+    }
 
     const profileRes = await updateProviderProfile(providerId, {
       bio: bio.trim() || null,
-      coverage_area: coverage.trim() || null,
+      coverage_area: trimmedCoverage || null,
       mile_radius: Number.isFinite(radiusNum) ? radiusNum : null,
       availability,
+      ...geoUpdates,
     });
     if (profileRes.error) {
       setSaving(false);

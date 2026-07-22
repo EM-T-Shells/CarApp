@@ -147,3 +147,86 @@ export function regionForPoints(
 
   return { latitude, longitude, latitudeDelta, longitudeDelta };
 }
+
+// ─── Geocoding ─────────────────────────────────────────────────────────
+//
+// Forward-geocodes a free-text location (zip, city, or street address) to a
+// lat/lng using OpenStreetMap's Nominatim service. Chosen over Google
+// Geocoding because CarApp has no Google Maps key (ARCHITECTURE.md) and the
+// app already renders OSM tiles. Results are biased to the US since the
+// marketplace is Northern Virginia / DC Metro only.
+//
+// Usage note: Nominatim's policy is one request/second and no heavy bulk use.
+// That's fine for a single lookup per customer search and per provider profile
+// save. If search volume grows, move this behind an Edge Function with caching.
+
+const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+
+/** Sent so Nominatim can attribute traffic (per their usage policy). */
+const GEOCODE_USER_AGENT = 'CarApp/1.0 (mobile detailing marketplace)';
+
+/** Raw shape of a Nominatim search result (only the fields we read). */
+interface NominatimResult {
+  lat?: string;
+  lon?: string;
+}
+
+/**
+ * Cleans a provider's free-text `coverage_area` into something geocodable.
+ * Examples:
+ *   "Reston, VA + 15 miles"        → "Reston, VA"
+ *   "McLean / Tysons / Vienna, VA" → "McLean, VA"
+ *   "Ashburn"                      → "Ashburn"
+ * The radius suffix and extra service areas only confuse the geocoder, so we
+ * keep the primary town (and its state, if the string carried one).
+ */
+export function normalizeCoverageArea(text: string | null | undefined): string {
+  if (!text) return '';
+  // Strip a trailing radius clause: "+ 15 miles", "± 20 mi", "+18 km", …
+  let s = text.replace(/\s*[+±]\s*\d+(?:\.\d+)?\s*(?:mi|mile|miles|km)\b.*$/i, '');
+  s = s.trim();
+  // Multi-area lists: keep the first town but re-attach a trailing state code.
+  if (s.includes('/')) {
+    const stateMatch = s.match(/,\s*([A-Za-z.]{2,})\s*$/);
+    const first = s.split('/')[0].trim().replace(/,\s*$/, '');
+    s = stateMatch && !first.includes(',') ? `${first}, ${stateMatch[1]}` : first;
+  }
+  return s.trim();
+}
+
+/**
+ * Forward-geocodes a location string to a { latitude, longitude } pair, or
+ * null when the query is empty, the lookup fails, or nothing matches. Never
+ * throws — callers treat null as "location unknown" and degrade gracefully.
+ */
+export async function geocodeAddress(query: string): Promise<LatLng | null> {
+  const q = query.trim();
+  if (!q) return null;
+
+  const params = new URLSearchParams({
+    q,
+    format: 'json',
+    limit: '1',
+    countrycodes: 'us',
+  });
+
+  try {
+    const res = await fetch(`${NOMINATIM_SEARCH_URL}?${params.toString()}`, {
+      headers: { Accept: 'application/json', 'User-Agent': GEOCODE_USER_AGENT },
+    });
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as NominatimResult[];
+    const first = Array.isArray(body) ? body[0] : undefined;
+    if (!first || first.lat == null || first.lon == null) return null;
+
+    const latitude = Number(first.lat);
+    const longitude = Number(first.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+    return { latitude, longitude };
+  } catch {
+    // Network error / malformed JSON — treat as "location unknown".
+    return null;
+  }
+}

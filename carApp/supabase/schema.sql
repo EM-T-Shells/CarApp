@@ -94,6 +94,9 @@ CREATE TABLE provider_profiles (
   bio                 TEXT,
   coverage_area       TEXT,
   mile_radius         NUMERIC(5,2),
+  base_lat            NUMERIC(9,6),          -- geocoded base latitude (from coverage_area/address); powers distance-sorted search
+  base_lng            NUMERIC(9,6),          -- geocoded base longitude
+
   availability        JSONB,                 -- weekly { "mon": true, …, "sun": false }; NULL = not set (Flow 5.2)
   avg_gear_rating     NUMERIC(3,2) DEFAULT 0,
   total_jobs          INT DEFAULT 0,

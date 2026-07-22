@@ -1,6 +1,12 @@
 // Zustand search store — holds location query, provider search filters,
 // and search results. Populated by the search home screen and consumed
 // by the results list and provider cards.
+//
+// Distance: the customer's typed location is forward-geocoded to a lat/lng
+// (`origin`) on the first fetch after it changes. Each result is annotated
+// with the Haversine distance from `origin` to the provider's geocoded base,
+// and when sortBy === 'distance' (the default) results are ordered nearest
+// first. Providers without base coordinates sink to the bottom.
 
 import { create } from 'zustand';
 import type {
@@ -8,12 +14,19 @@ import type {
   ProviderSearchFilters,
 } from '../lib/supabase/queries';
 import { searchProviders } from '../lib/supabase/queries';
+import { distanceMiles, geocodeAddress, type LatLng } from '../lib/location';
 
 // ── State Shape ────────────────────────────────────────────────────────
 
 export interface SearchState {
   /** Free-text location query entered in the LocationSearchBar. */
   locationQuery: string;
+  /**
+   * Geocoded coordinates for `locationQuery`, or null when it is empty or
+   * has not been resolved yet. Cleared whenever the query changes so the
+   * next fetch re-geocodes.
+   */
+  origin: LatLng | null;
   /** Active filter set applied to the provider search. */
   filters: ProviderSearchFilters;
   /** Provider results returned by the most recent search. */
@@ -25,7 +38,7 @@ export interface SearchState {
 
   // ── Mutators ──────────────────────────────────────────────────────
 
-  /** Update the location search text. */
+  /** Update the location search text (clears the resolved origin). */
   setLocationQuery: (query: string) => void;
   /** Merge partial filter updates into the active filter set. */
   setFilters: (updates: Partial<ProviderSearchFilters>) => void;
@@ -40,19 +53,61 @@ export interface SearchState {
 // ── Defaults ──────────────────────────────────────────────────────────
 
 const DEFAULT_FILTERS: ProviderSearchFilters = {
-  sortBy: 'rating',
+  sortBy: 'distance',
 };
+
+// ── Distance helpers ──────────────────────────────────────────────────
+
+/**
+ * Annotates each provider with `distance_miles` from `origin` to the
+ * provider's geocoded base. Yields null when the origin is unknown or the
+ * provider has no base coordinates.
+ */
+function annotateDistances(
+  providers: ProviderSearchResult[],
+  origin: LatLng | null,
+): ProviderSearchResult[] {
+  return providers.map((p) => {
+    if (origin == null || p.base_lat == null || p.base_lng == null) {
+      return { ...p, distance_miles: null };
+    }
+    const miles = distanceMiles(origin, {
+      latitude: Number(p.base_lat),
+      longitude: Number(p.base_lng),
+    });
+    return { ...p, distance_miles: miles };
+  });
+}
+
+/**
+ * Stable ascending sort by `distance_miles`. Providers with an unknown
+ * distance (null) are kept after all providers with a known distance, in
+ * their existing (DB) order.
+ */
+function sortByDistance(
+  providers: ProviderSearchResult[],
+): ProviderSearchResult[] {
+  return [...providers].sort((a, b) => {
+    const da = a.distance_miles;
+    const db = b.distance_miles;
+    if (da == null && db == null) return 0;
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return da - db;
+  });
+}
 
 // ── Store ─────────────────────────────────────────────────────────────
 
 export const useSearchStore = create<SearchState>((set, get) => ({
   locationQuery: '',
+  origin: null,
   filters: { ...DEFAULT_FILTERS },
   results: [],
   isLoading: false,
   error: null,
 
-  setLocationQuery: (query) => set({ locationQuery: query }),
+  setLocationQuery: (query) => set({ locationQuery: query, origin: null }),
 
   setFilters: (updates) =>
     set((s) => ({ filters: { ...s.filters, ...updates } })),
@@ -61,19 +116,34 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   fetchResults: async () => {
     set({ isLoading: true, error: null });
-    const { filters } = get();
+    const { filters, locationQuery } = get();
+
+    // Resolve the customer's coordinates once per location change so distances
+    // (and distance sorting) have an origin to measure from.
+    let origin = get().origin;
+    if (origin == null && locationQuery.trim()) {
+      origin = await geocodeAddress(locationQuery.trim());
+      set({ origin });
+    }
+
     const { data, error } = await searchProviders(filters);
 
     if (error) {
       set({ isLoading: false, error, results: [] });
-    } else {
-      set({ isLoading: false, error: null, results: data });
+      return;
     }
+
+    const annotated = annotateDistances(data, origin);
+    const results =
+      filters.sortBy === 'distance' ? sortByDistance(annotated) : annotated;
+
+    set({ isLoading: false, error: null, results });
   },
 
   reset: () =>
     set({
       locationQuery: '',
+      origin: null,
       filters: { ...DEFAULT_FILTERS },
       results: [],
       isLoading: false,

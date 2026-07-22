@@ -638,6 +638,8 @@ export type Database = {
           approved_at: string | null
           availability: Json | null
           avg_gear_rating: number | null
+          base_lat: number | null
+          base_lng: number | null
           bio: string | null
           coverage_area: string | null
           created_at: string | null
@@ -657,6 +659,8 @@ export type Database = {
           approved_at?: string | null
           availability?: Json | null
           avg_gear_rating?: number | null
+          base_lat?: number | null
+          base_lng?: number | null
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
@@ -676,6 +680,8 @@ export type Database = {
           approved_at?: string | null
           availability?: Json | null
           avg_gear_rating?: number | null
+          base_lat?: number | null
+          base_lng?: number | null
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null

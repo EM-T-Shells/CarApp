@@ -15,7 +15,7 @@ The table below reflects the **target** architecture. Items marked **(planned)**
 | OAuth | Expo Auth Session + Web Browser | Google & Apple SSO |
 | Payments | Stripe Connect | Deposits, split payments, payouts, 1099s |
 | Push Notifications | Firebase Cloud Messaging | iOS + Android push |
-| Maps / Geo | `react-native-maps` + OpenStreetMap `<UrlTile>` | Google Maps is **out for MVP** due to billing (no API key). Live tracking is built: `LiveMap.tsx` renders OSM tiles; distance/bearing/ETA math in `src/lib/location/` (Haversine, constant-speed ETA) |
+| Maps / Geo | `react-native-maps` + OpenStreetMap `<UrlTile>` | Google Maps is **out for MVP** due to billing (no API key). Live tracking is built: `LiveMap.tsx` renders OSM tiles; distance/bearing/ETA math in `src/lib/location/` (Haversine, constant-speed ETA). Forward geocoding (`geocodeAddress`) uses OSM **Nominatim** (no key, US-biased) — resolves the customer's searched location and provider `coverage_area` to lat/lng for distance-sorted provider search |
 | Global State | Zustand | auth, search, bookingDraft, signUpDraft, providerDraft |
 | Localized State | React Context | Feature-scoped trees only (forms, modals) |
 | Styling | React Native `StyleSheet` + design tokens | **(planned: NativeWind + Tailwind CSS — not yet wired)** |
@@ -195,7 +195,7 @@ service_catalog                 (admin-managed preset service list, scoped by pr
 
 users
 ├── vehicles                    (1:many — customer vehicles)
-├── provider_profiles           (1:1 — opt-in provider mode)
+├── provider_profiles           (1:1 — opt-in provider mode; `base_lat`/`base_lng` = geocoded base from `coverage_area`, powers distance-sorted search)
 │     ├── provider_vetting      (1:1 — vetting step statuses: identity, background, insurance, credentials, bank)
 │     ├── service_packages      (1:many — provider's offered services, linked to service_catalog)
 │     ├── provider_location_cache (1:1 — last known GPS position; live GPS in Redis)

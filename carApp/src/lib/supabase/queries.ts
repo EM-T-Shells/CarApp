@@ -37,6 +37,10 @@ export type ProviderSummary = Pick<User, 'id' | 'full_name' | 'avatar_url'>
 export type ProviderSearchResult = ProviderProfile & {
   users: ProviderSummary | null
   provider_types: Pick<ProviderType, 'id' | 'name' | 'label'> | null
+  // Distance in miles from the customer's searched location to this provider's
+  // base. Computed client-side (Haversine) in the search store — never returned
+  // by Postgres. null when the origin or the provider's base coords are unknown.
+  distance_miles?: number | null
 }
 
 export type ProviderDetail = ProviderProfile & {
@@ -75,7 +79,10 @@ export type MessageWithSender = Message & {
 export type ProviderSearchFilters = {
   providerTypeName?: string
   minRating?: number
-  sortBy?: 'rating' | 'newest'
+  // 'distance' sorts by proximity to the searched location and is applied
+  // client-side (see search store) since Postgres has no origin to sort by;
+  // 'rating' / 'newest' are ordered in SQL.
+  sortBy?: 'distance' | 'rating' | 'newest'
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -203,6 +210,8 @@ export function searchProviders(
     query = query.eq('provider_types.name', filters.providerTypeName)
   }
 
+  // 'distance' has no SQL ordering (Postgres has no customer origin here) —
+  // fall back to rating as a stable pre-sort; the store re-orders by distance.
   const sortColumn =
     filters.sortBy === 'newest' ? 'created_at' : 'avg_gear_rating'
   const finalQuery = query

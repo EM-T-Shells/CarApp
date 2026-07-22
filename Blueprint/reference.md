@@ -254,3 +254,10 @@
 [carApp/app/(tabs)/bookings/index.tsx, past.tsx] — Removed the customer/provider view toggle; now customer-only (provider jobs live in (provider-tabs)).
 [carApp/app/(tabs)/more/provider.tsx] — Dropped the approved-provider dashboard hub; approved providers now switch into provider mode and redirect to (provider-tabs)/jobs. Screen keeps only the intro (opt-in) and application-status states.
 [carApp/app/(tabs)/more/index.tsx] — Provider row is now 3-state: Become a Provider / Provider Application / Switch to Provider Dashboard (approved → setActiveMode('provider') + replace into (provider-tabs)).
+[carApp/src/lib/location/index.ts] — Added geocodeAddress() (OSM Nominatim, no API key, US-biased; never throws → null on fail) + normalizeCoverageArea() (strips "+ N miles" radius / multi-area "/" lists to a geocodable town). Powers distance-sorted search.
+[carApp/supabase/schema.sql + migration add_provider_base_coordinates] — provider_profiles gains base_lat/base_lng NUMERIC(9,6). Backfilled existing 11 approved providers by geocoding their coverage_area town.
+[carApp/src/state/search.ts] — Search store now holds geocoded `origin`, annotates each result with Haversine `distance_miles`, and sorts nearest-first. Default sortBy is 'distance'; setLocationQuery clears origin so the next fetch re-geocodes; providers without coords sink to the bottom.
+[carApp/src/lib/supabase/queries.ts] — ProviderSearchFilters.sortBy adds 'distance' (client-sorted; SQL pre-sorts by rating); ProviderSearchResult gains client-computed distance_miles.
+[carApp/src/components/search/FiltersSheet.tsx] — Added "Nearest" sort chip (distance), now the default selection.
+[carApp/src/components/search/ProviderCard.tsx] — Shows "X mi" (Navigation icon) when distance_miles is known.
+[carApp/app/(provider)/profile.tsx] — On save, geocodes the coverage area → base_lat/base_lng (best-effort; leaves stored coords untouched if the lookup fails, never blocks save).
