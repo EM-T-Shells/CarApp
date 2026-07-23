@@ -36,6 +36,18 @@ export interface SearchState {
   /** Error from the most recent search, or null on success. */
   error: Error | null;
 
+  /**
+   * Top-rated detailers shown in the discovery carousel on the search home
+   * screen (before any location search). Sorted by gear rating, not distance.
+   */
+  featuredDetailers: ProviderSearchResult[];
+  /** Top-rated mechanics shown in the discovery carousel on the search home. */
+  featuredMechanics: ProviderSearchResult[];
+  /** True while the discovery carousels are loading. */
+  isLoadingFeatured: boolean;
+  /** Error from the most recent discovery fetch, or null on success. */
+  featuredError: Error | null;
+
   // ── Mutators ──────────────────────────────────────────────────────
 
   /** Update the location search text (clears the resolved origin). */
@@ -46,9 +58,25 @@ export interface SearchState {
   resetFilters: () => void;
   /** Execute a provider search with the current filters. */
   fetchResults: () => Promise<void>;
+  /**
+   * Load the top-rated detailers and mechanics for the discovery carousels.
+   * Fetches both provider types in parallel, sorted by rating. Safe to call
+   * on every mount — it is a no-op-ish refresh, not tied to the filter set.
+   */
+  fetchFeatured: () => Promise<void>;
   /** Clear all search state back to initial values. */
   reset: () => void;
 }
+
+// ── Provider type identifiers ─────────────────────────────────────────
+// Match the `provider_types.name` values filtered on elsewhere (search home
+// category tiles). Kept here so the discovery fetch and the tiles agree.
+
+const PROVIDER_TYPE_DETAILER = 'DETAILER';
+const PROVIDER_TYPE_MECHANIC = 'MECHANIC';
+
+/** How many providers to show per discovery carousel. */
+const FEATURED_LIMIT = 10;
 
 // ── Defaults ──────────────────────────────────────────────────────────
 
@@ -106,6 +134,10 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   results: [],
   isLoading: false,
   error: null,
+  featuredDetailers: [],
+  featuredMechanics: [],
+  isLoadingFeatured: false,
+  featuredError: null,
 
   setLocationQuery: (query) => set({ locationQuery: query, origin: null }),
 
@@ -140,6 +172,34 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     set({ isLoading: false, error: null, results });
   },
 
+  fetchFeatured: async () => {
+    set({ isLoadingFeatured: true, featuredError: null });
+
+    const [detailers, mechanics] = await Promise.all([
+      searchProviders({
+        providerTypeName: PROVIDER_TYPE_DETAILER,
+        sortBy: 'rating',
+      }),
+      searchProviders({
+        providerTypeName: PROVIDER_TYPE_MECHANIC,
+        sortBy: 'rating',
+      }),
+    ]);
+
+    const error = detailers.error ?? mechanics.error;
+    if (error) {
+      set({ isLoadingFeatured: false, featuredError: error });
+      return;
+    }
+
+    set({
+      isLoadingFeatured: false,
+      featuredError: null,
+      featuredDetailers: (detailers.data ?? []).slice(0, FEATURED_LIMIT),
+      featuredMechanics: (mechanics.data ?? []).slice(0, FEATURED_LIMIT),
+    });
+  },
+
   reset: () =>
     set({
       locationQuery: '',
@@ -148,6 +208,10 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       results: [],
       isLoading: false,
       error: null,
+      featuredDetailers: [],
+      featuredMechanics: [],
+      isLoadingFeatured: false,
+      featuredError: null,
     }),
 }));
 

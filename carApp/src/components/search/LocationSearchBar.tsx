@@ -7,10 +7,11 @@ import {
   View,
   TextInput,
   Pressable,
+  ActivityIndicator,
   StyleSheet,
   useColorScheme,
 } from 'react-native';
-import { MapPin, X } from 'lucide-react-native';
+import { MapPin, Search, X } from 'lucide-react-native';
 import { colors, borderRadius, spacing } from '../../design/tokens';
 import { textStyles, fontFamilies } from '../../design/typography';
 import { useSearchStore } from '../../state/search';
@@ -22,6 +23,10 @@ export interface LocationSearchBarProps {
   onSubmit?: () => void;
   /** Placeholder text. Defaults to 'Enter your location'. */
   placeholder?: string;
+  /** Render a search button at the end of the field that triggers onSubmit. */
+  showSearchButton?: boolean;
+  /** Shows a spinner in the embedded search button while a search runs. */
+  loading?: boolean;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -29,6 +34,8 @@ export interface LocationSearchBarProps {
 export function LocationSearchBar({
   onSubmit,
   placeholder = 'Enter your location',
+  showSearchButton = false,
+  loading = false,
 }: LocationSearchBarProps): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -53,6 +60,7 @@ export function LocationSearchBar({
           backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : palette.offWhite,
           borderColor,
         },
+        showSearchButton && styles.containerWithButton,
       ]}
       accessibilityRole="search"
       accessibilityLabel="Location search"
@@ -94,6 +102,26 @@ export function LocationSearchBar({
           <X size={16} color={palette.midGray} strokeWidth={2} />
         </Pressable>
       )}
+
+      {showSearchButton && (
+        <Pressable
+          onPress={onSubmit}
+          disabled={loading}
+          hitSlop={4}
+          style={[
+            styles.searchButton,
+            { backgroundColor: palette.deepIndigo },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Search providers"
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color={palette.offWhite} />
+          ) : (
+            <Search size={20} color={palette.offWhite} strokeWidth={2} />
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -111,6 +139,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     minHeight: 48,
   },
+  // Tuck the embedded search button against the field's right edge.
+  containerWithButton: {
+    paddingRight: spacing.xs,
+  },
   icon: {
     marginRight: spacing.sm,
   },
@@ -123,6 +155,15 @@ const styles = StyleSheet.create({
   clearButton: {
     minWidth: 44,
     minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Embedded search action — 44×44pt minimum touch target.
+  searchButton: {
+    width: 40,
+    height: 40,
+    marginLeft: spacing.xs,
+    borderRadius: borderRadius.input,
     justifyContent: 'center',
     alignItems: 'center',
   },

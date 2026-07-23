@@ -138,6 +138,66 @@ describe('setLocationQuery', () => {
   });
 });
 
+describe('fetchFeatured — discovery carousels', () => {
+  const DETAILER = makeProvider('detailer-1', null, null);
+  const MECHANIC = makeProvider('mechanic-1', null, null);
+
+  // Return a different list per requested provider type so we can assert the
+  // two carousels are populated from independent, type-filtered queries.
+  const byType = () =>
+    mockSearch.mockImplementation((filters) =>
+      Promise.resolve({
+        data:
+          filters?.providerTypeName === 'DETAILER'
+            ? [DETAILER]
+            : filters?.providerTypeName === 'MECHANIC'
+              ? [MECHANIC]
+              : [],
+        error: null,
+      }),
+    );
+
+  it('loads detailers and mechanics into separate lists, sorted by rating', async () => {
+    byType();
+    await useSearchStore.getState().fetchFeatured();
+
+    const state = useSearchStore.getState();
+    expect(state.featuredDetailers.map((p) => p.id)).toEqual(['detailer-1']);
+    expect(state.featuredMechanics.map((p) => p.id)).toEqual(['mechanic-1']);
+    expect(state.isLoadingFeatured).toBe(false);
+    expect(state.featuredError).toBeNull();
+
+    // Each carousel is fetched with its own type filter and rating sort.
+    expect(mockSearch).toHaveBeenCalledWith({
+      providerTypeName: 'DETAILER',
+      sortBy: 'rating',
+    });
+    expect(mockSearch).toHaveBeenCalledWith({
+      providerTypeName: 'MECHANIC',
+      sortBy: 'rating',
+    });
+  });
+
+  it('does not geocode — discovery is location-independent', async () => {
+    byType();
+    await useSearchStore.getState().fetchFeatured();
+    expect(mockGeocode).not.toHaveBeenCalled();
+  });
+
+  it('records the error and leaves the lists empty when a fetch fails', async () => {
+    const error = new Error('discovery boom');
+    mockSearch.mockResolvedValue({ data: null, error });
+
+    await useSearchStore.getState().fetchFeatured();
+
+    const state = useSearchStore.getState();
+    expect(state.featuredError).toBe(error);
+    expect(state.featuredDetailers).toEqual([]);
+    expect(state.featuredMechanics).toEqual([]);
+    expect(state.isLoadingFeatured).toBe(false);
+  });
+});
+
 describe('filter selectors', () => {
   it('counts a non-default sort as an active filter', () => {
     useSearchStore.getState().setFilters({ sortBy: 'rating' });

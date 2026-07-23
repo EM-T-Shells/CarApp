@@ -2,7 +2,7 @@
 // search bar, a primary search button, and category quick-filter tiles
 // (Detailing / Mechanical) that navigate to the filtered results list.
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -11,14 +11,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Search, Sparkles, Wrench } from 'lucide-react-native';
+import { Sparkles, Wrench } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
-import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { LocationSearchBar } from '../../../src/components/search/LocationSearchBar';
+import { ProviderCarousel } from '../../../src/components/search/ProviderCarousel';
 import { colors, spacing } from '../../../src/design/tokens';
 import { useSearchStore } from '../../../src/state/search';
+import type { ProviderSearchResult } from '../../../src/lib/supabase/queries';
 
 export default function SearchScreen(): React.ReactElement {
   const scheme = useColorScheme();
@@ -30,6 +31,16 @@ export default function SearchScreen(): React.ReactElement {
   const setFilters = useSearchStore((s) => s.setFilters);
   const resetFilters = useSearchStore((s) => s.resetFilters);
   const fetchResults = useSearchStore((s) => s.fetchResults);
+
+  const featuredDetailers = useSearchStore((s) => s.featuredDetailers);
+  const featuredMechanics = useSearchStore((s) => s.featuredMechanics);
+  const isLoadingFeatured = useSearchStore((s) => s.isLoadingFeatured);
+  const fetchFeatured = useSearchStore((s) => s.fetchFeatured);
+
+  // Load the discovery carousels once when the search home mounts.
+  useEffect(() => {
+    void fetchFeatured();
+  }, [fetchFeatured]);
 
   const handleSearch = useCallback(async () => {
     resetFilters();
@@ -44,6 +55,13 @@ export default function SearchScreen(): React.ReactElement {
       router.push('/search/results');
     },
     [setFilters, fetchResults, router],
+  );
+
+  const handleProviderPress = useCallback(
+    (provider: ProviderSearchResult) => {
+      router.push(`/search/provider/${provider.id}`);
+    },
+    [router],
   );
 
   return (
@@ -69,17 +87,30 @@ export default function SearchScreen(): React.ReactElement {
         <LocationSearchBar
           onSubmit={handleSearch}
           placeholder="Enter your address or zip code"
-        />
-        <Spacer size="md" />
-        <Button
-          label="Search Providers"
-          variant="primary"
-          size="lg"
-          onPress={handleSearch}
+          showSearchButton
           loading={isLoading}
-          leftIcon={
-            <Search size={20} color={palette.offWhite} strokeWidth={2} />
-          }
+        />
+
+        <Spacer size="2xl" />
+
+        <ProviderCarousel
+          title="Top-rated detailers"
+          providers={featuredDetailers}
+          loading={isLoadingFeatured}
+          onPressProvider={handleProviderPress}
+          onSeeAll={() => handleCategoryPress('DETAILER')}
+          emptyLabel="No detailers available yet"
+        />
+
+        <Spacer size="2xl" />
+
+        <ProviderCarousel
+          title="Top-rated mechanics"
+          providers={featuredMechanics}
+          loading={isLoadingFeatured}
+          onPressProvider={handleProviderPress}
+          onSeeAll={() => handleCategoryPress('MECHANIC')}
+          emptyLabel="No mechanics available yet"
         />
 
         <Spacer size="2xl" />
