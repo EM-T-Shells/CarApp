@@ -261,3 +261,9 @@
 [carApp/src/components/search/FiltersSheet.tsx] — Added "Nearest" sort chip (distance), now the default selection.
 [carApp/src/components/search/ProviderCard.tsx] — Shows "X mi" (Navigation icon) when distance_miles is known.
 [carApp/app/(provider)/profile.tsx] — On save, geocodes the coverage area → base_lat/base_lng (best-effort; leaves stored coords untouched if the lookup fails, never blocks save).
+[carApp/src/lib/location/popularAreas.ts] — Curated NoVA/DC service areas (label + pre-resolved coords) for the location picker, plus filterPopularAreas() live substring filter. Static because the marketplace is region-locked; coords let a tap seed the search origin without a geocode call.
+[carApp/src/components/search/LocationSuggestionRow.tsx] — Reusable picker row: rounded icon tile + title + optional subtitle, 56pt tall, accessible; supports a loading spinner (used by the Current-location GPS row).
+[carApp/src/components/search/LocationSearchBar.tsx] — Added button mode (onPress renders a non-editable tappable field that opens the picker) and an autoFocus prop for the editable picker instance.
+[carApp/app/(tabs)/search/location.tsx] — Location picker screen shown when the customer taps the search field: Current location (expo-location GPS), Anywhere (browse all), Recent searches, and Popular areas, with live filtering + a free-text "Search …" row. Selecting seeds the search store and router.replace()s to results.
+[carApp/src/state/search.ts] — Persisted (AsyncStorage) recentLocations plus applyLocationSelection/addRecentLocation/clearRecentLocations; only recents are persisted. applyLocationSelection sets query+origin together so a picked area skips the geocode.
+[carApp/app/(tabs)/search/index.tsx] — Search home bar is now a button that opens /search/location instead of an inline editable field.

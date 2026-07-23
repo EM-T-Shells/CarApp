@@ -2,6 +2,10 @@
 // distance sorting, origin geocoding, and filter selectors. searchProviders
 // and geocodeAddress are mocked; the Haversine math (distanceMiles) is real.
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 jest.mock('../../lib/supabase/queries', () => ({
   searchProviders: jest.fn(),
 }));
@@ -195,6 +199,78 @@ describe('fetchFeatured — discovery carousels', () => {
     expect(state.featuredDetailers).toEqual([]);
     expect(state.featuredMechanics).toEqual([]);
     expect(state.isLoadingFeatured).toBe(false);
+  });
+});
+
+describe('applyLocationSelection', () => {
+  it('sets the query and origin together, skipping the geocode on fetch', async () => {
+    const coords = { latitude: 38.9586, longitude: -77.357 };
+    useSearchStore.getState().applyLocationSelection('Reston, VA', coords);
+
+    const state = useSearchStore.getState();
+    expect(state.locationQuery).toBe('Reston, VA');
+    expect(state.origin).toEqual(coords);
+
+    await useSearchStore.getState().fetchResults();
+    // Origin was pre-resolved, so no geocode round-trip is needed.
+    expect(mockGeocode).not.toHaveBeenCalled();
+  });
+
+  it('clears the origin for a free-text label so the next fetch geocodes', async () => {
+    useSearchStore.getState().applyLocationSelection('22102');
+    expect(useSearchStore.getState().origin).toBeNull();
+
+    await useSearchStore.getState().fetchResults();
+    expect(mockGeocode).toHaveBeenCalledWith('22102');
+  });
+
+  it('models "Anywhere" as an empty query with no origin and no geocode', async () => {
+    useSearchStore.getState().applyLocationSelection('', null);
+    expect(useSearchStore.getState().locationQuery).toBe('');
+
+    await useSearchStore.getState().fetchResults();
+    expect(mockGeocode).not.toHaveBeenCalled();
+  });
+});
+
+describe('recent locations', () => {
+  it('adds a location to the front of the list', () => {
+    useSearchStore.getState().addRecentLocation({ label: 'Reston, VA', coords: null });
+    useSearchStore.getState().addRecentLocation({ label: 'Tysons, VA', coords: null });
+
+    expect(
+      useSearchStore.getState().recentLocations.map((r) => r.label),
+    ).toEqual(['Tysons, VA', 'Reston, VA']);
+  });
+
+  it('de-duplicates case-insensitively and promotes the repeat to the front', () => {
+    useSearchStore.getState().addRecentLocation({ label: 'Reston, VA', coords: null });
+    useSearchStore.getState().addRecentLocation({ label: 'Tysons, VA', coords: null });
+    useSearchStore.getState().addRecentLocation({ label: 'reston, va', coords: null });
+
+    const labels = useSearchStore.getState().recentLocations.map((r) => r.label);
+    expect(labels).toEqual(['reston, va', 'Tysons, VA']);
+  });
+
+  it('ignores blank labels so "Anywhere" never lands in recents', () => {
+    useSearchStore.getState().addRecentLocation({ label: '   ', coords: null });
+    expect(useSearchStore.getState().recentLocations).toEqual([]);
+  });
+
+  it('caps the list at six entries, dropping the oldest', () => {
+    for (let i = 0; i < 8; i++) {
+      useSearchStore.getState().addRecentLocation({ label: `Area ${i}`, coords: null });
+    }
+    const recents = useSearchStore.getState().recentLocations;
+    expect(recents).toHaveLength(6);
+    expect(recents[0].label).toBe('Area 7');
+    expect(recents[5].label).toBe('Area 2');
+  });
+
+  it('clearRecentLocations empties the list', () => {
+    useSearchStore.getState().addRecentLocation({ label: 'Reston, VA', coords: null });
+    useSearchStore.getState().clearRecentLocations();
+    expect(useSearchStore.getState().recentLocations).toEqual([]);
   });
 });
 

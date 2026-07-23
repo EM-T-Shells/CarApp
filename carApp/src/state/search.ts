@@ -9,6 +9,8 @@
 // first. Providers without base coordinates sink to the bottom.
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   ProviderSearchResult,
   ProviderSearchFilters,
@@ -17,6 +19,22 @@ import { searchProviders } from '../lib/supabase/queries';
 import { distanceMiles, geocodeAddress, type LatLng } from '../lib/location';
 
 // ── State Shape ────────────────────────────────────────────────────────
+
+/**
+ * A location the customer previously searched, kept for the picker's "Recent"
+ * list. Coordinates are stored when known (a popular-area tap) so re-selecting
+ * skips the geocode; free-text searches persist with null coords and re-geocode
+ * on next use.
+ */
+export interface RecentLocation {
+  /** Display label / search query, e.g. "Reston, VA". */
+  label: string;
+  /** Resolved coordinates, or null when the label must be geocoded. */
+  coords: LatLng | null;
+}
+
+/** How many recent locations to retain in the picker. */
+const RECENT_LIMIT = 6;
 
 export interface SearchState {
   /** Free-text location query entered in the LocationSearchBar. */
@@ -48,10 +66,31 @@ export interface SearchState {
   /** Error from the most recent discovery fetch, or null on success. */
   featuredError: Error | null;
 
+  /**
+   * Locations the customer recently searched, most-recent first. Persisted
+   * locally so the picker can offer them across sessions.
+   */
+  recentLocations: RecentLocation[];
+
   // ── Mutators ──────────────────────────────────────────────────────
 
   /** Update the location search text (clears the resolved origin). */
   setLocationQuery: (query: string) => void;
+  /**
+   * Set the location query and origin together from a picked suggestion.
+   * Pass `coords` for a place with known coordinates (popular area, current
+   * location) to skip the geocode; omit them for a free-text label that the
+   * next fetch should geocode. An empty label + null coords means "Anywhere".
+   */
+  applyLocationSelection: (label: string, coords?: LatLng | null) => void;
+  /**
+   * Record a searched location at the front of the recents list, de-duplicated
+   * by label (case-insensitive) and capped at RECENT_LIMIT. No-op for a blank
+   * label so "Anywhere" never lands in recents.
+   */
+  addRecentLocation: (entry: RecentLocation) => void;
+  /** Remove all recent locations. */
+  clearRecentLocations: () => void;
   /** Merge partial filter updates into the active filter set. */
   setFilters: (updates: Partial<ProviderSearchFilters>) => void;
   /** Reset filters to their defaults. */
@@ -127,81 +166,9 @@ function sortByDistance(
 
 // ── Store ─────────────────────────────────────────────────────────────
 
-export const useSearchStore = create<SearchState>((set, get) => ({
-  locationQuery: '',
-  origin: null,
-  filters: { ...DEFAULT_FILTERS },
-  results: [],
-  isLoading: false,
-  error: null,
-  featuredDetailers: [],
-  featuredMechanics: [],
-  isLoadingFeatured: false,
-  featuredError: null,
-
-  setLocationQuery: (query) => set({ locationQuery: query, origin: null }),
-
-  setFilters: (updates) =>
-    set((s) => ({ filters: { ...s.filters, ...updates } })),
-
-  resetFilters: () => set({ filters: { ...DEFAULT_FILTERS } }),
-
-  fetchResults: async () => {
-    set({ isLoading: true, error: null });
-    const { filters, locationQuery } = get();
-
-    // Resolve the customer's coordinates once per location change so distances
-    // (and distance sorting) have an origin to measure from.
-    let origin = get().origin;
-    if (origin == null && locationQuery.trim()) {
-      origin = await geocodeAddress(locationQuery.trim());
-      set({ origin });
-    }
-
-    const { data, error } = await searchProviders(filters);
-
-    if (error) {
-      set({ isLoading: false, error, results: [] });
-      return;
-    }
-
-    const annotated = annotateDistances(data, origin);
-    const results =
-      filters.sortBy === 'distance' ? sortByDistance(annotated) : annotated;
-
-    set({ isLoading: false, error: null, results });
-  },
-
-  fetchFeatured: async () => {
-    set({ isLoadingFeatured: true, featuredError: null });
-
-    const [detailers, mechanics] = await Promise.all([
-      searchProviders({
-        providerTypeName: PROVIDER_TYPE_DETAILER,
-        sortBy: 'rating',
-      }),
-      searchProviders({
-        providerTypeName: PROVIDER_TYPE_MECHANIC,
-        sortBy: 'rating',
-      }),
-    ]);
-
-    const error = detailers.error ?? mechanics.error;
-    if (error) {
-      set({ isLoadingFeatured: false, featuredError: error });
-      return;
-    }
-
-    set({
-      isLoadingFeatured: false,
-      featuredError: null,
-      featuredDetailers: (detailers.data ?? []).slice(0, FEATURED_LIMIT),
-      featuredMechanics: (mechanics.data ?? []).slice(0, FEATURED_LIMIT),
-    });
-  },
-
-  reset: () =>
-    set({
+export const useSearchStore = create<SearchState>()(
+  persist(
+    (set, get) => ({
       locationQuery: '',
       origin: null,
       filters: { ...DEFAULT_FILTERS },
@@ -212,8 +179,115 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       featuredMechanics: [],
       isLoadingFeatured: false,
       featuredError: null,
+      recentLocations: [],
+
+      setLocationQuery: (query) => set({ locationQuery: query, origin: null }),
+
+      applyLocationSelection: (label, coords) =>
+        set({ locationQuery: label, origin: coords ?? null }),
+
+      addRecentLocation: (entry) => {
+        const label = entry.label.trim();
+        if (!label) return;
+        set((s) => {
+          const key = label.toLowerCase();
+          const deduped = s.recentLocations.filter(
+            (r) => r.label.toLowerCase() !== key,
+          );
+          return {
+            recentLocations: [{ label, coords: entry.coords }, ...deduped].slice(
+              0,
+              RECENT_LIMIT,
+            ),
+          };
+        });
+      },
+
+      clearRecentLocations: () => set({ recentLocations: [] }),
+
+      setFilters: (updates) =>
+        set((s) => ({ filters: { ...s.filters, ...updates } })),
+
+      resetFilters: () => set({ filters: { ...DEFAULT_FILTERS } }),
+
+      fetchResults: async () => {
+        set({ isLoading: true, error: null });
+        const { filters, locationQuery } = get();
+
+        // Resolve the customer's coordinates once per location change so distances
+        // (and distance sorting) have an origin to measure from.
+        let origin = get().origin;
+        if (origin == null && locationQuery.trim()) {
+          origin = await geocodeAddress(locationQuery.trim());
+          set({ origin });
+        }
+
+        const { data, error } = await searchProviders(filters);
+
+        if (error) {
+          set({ isLoading: false, error, results: [] });
+          return;
+        }
+
+        const annotated = annotateDistances(data, origin);
+        const results =
+          filters.sortBy === 'distance' ? sortByDistance(annotated) : annotated;
+
+        set({ isLoading: false, error: null, results });
+      },
+
+      fetchFeatured: async () => {
+        set({ isLoadingFeatured: true, featuredError: null });
+
+        const [detailers, mechanics] = await Promise.all([
+          searchProviders({
+            providerTypeName: PROVIDER_TYPE_DETAILER,
+            sortBy: 'rating',
+          }),
+          searchProviders({
+            providerTypeName: PROVIDER_TYPE_MECHANIC,
+            sortBy: 'rating',
+          }),
+        ]);
+
+        const error = detailers.error ?? mechanics.error;
+        if (error) {
+          set({ isLoadingFeatured: false, featuredError: error });
+          return;
+        }
+
+        set({
+          isLoadingFeatured: false,
+          featuredError: null,
+          featuredDetailers: (detailers.data ?? []).slice(0, FEATURED_LIMIT),
+          featuredMechanics: (mechanics.data ?? []).slice(0, FEATURED_LIMIT),
+        });
+      },
+
+      reset: () =>
+        set({
+          locationQuery: '',
+          origin: null,
+          filters: { ...DEFAULT_FILTERS },
+          results: [],
+          isLoading: false,
+          error: null,
+          featuredDetailers: [],
+          featuredMechanics: [],
+          isLoadingFeatured: false,
+          featuredError: null,
+          recentLocations: [],
+        }),
     }),
-}));
+    {
+      name: 'carapp.search',
+      storage: createJSONStorage(() => AsyncStorage),
+      // Only the recents list is durable — query, filters, and results are
+      // per-session and recomputed on demand.
+      partialize: (s) => ({ recentLocations: s.recentLocations }),
+    },
+  ),
+);
 
 // ── Selectors ─────────────────────────────────────────────────────────
 

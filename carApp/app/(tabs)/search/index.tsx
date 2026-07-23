@@ -27,9 +27,7 @@ export default function SearchScreen(): React.ReactElement {
   const palette = isDark ? colors.dark : colors.light;
   const router = useRouter();
 
-  const isLoading = useSearchStore((s) => s.isLoading);
   const setFilters = useSearchStore((s) => s.setFilters);
-  const resetFilters = useSearchStore((s) => s.resetFilters);
   const fetchResults = useSearchStore((s) => s.fetchResults);
 
   const featuredDetailers = useSearchStore((s) => s.featuredDetailers);
@@ -42,11 +40,9 @@ export default function SearchScreen(): React.ReactElement {
     void fetchFeatured();
   }, [fetchFeatured]);
 
-  const handleSearch = useCallback(async () => {
-    resetFilters();
-    await fetchResults();
-    router.push('/search/results');
-  }, [resetFilters, fetchResults, router]);
+  const handleOpenLocationPicker = useCallback(() => {
+    router.push('/search/location');
+  }, [router]);
 
   const handleCategoryPress = useCallback(
     async (providerTypeName: string) => {
@@ -85,10 +81,8 @@ export default function SearchScreen(): React.ReactElement {
         <Spacer size="xl" />
 
         <LocationSearchBar
-          onSubmit={handleSearch}
-          placeholder="Enter your address or zip code"
-          showSearchButton
-          loading={isLoading}
+          onPress={handleOpenLocationPicker}
+          placeholder="Where do you need service?"
         />
 
         <Spacer size="2xl" />

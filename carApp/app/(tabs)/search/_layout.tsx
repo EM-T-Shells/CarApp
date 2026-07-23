@@ -23,6 +23,7 @@ export default function SearchLayout(): React.ReactElement {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="location" options={{ headerShown: false }} />
       <Stack.Screen name="results" options={{ title: 'Search Results' }} />
       <Stack.Screen name="provider/[id]" options={{ title: '' }} />
       <Stack.Screen name="book/[providerId]" options={{ title: 'Book' }} />

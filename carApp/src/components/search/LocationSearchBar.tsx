@@ -12,6 +12,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { MapPin, Search, X } from 'lucide-react-native';
+import { Text } from '../ui/Text';
 import { colors, borderRadius, spacing } from '../../design/tokens';
 import { textStyles, fontFamilies } from '../../design/typography';
 import { useSearchStore } from '../../state/search';
@@ -27,6 +28,14 @@ export interface LocationSearchBarProps {
   showSearchButton?: boolean;
   /** Shows a spinner in the embedded search button while a search runs. */
   loading?: boolean;
+  /**
+   * When provided, the bar renders as a non-editable button that calls this on
+   * press (used on the search home to open the location picker) instead of an
+   * editable text field.
+   */
+  onPress?: () => void;
+  /** Autofocus the text field on mount (editable mode only). */
+  autoFocus?: boolean;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -36,6 +45,8 @@ export function LocationSearchBar({
   placeholder = 'Enter your location',
   showSearchButton = false,
   loading = false,
+  onPress,
+  autoFocus = false,
 }: LocationSearchBarProps): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -51,6 +62,43 @@ export function LocationSearchBar({
   const borderColor = isDark
     ? 'rgba(160,160,160,0.35)'
     : 'rgba(119,119,119,0.2)';
+
+  // Button mode — a tappable, non-editable field that defers actual text entry
+  // to the location picker screen.
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[
+          styles.container,
+          {
+            backgroundColor: isDark
+              ? 'rgba(255,255,255,0.06)'
+              : palette.offWhite,
+            borderColor,
+          },
+        ]}
+        accessibilityRole="search"
+        accessibilityLabel="Search by location"
+        accessibilityHint="Opens the location picker"
+      >
+        <MapPin
+          size={20}
+          color={palette.electricBlue}
+          strokeWidth={2}
+          style={styles.icon}
+        />
+        <Text
+          variant="body"
+          color={locationQuery ? 'charcoal' : 'midGray'}
+          numberOfLines={1}
+          style={styles.buttonLabel}
+        >
+          {locationQuery || placeholder}
+        </Text>
+      </Pressable>
+    );
+  }
 
   return (
     <View
@@ -88,6 +136,7 @@ export function LocationSearchBar({
         returnKeyType="search"
         onSubmitEditing={onSubmit}
         autoCorrect={false}
+        autoFocus={autoFocus}
         accessibilityLabel="Location input"
       />
 
@@ -150,6 +199,11 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     includeFontPadding: false,
+  },
+  // Non-editable label shown in button mode; matches the input's vertical rhythm.
+  buttonLabel: {
+    flex: 1,
+    paddingVertical: spacing.sm,
   },
   // WCAG 2.1 AA — 44×44pt minimum touch target.
   clearButton: {

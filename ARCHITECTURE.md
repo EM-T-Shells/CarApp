@@ -71,6 +71,7 @@ CarApp/                                   # Git repo root
     │       ├── _layout.tsx               # 5-tab bar config (Search, Services, Bookings, Inbox, More) 
     │       ├── search/ 
     │       │   ├── index.tsx 
+    │       │   ├── location.tsx             # Location picker overlay (current location / anywhere / recents / popular areas) 
     │       │   ├── results.tsx 
     │       │   ├── provider/[id].tsx 
     │       │   └── book/[providerId].tsx 
@@ -142,7 +143,7 @@ CarApp/                                   # Git repo root
     │   │   └── date.ts                   # ISO string parsing and formatting 
     │   ├── components/ 
     │   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
-    │   │   ├── search/                   # LocationSearchBar, ProviderCard, FiltersSheet 
+    │   │   ├── search/                   # LocationSearchBar, LocationSuggestionRow, ProviderCarousel, ProviderCard, FiltersSheet 
     │   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary, StatusTimeline, ReviewSheet, BookingPhotoGallery 
     │   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
     │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, VettingUploadStep, VettingActionStep, ServiceMenuEditor, EarningsDashboard, JobPhotoCapture 
