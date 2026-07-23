@@ -17,10 +17,12 @@ jest.mock('expo-router', () => ({
 
 const mockRequestPermission = jest.fn();
 const mockGetPosition = jest.fn();
+const mockReverseGeocode = jest.fn();
 jest.mock('expo-location', () => ({
   Accuracy: { Balanced: 3 },
   requestForegroundPermissionsAsync: (...a: unknown[]) => mockRequestPermission(...a),
   getCurrentPositionAsync: (...a: unknown[]) => mockGetPosition(...a),
+  reverseGeocodeAsync: (...a: unknown[]) => mockReverseGeocode(...a),
 }));
 
 // Controllable store state shared across selector calls.
@@ -151,24 +153,53 @@ describe('LocationPickerScreen', () => {
     expect(mockClearRecent).toHaveBeenCalled();
   });
 
-  it('uses the device GPS when permission is granted', async () => {
+  it('uses the device GPS, reverse-geocodes it, and opens the refine overlay', async () => {
     mockRequestPermission.mockResolvedValue({ granted: true });
     mockGetPosition.mockResolvedValue({
       coords: { latitude: 38.9, longitude: -77.2 },
     });
+    mockReverseGeocode.mockResolvedValue([
+      {
+        streetNumber: '6706',
+        street: 'NW 26th Terr',
+        city: 'Gainesville',
+        region: 'FL',
+        postalCode: '32653',
+      },
+    ]);
 
     render(<LocationPickerScreen />);
     fireEvent.press(screen.getByText('Current location'));
 
     await waitFor(() => {
       expect(mockApplySelection).toHaveBeenCalledWith(
-        'Current location',
+        '6706 NW 26th Terr, Gainesville, FL, 32653',
         { latitude: 38.9, longitude: -77.2 },
       );
     });
     // Transient GPS fix is not stored as a recent.
     expect(mockAddRecent).not.toHaveBeenCalled();
-    expect(mockReplace).toHaveBeenCalledWith('/search/results');
+    // Lands on results with the overlay flag so the panel opens on arrival.
+    expect(mockReplace).toHaveBeenCalledWith('/search/results?openSearch=1');
+  });
+
+  it('falls back to a generic label when reverse geocoding fails', async () => {
+    mockRequestPermission.mockResolvedValue({ granted: true });
+    mockGetPosition.mockResolvedValue({
+      coords: { latitude: 38.9, longitude: -77.2 },
+    });
+    mockReverseGeocode.mockRejectedValue(new Error('offline'));
+
+    render(<LocationPickerScreen />);
+    fireEvent.press(screen.getByText('Current location'));
+
+    await waitFor(() => {
+      expect(mockApplySelection).toHaveBeenCalledWith('Current location', {
+        latitude: 38.9,
+        longitude: -77.2,
+      });
+    });
+    expect(mockReplace).toHaveBeenCalledWith('/search/results?openSearch=1');
   });
 
   it('surfaces an inline error when location permission is denied', async () => {

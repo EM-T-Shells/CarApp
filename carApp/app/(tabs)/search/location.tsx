@@ -54,19 +54,49 @@ export default function LocationPickerScreen(): React.ReactElement {
 
   // Apply a selection, remember it (when meaningful), run the search, and hand
   // off to the results list — replacing the picker so Back returns to home.
+  // When `openSearch` is set, the results screen opens the refine overlay on
+  // arrival (used by the "Current location" shortcut).
   const goToResults = useCallback(
     async (
       label: string,
       coords: LatLng | null,
-      { remember }: { remember: boolean } = { remember: true },
+      {
+        remember,
+        openSearch,
+      }: { remember: boolean; openSearch?: boolean } = { remember: true },
     ) => {
       applyLocationSelection(label, coords);
       if (remember && label) addRecentLocation({ label, coords });
       void fetchResults();
-      router.replace('/search/results');
+      router.replace(
+        openSearch ? '/search/results?openSearch=1' : '/search/results',
+      );
     },
     [applyLocationSelection, addRecentLocation, fetchResults, router],
   );
+
+  // Best-effort reverse geocode so the "Where" field shows a readable address
+  // instead of raw coordinates. Falls back to a generic label on failure.
+  const describeCoords = useCallback(async (coords: LatLng): Promise<string> => {
+    try {
+      const [place] = await Location.reverseGeocodeAsync({
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      });
+      if (!place) return 'Current location';
+      const line = [
+        [place.streetNumber, place.street].filter(Boolean).join(' '),
+        place.city,
+        place.region,
+        place.postalCode,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return line || 'Current location';
+    } catch {
+      return 'Current location';
+    }
+  }, []);
 
   const handleCurrentLocation = useCallback(async () => {
     setLocationError(null);
@@ -80,17 +110,18 @@ export default function LocationPickerScreen(): React.ReactElement {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      await goToResults(
-        'Current location',
-        { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
-        { remember: false },
-      );
+      const coords = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      };
+      const label = await describeCoords(coords);
+      await goToResults(label, coords, { remember: false, openSearch: true });
     } catch {
       setLocationError("Couldn't get your location. Try again.");
     } finally {
       setLocating(false);
     }
-  }, [goToResults]);
+  }, [goToResults, describeCoords]);
 
   const handleAnywhere = useCallback(() => {
     // Empty label + no origin → distance-agnostic browse of every provider.
