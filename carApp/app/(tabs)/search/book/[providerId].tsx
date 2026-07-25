@@ -2,8 +2,10 @@
 // Steps: 1. Select services → 2. Vehicle + Address + Schedule → 3. Review & Pay
 //
 // Uses the bookingDraft Zustand store to accumulate state across steps.
-// On confirmation, creates a booking row via mutations.ts, then calls
-// the Stripe Edge Function for the 15% deposit payment intent.
+// On confirmation, creates a booking row via mutations.ts, asks the Stripe
+// Edge Function for a 15% deposit PaymentIntent, then opens Stripe's
+// PaymentSheet to collect the card. If the payment fails or the customer
+// backs out, the booking row is cancelled so no unpaid booking survives.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -37,8 +39,11 @@ import { colors, spacing, borderRadius } from '../../../../src/design/tokens';
 import { centsToDisplay } from '../../../../src/utils/money';
 import { getProviderById } from '../../../../src/lib/supabase/queries';
 import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
-import { insertBooking } from '../../../../src/lib/supabase/mutations';
-import { createDepositPaymentIntent, confirmDepositPayment } from '../../../../src/lib/stripe';
+import { insertBooking, updateBooking } from '../../../../src/lib/supabase/mutations';
+import {
+  createDepositPaymentIntent,
+  presentDepositPaymentSheet,
+} from '../../../../src/lib/stripe';
 import { useAuthStore } from '../../../../src/state/auth';
 import {
   useBookingDraftStore,
@@ -245,6 +250,15 @@ export default function BookProviderScreen(): React.ReactElement {
 
     const booking = bookingResult.data;
 
+    // The booking row exists before the deposit is collected because the Edge
+    // Function needs a booking_id to attach the PaymentIntent to. If the
+    // payment then falls through, unwind it so an unpaid booking never shows
+    // up in the customer's Bookings tab. The webhook is what promotes a paid
+    // booking to pending_provider_approval.
+    const abandonBooking = async () => {
+      await updateBooking(booking.id, { status: 'cancelled' });
+    };
+
     // 2. Create deposit payment intent
     const intentResult = await createDepositPaymentIntent(
       booking.id,
@@ -252,22 +266,31 @@ export default function BookProviderScreen(): React.ReactElement {
     );
 
     if (intentResult.error) {
+      await abandonBooking();
       setIsSubmitting(false);
       Alert.alert('Payment Setup Failed', intentResult.error.message);
       return;
     }
 
-    // 3. Confirm the payment via Stripe SDK
-    const confirmResult = await confirmDepositPayment(
-      intentResult.data.clientSecret,
-    );
+    // 3. Collect the card and confirm the deposit in Stripe's PaymentSheet
+    const payResult = await presentDepositPaymentSheet(intentResult.data);
 
-    setIsSubmitting(false);
-
-    if (confirmResult.error) {
-      Alert.alert('Payment Failed', confirmResult.error.message);
+    if (payResult.error) {
+      await abandonBooking();
+      setIsSubmitting(false);
+      Alert.alert('Payment Failed', payResult.error.message);
       return;
     }
+
+    // Customer dismissed the sheet — drop the booking and stay on the screen
+    // so they can try again without a stray booking left behind.
+    if (payResult.data.canceled) {
+      await abandonBooking();
+      setIsSubmitting(false);
+      return;
+    }
+
+    setIsSubmitting(false);
 
     // Success — navigate to the booking detail screen
     draft.reset();

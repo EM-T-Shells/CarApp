@@ -4,7 +4,8 @@
 //   1. App-invoked actions (via supabase.functions.invoke) — identified by the
 //      absence of a Stripe-Signature header. Currently supports:
 //        • create_deposit_intent — creates a Stripe PaymentIntent for the 15%
-//          deposit and records a pending payment row.
+//          deposit and records a pending payment row. Returns the customer id
+//          and an ephemeral key so the client can open PaymentSheet.
 //        • capture_balance — charges the remaining balance, completes the job,
 //          and transfers the provider's payout to their Connect account.
 //        • refund_deposit — refunds the deposit on a non-forfeit cancellation.
@@ -40,8 +41,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ── Clients ───────────────────────────────────────────────────────────
 
+// Pinned API version — also handed to ephemeralKeys.create so the key the
+// client SDK receives is scoped to the same version this function speaks.
+const STRIPE_API_VERSION = '2023-10-16';
+
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
-  apiVersion: '2023-10-16',
+  apiVersion: STRIPE_API_VERSION,
   httpClient: Stripe.createFetchHttpClient(),
 });
 
@@ -230,8 +235,15 @@ async function createDepositIntent(body: {
       .eq('id', user.id);
   }
 
+  // Ephemeral key — scopes the client SDK to this customer for the life of
+  // the sheet so PaymentSheet can list and save their payment methods.
+  const ephemeralKey = await stripe.ephemeralKeys.create(
+    { customer: stripeCustomerId },
+    { apiVersion: STRIPE_API_VERSION },
+  );
+
   // Create the Stripe PaymentIntent. The client confirms it using the
-  // returned clientSecret via @stripe/stripe-react-native.
+  // returned clientSecret via PaymentSheet in @stripe/stripe-react-native.
   const paymentIntent = await stripe.paymentIntents.create({
     amount,
     currency: 'usd',
@@ -271,6 +283,9 @@ async function createDepositIntent(body: {
     JSON.stringify({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
+      // PaymentSheet needs the customer + ephemeral key alongside the intent.
+      customerId: stripeCustomerId,
+      ephemeralKeySecret: ephemeralKey.secret,
     }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   );

@@ -1,6 +1,6 @@
 import {
   createDepositPaymentIntent,
-  confirmDepositPayment,
+  presentDepositPaymentSheet,
   captureBalance,
   acceptBooking,
   declineBooking,
@@ -23,15 +23,19 @@ jest.mock('../../supabase/client', () => ({
 
 // ── Mock @stripe/stripe-react-native ──────────────────────────────────
 
-const mockConfirmPayment = jest.fn();
+const mockInitPaymentSheet = jest.fn();
+const mockPresentPaymentSheet = jest.fn();
 
 jest.mock('@stripe/stripe-react-native', () => ({
-  confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
+  initPaymentSheet: (...args: unknown[]) => mockInitPaymentSheet(...args),
+  presentPaymentSheet: (...args: unknown[]) => mockPresentPaymentSheet(...args),
+  PaymentSheetError: { Canceled: 'Canceled', Failed: 'Failed' },
 }));
 
 beforeEach(() => {
   mockInvoke.mockReset();
-  mockConfirmPayment.mockReset();
+  mockInitPaymentSheet.mockReset();
+  mockPresentPaymentSheet.mockReset();
 });
 
 describe('createDepositPaymentIntent', () => {
@@ -57,6 +61,28 @@ describe('createDepositPaymentIntent', () => {
     expect(result.data).toEqual({
       clientSecret: 'pi_secret_abc',
       paymentIntentId: 'pi_abc',
+    });
+  });
+
+  it('passes through the customer id and ephemeral key for PaymentSheet', async () => {
+    mockInvoke.mockResolvedValue({
+      data: {
+        clientSecret: 'pi_secret_abc',
+        paymentIntentId: 'pi_abc',
+        customerId: 'cus_123',
+        ephemeralKeySecret: 'ek_secret_123',
+      },
+      error: null,
+    });
+
+    const result = await createDepositPaymentIntent('booking-1', 1500);
+
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual({
+      clientSecret: 'pi_secret_abc',
+      paymentIntentId: 'pi_abc',
+      customerId: 'cus_123',
+      ephemeralKeySecret: 'ek_secret_123',
     });
   });
 
@@ -97,35 +123,105 @@ describe('createDepositPaymentIntent', () => {
   });
 });
 
-describe('confirmDepositPayment', () => {
-  it('returns true on successful payment confirmation', async () => {
-    mockConfirmPayment.mockResolvedValue({ error: null });
+describe('presentDepositPaymentSheet', () => {
+  const intent = {
+    clientSecret: 'pi_secret_abc',
+    paymentIntentId: 'pi_abc',
+  };
 
-    const result = await confirmDepositPayment('pi_secret_abc');
+  const intentWithCustomer = {
+    ...intent,
+    customerId: 'cus_123',
+    ephemeralKeySecret: 'ek_secret_123',
+  };
 
-    expect(mockConfirmPayment).toHaveBeenCalledWith('pi_secret_abc', {
-      paymentMethodType: 'Card',
-    });
+  it('initialises the sheet with the client secret and confirms on success', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({ error: null });
+
+    const result = await presentDepositPaymentSheet(intent);
+
+    expect(mockInitPaymentSheet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchantDisplayName: 'CarApp',
+        paymentIntentClientSecret: 'pi_secret_abc',
+        allowsDelayedPaymentMethods: false,
+        returnURL: 'carapp://stripe-redirect',
+      }),
+    );
+    expect(mockPresentPaymentSheet).toHaveBeenCalled();
     expect(result.error).toBeNull();
-    expect(result.data).toBe(true);
+    expect(result.data).toEqual({ canceled: false });
   });
 
-  it('returns error when Stripe SDK returns a payment error', async () => {
-    mockConfirmPayment.mockResolvedValue({
-      error: { message: 'Your card was declined.' },
+  it('passes customer and ephemeral key through when the server supplies both', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({ error: null });
+
+    await presentDepositPaymentSheet(intentWithCustomer);
+
+    expect(mockInitPaymentSheet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'cus_123',
+        customerEphemeralKeySecret: 'ek_secret_123',
+      }),
+    );
+  });
+
+  it('omits the customer pair when the server sends only one half', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({ error: null });
+
+    await presentDepositPaymentSheet({ ...intent, customerId: 'cus_123' });
+
+    const params = mockInitPaymentSheet.mock.calls[0][0] as Record<string, unknown>;
+    expect(params).not.toHaveProperty('customerId');
+    expect(params).not.toHaveProperty('customerEphemeralKeySecret');
+  });
+
+  it('reports cancellation as a non-error outcome', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({
+      error: { code: 'Canceled', message: 'The payment flow was canceled' },
     });
 
-    const result = await confirmDepositPayment('pi_secret_abc');
+    const result = await presentDepositPaymentSheet(intent);
+
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual({ canceled: true });
+  });
+
+  it('returns an error when the sheet fails to initialise', async () => {
+    mockInitPaymentSheet.mockResolvedValue({
+      error: { message: 'No publishable key set' },
+    });
+
+    const result = await presentDepositPaymentSheet(intent);
+
+    expect(mockPresentPaymentSheet).not.toHaveBeenCalled();
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error!.message).toBe('No publishable key set');
+  });
+
+  it('returns an error when the card is declined', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({
+      error: { code: 'Failed', message: 'Your card was declined.' },
+    });
+
+    const result = await presentDepositPaymentSheet(intent);
 
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error!.message).toBe('Your card was declined.');
   });
 
-  it('returns a generic error when SDK error has no message', async () => {
-    mockConfirmPayment.mockResolvedValue({ error: {} });
+  it('returns a generic error when the SDK error has no message', async () => {
+    mockInitPaymentSheet.mockResolvedValue({ error: null });
+    mockPresentPaymentSheet.mockResolvedValue({ error: { code: 'Failed' } });
 
-    const result = await confirmDepositPayment('pi_secret_abc');
+    const result = await presentDepositPaymentSheet(intent);
 
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -133,9 +229,9 @@ describe('confirmDepositPayment', () => {
   });
 
   it('handles exceptions thrown by the Stripe SDK', async () => {
-    mockConfirmPayment.mockRejectedValue(new Error('SDK not initialised'));
+    mockInitPaymentSheet.mockRejectedValue(new Error('SDK not initialised'));
 
-    const result = await confirmDepositPayment('pi_secret_abc');
+    const result = await presentDepositPaymentSheet(intent);
 
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -143,9 +239,9 @@ describe('confirmDepositPayment', () => {
   });
 
   it('wraps non-Error exceptions in an Error object', async () => {
-    mockConfirmPayment.mockRejectedValue('unexpected string throw');
+    mockInitPaymentSheet.mockRejectedValue('unexpected string throw');
 
-    const result = await confirmDepositPayment('pi_secret_abc');
+    const result = await presentDepositPaymentSheet(intent);
 
     expect(result.data).toBeNull();
     expect(result.error).toBeInstanceOf(Error);

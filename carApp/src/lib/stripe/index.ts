@@ -5,15 +5,26 @@
 // Flow:
 //   1. createDepositPaymentIntent — called when customer confirms booking.
 //      Returns a client secret for the 15% deposit charge.
-//   2. confirmPayment — wraps @stripe/stripe-react-native's confirmPayment
-//      using the client secret.
+//   2. presentDepositPaymentSheet — opens Stripe's PaymentSheet against that
+//      client secret to collect the card and confirm the charge.
 //   3. captureBalance — invoked when a provider marks a job complete (Flow 5.6).
 //      Triggers the Edge Function to charge the customer's saved card for the
 //      remaining 85% off-session; no card entry happens on the provider side.
 //   4. refundDeposit — refunds the deposit on a non-forfeit cancellation.
 
-import { confirmPayment as stripeConfirmPayment } from '@stripe/stripe-react-native';
+import {
+  initPaymentSheet,
+  presentPaymentSheet,
+  PaymentSheetError,
+} from '@stripe/stripe-react-native';
 import { supabase } from '../supabase/client';
+
+// Shown as the merchant name in the Stripe payment sheet.
+const MERCHANT_DISPLAY_NAME = 'CarApp';
+
+// Where Stripe returns after an out-of-app redirect (3D Secure). Must match
+// the `scheme` in app.json.
+const PAYMENT_RETURN_URL = 'carapp://stripe-redirect';
 
 // ── Result Types ──────────────────────────────────────────────────────
 
@@ -26,6 +37,14 @@ export type StripeResult<T> =
 export interface CreatePaymentIntentResponse {
   clientSecret: string;
   paymentIntentId: string;
+  /**
+   * Customer + ephemeral key power the saved-card list in PaymentSheet. Both
+   * are optional: the sheet takes a card without them, and the PaymentIntent
+   * already carries `customer` + `setup_future_usage` server-side, so the card
+   * is stored for balance capture either way.
+   */
+  customerId?: string;
+  ephemeralKeySecret?: string;
 }
 
 // ── Create Deposit Payment Intent ─────────────────────────────────────
@@ -78,31 +97,68 @@ export async function createDepositPaymentIntent(
   }
 }
 
-// ── Confirm Payment (client-side) ─────────────────────────────────────
+// ── Collect + Confirm Deposit (client-side) ───────────────────────────
+
+export interface DepositPaymentOutcome {
+  /**
+   * True when the customer dismissed the sheet without paying. This is a
+   * normal outcome, not an error — callers should unwind the booking quietly
+   * rather than showing a failure alert.
+   */
+  canceled: boolean;
+}
 
 /**
- * Wraps the @stripe/stripe-react-native confirmPayment call.
- * Must be called inside a <StripeProvider> context.
+ * Opens Stripe's PaymentSheet to collect card details and confirm the deposit
+ * PaymentIntent. Must be called inside a <StripeProvider> context, which
+ * requires EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY to be set.
  *
- * @param clientSecret — From createDepositPaymentIntent result.
- * @returns True on success, or an error.
+ * Replaces the old bare `confirmPayment` call, which assumed a mounted
+ * CardField and always failed with "Card details not complete" because the
+ * app never rendered one.
+ *
+ * @param intent — The createDepositPaymentIntent result.
  */
-export async function confirmDepositPayment(
-  clientSecret: string,
-): Promise<StripeResult<true>> {
+export async function presentDepositPaymentSheet(
+  intent: CreatePaymentIntentResponse,
+): Promise<StripeResult<DepositPaymentOutcome>> {
   try {
-    const { error } = await stripeConfirmPayment(clientSecret, {
-      paymentMethodType: 'Card',
+    const { error: initError } = await initPaymentSheet({
+      merchantDisplayName: MERCHANT_DISPLAY_NAME,
+      paymentIntentClientSecret: intent.clientSecret,
+      // Only pass the customer pair when the server supplied both, otherwise
+      // Stripe rejects a half-configured customer.
+      ...(intent.customerId && intent.ephemeralKeySecret
+        ? {
+            customerId: intent.customerId,
+            customerEphemeralKeySecret: intent.ephemeralKeySecret,
+          }
+        : {}),
+      // Deposits must clear now — the booking hinges on the payment landing.
+      allowsDelayedPaymentMethods: false,
+      returnURL: PAYMENT_RETURN_URL,
     });
 
-    if (error) {
+    if (initError) {
       return {
         data: null,
-        error: new Error(error.message ?? 'Payment confirmation failed'),
+        error: new Error(initError.message ?? 'Could not start checkout'),
       };
     }
 
-    return { data: true, error: null };
+    const { error: presentError } = await presentPaymentSheet();
+
+    if (presentError) {
+      if (presentError.code === PaymentSheetError.Canceled) {
+        return { data: { canceled: true }, error: null };
+      }
+      return {
+        data: null,
+        error: new Error(presentError.message ?? 'Payment confirmation failed'),
+      };
+    }
+
+    return { data: { canceled: false }, error: null };
   } catch (err) {
     return {
       data: null,
