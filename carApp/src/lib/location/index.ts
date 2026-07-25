@@ -22,6 +22,14 @@ export interface LatLng {
   longitude: number;
 }
 
+/** A react-native-maps region: a center point plus the visible span. */
+export interface MapRegion {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+}
+
 // ─── Conversions ───────────────────────────────────────────────────────
 
 function toRadians(deg: number): number {
@@ -146,6 +154,42 @@ export function regionForPoints(
   );
 
   return { latitude, longitude, latitudeDelta, longitudeDelta };
+}
+
+/**
+ * Returns a region that comfortably fits an arbitrary set of points, used to
+ * frame every provider pin (and the customer's origin) on the search map. The
+ * span is the bounding box of the points scaled by `paddingFactor` so pins are
+ * not flush against the map edge, with a small floor (`minDelta`) so a single
+ * point — or a tight cluster — is not over-zoomed. Returns null for an empty
+ * list so callers can fall back to a default region.
+ */
+export function regionForCoordinates(
+  points: LatLng[],
+  paddingFactor = 1.4,
+): MapRegion | null {
+  if (points.length === 0) return null;
+
+  let minLat = points[0].latitude;
+  let maxLat = points[0].latitude;
+  let minLng = points[0].longitude;
+  let maxLng = points[0].longitude;
+
+  for (const p of points) {
+    if (p.latitude < minLat) minLat = p.latitude;
+    if (p.latitude > maxLat) maxLat = p.latitude;
+    if (p.longitude < minLng) minLng = p.longitude;
+    if (p.longitude > maxLng) maxLng = p.longitude;
+  }
+
+  const minDelta = 0.02; // ~1.4km floor so lone/clustered pins aren't over-zoomed.
+
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: Math.max((maxLat - minLat) * paddingFactor, minDelta),
+    longitudeDelta: Math.max((maxLng - minLng) * paddingFactor, minDelta),
+  };
 }
 
 // ─── Geocoding ─────────────────────────────────────────────────────────

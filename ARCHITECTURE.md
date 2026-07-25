@@ -144,7 +144,7 @@ CarApp/                                   # Git repo root
     │   │   └── date.ts                   # ISO string parsing and formatting 
     │   ├── components/ 
     │   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
-    │   │   ├── search/                   # LocationSearchBar, LocationSuggestionRow, ProviderCarousel, ProviderCard, FiltersSheet 
+    │   │   ├── search/                   # LocationSearchBar, LocationSuggestionRow, ProviderCarousel, ProviderCard, ProvidersMap, FiltersSheet 
     │   │   ├── booking/                  # DateTimePicker, AddressPicker, PriceBreakdown, DepositSummary, StatusTimeline, ReviewSheet, BookingPhotoGallery 
     │   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
     │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, VettingUploadStep, VettingActionStep, ServiceMenuEditor, EarningsDashboard, JobPhotoCapture 

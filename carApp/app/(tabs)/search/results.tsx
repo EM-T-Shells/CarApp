@@ -15,11 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SlidersHorizontal, MapPin } from 'lucide-react-native';
+import { SlidersHorizontal, MapPin, Map as MapIcon, List as ListIcon } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { ProviderCard } from '../../../src/components/search/ProviderCard';
+import { ProvidersMap } from '../../../src/components/search/ProvidersMap';
 import { FiltersSheet } from '../../../src/components/search/FiltersSheet';
 import { SearchOverlay } from '../../../src/components/search/SearchOverlay';
 import { colors, spacing, borderRadius } from '../../../src/design/tokens';
@@ -41,6 +42,7 @@ export default function ResultsScreen(): React.ReactElement {
   const isLoading = useSearchStore((s) => s.isLoading);
   const error = useSearchStore((s) => s.error);
   const locationQuery = useSearchStore((s) => s.locationQuery);
+  const origin = useSearchStore((s) => s.origin);
   const fetchResults = useSearchStore((s) => s.fetchResults);
   const activeFilterCount = useSearchStore(selectActiveFilterCount);
 
@@ -48,6 +50,8 @@ export default function ResultsScreen(): React.ReactElement {
   // Open the refine overlay automatically when arriving from "Current location".
   const [overlayVisible, setOverlayVisible] = useState(() => openSearch === '1');
   const [serviceDate, setServiceDate] = useState<Date | null>(null);
+  // List ⇄ map toggle for the results (see the floating Map/List pill below).
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
   // Consume the openSearch flag: open the overlay and strip the param so it
   // does not linger and re-trigger on later re-renders. Also covers the case
@@ -232,17 +236,48 @@ export default function ResultsScreen(): React.ReactElement {
           </Pressable>
         </View>
 
-        <FlatList
-          data={results}
-          renderItem={renderItem}
-          keyExtractor={keyExtractor}
-          contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <Spacer size="md" />}
-          showsVerticalScrollIndicator={false}
-        />
+        {viewMode === 'map' ? (
+          <ProvidersMap
+            providers={results}
+            origin={origin}
+            onSelectProvider={handleProviderPress}
+          />
+        ) : (
+          <FlatList
+            data={results}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContent}
+            ItemSeparatorComponent={() => <Spacer size="md" />}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
       </>
     );
   }
+
+  // Turo-style floating pill to flip between the list and the map. Only shown
+  // once there are results to plot; centered above the bottom tab bar.
+  const viewToggle =
+    !isLoading && !error && results.length > 0 ? (
+      <Pressable
+        onPress={() => setViewMode((m) => (m === 'list' ? 'map' : 'list'))}
+        style={[styles.viewToggle, { backgroundColor: palette.deepIndigo }]}
+        accessibilityRole="button"
+        accessibilityLabel={
+          viewMode === 'list' ? 'Show results on a map' : 'Show results as a list'
+        }
+      >
+        {viewMode === 'list' ? (
+          <MapIcon size={18} color={palette.offWhite} strokeWidth={2} />
+        ) : (
+          <ListIcon size={18} color={palette.offWhite} strokeWidth={2} />
+        )}
+        <Text variant="label" style={{ color: palette.offWhite }}>
+          {viewMode === 'list' ? 'Map' : 'List'}
+        </Text>
+      </Pressable>
+    ) : null;
 
   return (
     <SafeAreaView
@@ -251,6 +286,7 @@ export default function ResultsScreen(): React.ReactElement {
     >
       {searchPill}
       {body}
+      {viewToggle}
 
       <FiltersSheet
         visible={filtersVisible}
@@ -309,5 +345,25 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.base,
     paddingTop: spacing.sm,
+    // Clear the floating Map/List pill so the last card isn't hidden behind it.
+    paddingBottom: spacing['5xl'] + spacing.md,
+  },
+  viewToggle: {
+    position: 'absolute',
+    bottom: spacing.xl,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.button,
+    minHeight: 44,
+    // Raise the pill above the map/list so it reads as a floating control.
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
 });
