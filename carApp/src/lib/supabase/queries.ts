@@ -195,6 +195,15 @@ const PROVIDER_DETAIL_SELECT = `*,
   provider_types(id, name, label),
   service_packages(*)`
 
+// Same shape as PROVIDER_SEARCH_SELECT but with an inner join on
+// service_packages so a provider is only returned when it has at least one
+// matching offering. The embedded rows are filtered (and thus the provider
+// gated) by the eq() calls on service_packages.* in getProvidersByService.
+const PROVIDERS_BY_SERVICE_SELECT = `*,
+  users:users_public(id, full_name, avatar_url),
+  provider_types(id, name, label),
+  service_packages!inner(id, catalog_id, is_active, is_approved)`
+
 export function searchProviders(
   filters: ProviderSearchFilters = {},
 ): Promise<QueryResult<ProviderSearchResult[]>> {
@@ -219,6 +228,26 @@ export function searchProviders(
     .returns<ProviderSearchResult[]>()
 
   return runList<ProviderSearchResult>(finalQuery)
+}
+
+// Approved providers who offer a specific catalog service — i.e. that have an
+// active, approved service_packages row referencing `catalogId`. Reuses the
+// ProviderSearchResult shape so results render with the shared ProviderCard.
+// Sorted highest-rated first (no customer origin here, so no distance sort).
+export function getProvidersByService(
+  catalogId: string,
+): Promise<QueryResult<ProviderSearchResult[]>> {
+  return runList<ProviderSearchResult>(
+    supabase
+      .from('provider_profiles')
+      .select(PROVIDERS_BY_SERVICE_SELECT)
+      .eq('verification_status', 'approved')
+      .eq('service_packages.catalog_id', catalogId)
+      .eq('service_packages.is_active', true)
+      .eq('service_packages.is_approved', true)
+      .order('avg_gear_rating', { ascending: false })
+      .returns<ProviderSearchResult[]>(),
+  )
 }
 
 export function getProviderById(

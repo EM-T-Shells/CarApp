@@ -17,6 +17,15 @@ export type BookProviderParams = {
   providerId: string;
 };
 
+// ── Services ──────────────────────────────────────────────────────────
+
+/** (tabs)/services/[catalogId].tsx — providers offering a catalog service */
+export type ServiceProvidersParams = {
+  catalogId: string;
+  /** Service name, passed through for the screen header. */
+  name?: string;
+};
+
 // ── Bookings ──────────────────────────────────────────────────────────
 
 /** (tabs)/bookings/[id].tsx */

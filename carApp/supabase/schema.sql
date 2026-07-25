@@ -376,9 +376,9 @@ WITH seed_data(name, category, type_name) AS (
     ('Ceramic Coating',         'detailing',  'DETAILER'),
     ('Headlight Restoration',   'detailing',  'DETAILER'),
     ('Engine Bay Cleaning',     'detailing',  'DETAILER'),
-    ('Pet Hair Removal',        'addon',      'DETAILER'),
-    ('Odor Removal',            'addon',      'DETAILER'),
-    ('Leather Conditioning',    'addon',      'DETAILER'),
+    ('Pet Hair Removal',        'detailing',  'DETAILER'),
+    ('Odor Removal',            'detailing',  'DETAILER'),
+    ('Leather Conditioning',    'detailing',  'DETAILER'),
     ('Oil Change',              'mechanical', 'MECHANIC'),
     ('Tire Rotation',           'mechanical', 'MECHANIC'),
     ('Brake Pad Replacement',   'mechanical', 'MECHANIC'),
@@ -391,8 +391,8 @@ WITH seed_data(name, category, type_name) AS (
     ('Wiper Blade Replacement', 'mechanical', 'MECHANIC'),
     ('Headlight Bulb Replacement','mechanical','MECHANIC'),
     ('Pre-Purchase Inspection', 'mechanical', 'MECHANIC'),
-    ('Fluid Top-Up',            'addon',      'MECHANIC'),
-    ('Tire Pressure Check',     'addon',      'MECHANIC')
+    ('Fluid Top-Up',            'mechanical', 'MECHANIC'),
+    ('Tire Pressure Check',     'mechanical', 'MECHANIC')
 )
 INSERT INTO service_catalog (name, category, provider_type_id, is_active)
 SELECT s.name, s.category, pt.id, TRUE

@@ -51,6 +51,7 @@ import {
   searchProviders,
   getProviderById,
   getProviderByUserId,
+  getProvidersByService,
   getServiceCatalog,
   getServicePackagesByProvider,
   getBookingById,
@@ -258,6 +259,35 @@ describe('getProviderByUserId', () => {
     expect(result.error).toBeNull()
     expect(builder.eq).toHaveBeenCalledWith('user_id', 'u1')
     expect(builder.maybeSingle).toHaveBeenCalled()
+  })
+})
+
+describe('getProvidersByService', () => {
+  it('returns approved providers with an active, approved package for the catalog id', async () => {
+    const builder = makeBuilder({ data: [], error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await getProvidersByService('cat-1')
+
+    expect(mockFrom).toHaveBeenCalledWith('provider_profiles')
+    expect(builder.eq).toHaveBeenCalledWith('verification_status', 'approved')
+    expect(builder.eq).toHaveBeenCalledWith('service_packages.catalog_id', 'cat-1')
+    expect(builder.eq).toHaveBeenCalledWith('service_packages.is_active', true)
+    expect(builder.eq).toHaveBeenCalledWith('service_packages.is_approved', true)
+    expect(builder.order).toHaveBeenCalledWith('avg_gear_rating', {
+      ascending: false,
+    })
+  })
+
+  it('returns error when supabase returns an error', async () => {
+    const dbError = new Error('DB down')
+    const builder = makeBuilder({ data: null, error: dbError })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await getProvidersByService('cat-1')
+
+    expect(result.data).toBeNull()
+    expect(result.error).toBe(dbError)
   })
 })
 

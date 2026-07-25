@@ -76,7 +76,8 @@ CarApp/                                   # Git repo root
     │       │   ├── provider/[id].tsx 
     │       │   └── book/[providerId].tsx 
     │       ├── services/ 
-    │       │   └── index.tsx 
+    │       │   ├── index.tsx                # Catalog browse (Detailing / Mechanical); tap a service → provider list 
+    │       │   └── [catalogId].tsx          # Providers offering the tapped service (getProvidersByService → ProviderCard) 
     │       ├── bookings/                 # Customer bookings only (provider jobs live in (provider-tabs)) 
     │       │   ├── index.tsx 
     │       │   ├── past.tsx 
