@@ -94,6 +94,16 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
+// Turn a thrown Stripe error into a typed response instead of letting it
+// bubble to the top-level catch, where the client only sees "Edge Function
+// returned a non-2xx status code" with no clue what went wrong. Stripe's own
+// message ("No such customer: cus_…") is the useful part, so pass it through.
+function stripeError(context: string, err: unknown): Response {
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`${context}: ${detail}`);
+  return jsonResponse({ error: `${context}: ${detail}` }, 502);
+}
+
 // Fire-and-forget invocation of a notify-* Edge Function. Pushes are
 // best-effort, so a failure here must never roll back the payment / booking
 // writes that triggered it.
@@ -219,13 +229,17 @@ async function createDepositIntent(body: {
 
   // Create a Stripe customer on first payment.
   if (!stripeCustomerId) {
-    const customer = await stripe.customers.create({
-      email: user.email ?? undefined,
-      name: user.full_name ?? undefined,
-      metadata: { supabase_user_id: user.id },
-    });
+    try {
+      const customer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        name: user.full_name ?? undefined,
+        metadata: { supabase_user_id: user.id },
+      });
 
-    stripeCustomerId = customer.id;
+      stripeCustomerId = customer.id;
+    } catch (err) {
+      return stripeError('Could not create the Stripe customer', err);
+    }
 
     await supabase
       .from('users')
@@ -235,26 +249,43 @@ async function createDepositIntent(body: {
 
   // Ephemeral key — scopes the client SDK to this customer for the life of
   // the sheet so PaymentSheet can list and save their payment methods.
-  const ephemeralKey = await stripe.ephemeralKeys.create(
-    { customer: stripeCustomerId },
-    { apiVersion: STRIPE_API_VERSION },
-  );
+  let ephemeralKey: Stripe.EphemeralKey;
+  let paymentIntent: Stripe.PaymentIntent;
 
-  // Create the Stripe PaymentIntent. The client confirms it using the
-  // returned clientSecret via PaymentSheet in @stripe/stripe-react-native.
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount,
-    currency: 'usd',
-    customer: stripeCustomerId,
-    automatic_payment_methods: { enabled: true },
-    // Save the card so the remaining 85% balance can be charged off-session
-    // when the provider completes the job (Flow 5.6 capture_balance).
-    setup_future_usage: 'off_session',
-    metadata: {
-      booking_id,
-      payment_type: 'deposit',
-    },
-  });
+  try {
+    ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: stripeCustomerId },
+      { apiVersion: STRIPE_API_VERSION },
+    );
+
+    // Create the Stripe PaymentIntent. The client confirms it using the
+    // returned clientSecret via PaymentSheet in @stripe/stripe-react-native.
+    paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency: 'usd',
+      customer: stripeCustomerId,
+      // Cards only — deliberately NOT automatic_payment_methods. The deposit
+      // is 15%; the remaining 85% is charged off-session by capture_balance
+      // when the provider completes the job. Klarna cannot be reused
+      // off-session at all, and ACH / Amazon Pay are unreliable or too slow
+      // for it, so a non-card deposit would book fine and then strand the
+      // provider's balance. Apple Pay, Google Pay and Link are card-backed
+      // and still appear in the sheet under 'card'.
+      payment_method_types: ['card'],
+      // Save the card so the remaining 85% balance can be charged off-session
+      // when the provider completes the job (Flow 5.6 capture_balance).
+      setup_future_usage: 'off_session',
+      metadata: {
+        booking_id,
+        payment_type: 'deposit',
+      },
+    });
+  } catch (err) {
+    // Surface the real Stripe message. A stale users.stripe_customer_id left
+    // over from a rotated key lands here as "No such customer"; without this
+    // the client only ever saw an opaque non-2xx.
+    return stripeError('Could not start the deposit payment', err);
+  }
 
   // Record a pending payment row. Status is updated to 'succeeded' or
   // 'failed' when the payment_intent webhook event fires.
