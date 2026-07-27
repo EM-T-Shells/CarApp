@@ -40,6 +40,11 @@ Never hardcode secrets. `EXPO_PUBLIC_*` vars are bundled into the client — onl
 - **App** (`/.env.local`): `EXPO_PUBLIC_SUPABASE_URL/KEY`, `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, Firebase vars — see `.env.example`
 - **Edge Functions** (`supabase secrets set`): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKR_API_KEY/SECRET`, `PERSONA_API_KEY/SECRET`, `ANTHROPIC_API_KEY`, `REDIS_URL`
 - **Stripe secret keys must never carry `EXPO_PUBLIC_`** — reference via `Deno.env.get('STRIPE_SECRET_KEY')` in Edge Functions only.
+- **Stripe is on TEST keys** (`pk_test_…` / `sk_test_…`). The publishable key in `.env.local` and the `STRIPE_SECRET_KEY` in Supabase secrets **must belong to the same Stripe account and mode**, or the client secret is rejected with *"does not match any associated PaymentIntent on this account."* Env vars are inlined at bundle time — restart with `npx expo start -c` after changing `.env.local`.
+- **Rotating Stripe keys orphans `users.stripe_customer_id`.** Those `cus_…` values only exist in the account that created them; after a key/account change, `paymentIntents.create({ customer })` throws `resource_missing` and the deposit call 500s. Fix by nulling the stale column — the Edge Function recreates the customer on next use:
+  ```sql
+  update users set stripe_customer_id = null where stripe_customer_id is not null;
+  ```
 - `.mcp.json` is gitignored and configures the **hosted Supabase MCP** (`type: http`, `url: https://mcp.supabase.com/mcp?project_ref=…`). It holds **no token** — auth is OAuth via `/mcp` (interactive Claude Code), cached per machine. Nothing secret lives in this file; never commit it regardless.
 
 ---
@@ -98,7 +103,8 @@ Deno runtime — use Deno import syntax, never `require()`. Secrets via `Deno.en
 
 | Function | Trigger | Purpose |
 |---|---|---|
-| `stripe-webhook` | Stripe event + app invocation | Webhook verification + all payment actions: deposit intent, balance capture, refunds, accept/decline, cancel (customer/provider), no-show, expire-pending, Connect onboarding/status, payout transfers |
+| `stripe-webhook` | App invocation only (`verify_jwt: true`) | All payment actions: deposit intent, balance capture, refunds, accept/decline, cancel (customer/provider), no-show, expire-pending, Connect onboarding/status, payout transfers. **Handles no Stripe webhooks** — see `stripe-events`. |
+| `stripe-events` | Stripe webhook delivery (`verify_jwt: false`) | Receives `payment_intent.succeeded` / `payment_intent.payment_failed`. Authenticated by verifying `Stripe-Signature` against `STRIPE_WEBHOOK_SECRET`; unsigned requests are refused. Marks payments succeeded/failed and opens the provider-approval window. |
 | `admin-review-provider` | Admin panel invocation | Service-role approve/reject of a provider (re-verifies admin, sets `verification_status`, emails via Resend) |
 | `update-provider-location` | Provider GPS post | Verifies ownership, upserts `provider_location_cache` (Flow 5.4) |
 | `checkr-webhook` | Checkr event | Background check status update (stub — awaits `CHECKR_API_KEY`) |
@@ -150,7 +156,9 @@ Deferred to post-MVP. On failure: show error state + retry action. No offline qu
 - **Roles & active mode**: All users default to Customer (`users.role`: `customer` | `provider` | `both`). Provider mode is opt-in, requires full vetting before first booking. `activeMode` (persisted client-side in `src/state/mode.ts`, `customer` | `provider`) decides which dashboard a **dual-role (`both`)** user sees; it is only consulted for `both` accounts — pure `customer` → `(tabs)`, pure approved `provider` → `(provider-tabs)`. Only `both` users see the "Switch to Provider/Customer Dashboard" control (customer More hub ⇄ provider More hub), which flips `activeMode` and `router.replace`s into the other group.
 - **Service snapshots**: Services snapshotted as JSONB at booking — provider edits don't affect existing bookings.
 - **Content moderation**: All outbound messages run through `containsFlaggedContent()` in `validators.ts` before insert. Flagged content **blocks the send** — `insertMessage()` throws `FlaggedContentError` and never inserts; the thread screen shows an inline warning and preserves the draft to edit. (Legacy `is_flagged` bubble styling only renders pre-existing flagged rows.)
-- **Deposit**: 15% at booking, remainder captured on completion.
+- **Deposit**: 15% at booking, remainder captured on completion. The card is collected in Stripe's **PaymentSheet** via `presentDepositPaymentSheet()` — the app renders **no card inputs of its own**; never add a `CardField`/`CardForm`. The deposit PaymentIntent sets `customer` + `setup_future_usage: 'off_session'` so `capture_balance` can charge the saved card later with nobody present.
+- **Booking-before-payment**: `create_deposit_intent` needs a `booking_id`, so the booking row is inserted *before* the deposit is collected. The booking screen must cancel that row when the intent fails, the card declines, or the sheet is dismissed — otherwise unpaid bookings show as scheduled. Only `stripe-events` moves a booking `pending → pending_provider_approval`; **the client never asserts paid state**.
+- **Stripe webhook auth**: Stripe deliveries go to `stripe-events` (`verify_jwt: false`, signature-authenticated), never to `stripe-webhook`. Stripe cannot attach a Supabase JWT, so a JWT-verified endpoint 401s every delivery before the handler runs. Do **not** flip `verify_jwt` off on `stripe-webhook` to "fix" this: it does service-role writes with no in-code caller authentication, so that would make `cancel_booking`, `mark_no_show` and `refund_deposit` anonymously callable.
 - **Cancellation policy** (server-enforced in `stripe-webhook`; the client never decides the refund amount): customer cancels ≤24h → $15 flat late-cancel fee retained, remainder of deposit refunded (>24h → full refund); provider cancels ≤24h → full customer refund + $25 penalty recorded on the booking; customer no-show → provider marks No Show, customer forfeits the full amount.
 - **Fees**: Provider standard platform fee is **3%** (`0.030`). Founding Providers (first 100 approved) pay **0% for 90 days**, then auto-convert to 3% via a daily sweep. Customer 2% at checkout.
 - **Vetting**: 6 steps required before `verification_status = approved`.
