@@ -1,8 +1,15 @@
 // stripe-webhook Edge Function
 //
-// Handles two types of inbound requests:
-//   1. App-invoked actions (via supabase.functions.invoke) — identified by the
-//      absence of a Stripe-Signature header. Currently supports:
+// App-invoked payment actions (via supabase.functions.invoke). Deployed with
+// verify_jwt: true — Supabase rejects unauthenticated callers before any of
+// the service-role work below runs.
+//
+// Stripe's own webhook deliveries do NOT arrive here. They go to the
+// stripe-events function, which is deployed with verify_jwt: false (Stripe
+// cannot attach a Supabase JWT) and authenticates via Stripe-Signature.
+// Keeping them apart means this endpoint never has to be publicly reachable.
+//
+// Supported actions:
 //        • create_deposit_intent — creates a Stripe PaymentIntent for the 15%
 //          deposit and records a pending payment row. Returns the customer id
 //          and an ephemeral key so the client can open PaymentSheet.
@@ -25,13 +32,6 @@
 //          returns a hosted onboarding link.
 //        • connect_status — re-checks onboarding after the provider returns and
 //          drains any payouts stranded before the account became payable.
-//
-//   2. Stripe webhook events (from Stripe's servers) — identified by the
-//      Stripe-Signature header. Signature is verified before processing.
-//      Currently handles:
-//        • payment_intent.succeeded — marks payment succeeded; opens the
-//          provider-approval window (deposit no longer auto-confirms).
-//        • payment_intent.payment_failed — marks payment failed.
 //
 // Runs on Deno. Secrets accessed via Deno.env.get().
 
@@ -73,10 +73,9 @@ const CONNECT_REFRESH_URL = 'carapp://provider/bank?connect=refresh';
 // (Non-Negotiable #3 / Flow 5.5). Mirrors MIN_PHOTOS_TO_COMPLETE on the client.
 const MIN_PHOTOS_TO_COMPLETE = 4;
 
-// Manual provider-approval window (Blocker #4). On deposit success the booking
-// moves to pending_provider_approval; the provider has this long to accept
-// before the auto-cancel sweep refunds the deposit and cancels the booking.
-const APPROVAL_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+// The manual provider-approval window (Blocker #4) is opened in stripe-events
+// on deposit success, which stamps bookings.approval_expires_at. The sweep
+// below reads that column directly, so the 2h constant lives there, not here.
 
 // Cancellation policy (Blocker #5 / PRD v5). Enforced here, never in the UI.
 //   • Customer cancels within 24h → retain this flat fee, refund the rest.
@@ -117,12 +116,11 @@ serve(async (req: Request) => {
   }
 
   try {
-    const stripeSignature = req.headers.get('stripe-signature');
-
-    if (stripeSignature) {
-      return await handleStripeWebhook(req, stripeSignature);
-    }
-
+    // Stripe webhook deliveries are NOT handled here — they land on the
+    // stripe-events function, which is deployed with verify_jwt: false so
+    // Stripe (which cannot send a Supabase JWT) can reach it, and which
+    // authenticates via Stripe-Signature instead. This function stays
+    // verify_jwt: true and serves app-invoked actions only.
     return await handleAppAction(req);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -1179,84 +1177,3 @@ async function transferPayout(
 
 // ── Stripe webhook events ─────────────────────────────────────────────
 
-async function handleStripeWebhook(req: Request, signature: string): Promise<Response> {
-  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
-
-  if (!webhookSecret) {
-    return new Response(JSON.stringify({ error: 'Webhook secret not configured' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const rawBody = await req.text();
-  let event: Stripe.Event;
-
-  try {
-    event = await stripe.webhooks.constructEventAsync(rawBody, signature, webhookSecret);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Signature verification failed';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      await onPaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
-      break;
-    case 'payment_intent.payment_failed':
-      await onPaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
-      break;
-    // payout.paid fires on the provider's Connected account — requires
-    // listening to Connect events. Handled in a future iteration.
-    default:
-      break;
-  }
-
-  return new Response(JSON.stringify({ received: true }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
-async function onPaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-  const { booking_id, payment_type } = paymentIntent.metadata;
-
-  await supabase
-    .from('payments')
-    .update({ status: 'succeeded', processed_at: new Date().toISOString() })
-    .eq('stripe_payment_intent_id', paymentIntent.id);
-
-  // Deposit success → move the booking into the manual provider-approval
-  // window (Blocker #4). The provider must accept within 2 hours or the
-  // booking auto-cancels and the deposit is refunded (expire_pending_approvals).
-  // Deposit success does NOT confirm the booking — accept_booking does.
-  if (payment_type === 'deposit' && booking_id) {
-    const expiresAt = new Date(Date.now() + APPROVAL_WINDOW_MS).toISOString();
-    const { data: awaiting } = await supabase
-      .from('bookings')
-      .update({
-        status: 'pending_provider_approval',
-        approval_expires_at: expiresAt,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', booking_id)
-      .eq('status', 'pending') // Guard: only move forward if still pending.
-      .select('id');
-
-    // Only notify on the real pending → pending_provider_approval transition
-    // so retried webhook deliveries don't double-send.
-    if (awaiting && awaiting.length > 0) {
-      await fireNotify('notify-booking-requested', { booking_id });
-    }
-  }
-}
-
-async function onPaymentIntentFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-  await supabase
-    .from('payments')
-    .update({ status: 'failed', processed_at: new Date().toISOString() })
-    .eq('stripe_payment_intent_id', paymentIntent.id);
-}
