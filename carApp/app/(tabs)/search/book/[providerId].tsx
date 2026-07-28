@@ -35,7 +35,7 @@ import { AddressPicker } from '../../../../src/components/booking/AddressPicker'
 import { DateTimePicker } from '../../../../src/components/booking/DateTimePicker';
 import { PriceBreakdown } from '../../../../src/components/booking/PriceBreakdown';
 import { DepositSummary } from '../../../../src/components/booking/DepositSummary';
-import { colors, spacing, borderRadius } from '../../../../src/design/tokens';
+import { colors, spacing, borderRadius, type Palette } from '../../../../src/design/tokens';
 import { centsToDisplay } from '../../../../src/utils/money';
 import { getProviderById } from '../../../../src/lib/supabase/queries';
 import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
@@ -499,7 +499,7 @@ interface StepServicesProps {
   packages: ServicePackage[];
   selectedIds: string[];
   onToggle: (pkg: ServicePackage) => void;
-  palette: typeof colors.light;
+  palette: Palette;
   isDark: boolean;
 }
 
@@ -623,7 +623,7 @@ interface StepDetailsProps {
   onChangeSchedule: (iso: string) => void;
   notes: string;
   onChangeNotes: (notes: string) => void;
-  palette: typeof colors.light;
+  palette: Palette;
   isDark: boolean;
 }
 

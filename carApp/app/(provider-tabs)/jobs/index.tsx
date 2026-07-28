@@ -25,7 +25,7 @@ import { Text } from '../../../src/components/ui/Text';
 import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
-import { colors, spacing } from '../../../src/design/tokens';
+import { colors, spacing, type Palette } from '../../../src/design/tokens';
 import { useAuthStore } from '../../../src/state/auth';
 import {
   getUpcomingBookingsForProvider,
@@ -59,7 +59,7 @@ function getStatusConfig(status: string): StatusConfig {
 interface JobCardProps {
   booking: BookingSummary;
   onPress: () => void;
-  palette: (typeof colors)['light'];
+  palette: Palette;
 }
 
 function JobCard({ booking, onPress, palette }: JobCardProps): React.ReactElement {

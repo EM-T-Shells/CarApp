@@ -3,5 +3,11 @@
   "compilerOptions": {
     "strict": true,
     "moduleResolution": "bundler"
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "supabase/functions/*/index.ts",
+    "supabase/functions/_shared/fcm.ts",
+    "supabase/functions/_shared/email.ts"
+  ]
 }

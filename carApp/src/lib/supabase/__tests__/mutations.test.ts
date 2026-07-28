@@ -30,7 +30,9 @@ function makeBuilder(
 }
 
 const mockFrom = jest.fn()
-const mockInvoke = jest.fn(() => Promise.resolve({ data: null, error: null }))
+const mockInvoke = jest.fn((..._args: unknown[]) =>
+  Promise.resolve({ data: null, error: null }),
+)
 
 jest.mock('../client', () => ({
   supabase: {

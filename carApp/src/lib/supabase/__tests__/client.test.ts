@@ -1,4 +1,9 @@
-const mockCreateClient = jest.fn(() => ({ auth: {}, from: jest.fn() }))
+// Args are typed so `mock.calls[n]` is indexable — a bare `jest.fn(() => …)`
+// infers a zero-length tuple and rejects every positional lookup below.
+const mockCreateClient = jest.fn((..._args: unknown[]) => ({
+  auth: {},
+  from: jest.fn(),
+}))
 
 jest.mock('@supabase/supabase-js', () => ({
   createClient: mockCreateClient,

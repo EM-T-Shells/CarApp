@@ -21,16 +21,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import tokens from '../../src/design/tokens';
 import { textStyles } from '../../src/design/typography';
 import { verifyOtp, signInWithOtp } from '../../src/lib/supabase/auth';
+import type { OtpVerifyParams } from '../../src/types/navigation';
 
 const CODE_LENGTH = 6;
 
 type OtpMethod = 'email' | 'phone';
-
-interface OtpVerifyParams {
-  method?: string;
-  email?: string;
-  phone?: string;
-}
 
 function describeContact(method: OtpMethod, contact: string): string {
   if (method === 'email') return contact;

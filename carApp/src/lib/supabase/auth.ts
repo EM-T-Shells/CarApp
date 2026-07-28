@@ -159,7 +159,9 @@ export async function signInWithOtp(
 ): Promise<AuthResult<{ method: 'email' | 'phone' }>> {
   try {
     const { error } = await supabase.auth.signInWithOtp(
-      target.email ? { email: target.email } : { phone: target.phone },
+      target.email !== undefined
+        ? { email: target.email }
+        : { phone: target.phone },
     )
 
     if (error) {
@@ -167,7 +169,7 @@ export async function signInWithOtp(
     }
 
     return {
-      data: { method: target.email ? 'email' : 'phone' },
+      data: { method: target.email !== undefined ? 'email' : 'phone' },
       error: null,
     }
   } catch (err) {
@@ -184,7 +186,7 @@ export async function verifyOtp(
 ): Promise<AuthResult<Session>> {
   try {
     const { data, error } = await supabase.auth.verifyOtp(
-      target.email
+      target.email !== undefined
         ? { email: target.email, token, type: 'email' }
         : { phone: target.phone, token, type: 'sms' },
     )

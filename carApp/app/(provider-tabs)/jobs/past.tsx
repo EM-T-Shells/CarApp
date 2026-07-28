@@ -21,7 +21,7 @@ import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Spacer } from '../../../src/components/ui/Spacer';
-import { colors, spacing } from '../../../src/design/tokens';
+import { colors, spacing, type Palette } from '../../../src/design/tokens';
 import { useAuthStore } from '../../../src/state/auth';
 import {
   getPastBookingsForProvider,
@@ -52,7 +52,7 @@ function getStatusConfig(status: string): StatusConfig {
 
 interface PastJobCardProps {
   booking: BookingSummary;
-  palette: (typeof colors)['light'];
+  palette: Palette;
   onPress: () => void;
 }
 

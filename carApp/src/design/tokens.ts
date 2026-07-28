@@ -19,6 +19,11 @@ export interface Colors {
   readonly dark: ColorMap;
 }
 
+// The active theme's colors. Use this for props/values holding either
+// `colors.light` or `colors.dark` — `typeof colors.light` pins the light-mode
+// hex literals and rejects the dark palette.
+export type Palette = ColorMap;
+
 // ─── Colors ──────────────────────────────────────────────────────────────────
 
 export const colors = {

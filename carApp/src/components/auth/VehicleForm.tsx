@@ -12,8 +12,6 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  type NativeSyntheticEvent,
-  type TextInputFocusEventData,
 } from 'react-native';
 import tokens from '../../design/tokens';
 import { textStyles } from '../../design/typography';
@@ -69,8 +67,11 @@ export function VehicleForm({
   }
 
   function handleBlur(field: FieldKey) {
-    return (e: NativeSyntheticEvent<TextInputFocusEventData>) => {
-      const value = e.nativeEvent.text;
+    // Validate the committed draft value rather than the blur event: as of
+    // React Native 0.83 `onBlur` delivers a BlurEvent, whose nativeEvent no
+    // longer carries `text`.
+    return () => {
+      const value = vehicle[field] ?? '';
       setErrors((prev) => ({ ...prev, [field]: validate(field, value) }));
     };
   }
@@ -171,7 +172,7 @@ interface FieldProps {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   maxLength?: number;
   onChangeText: (value: string) => void;
-  onBlur?: (e: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onBlur?: () => void;
   accessibilityLabel?: string;
 }
 

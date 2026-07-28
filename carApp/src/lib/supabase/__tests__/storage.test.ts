@@ -5,7 +5,7 @@ const mockRemove = jest.fn()
 const mockCreateSignedUrl = jest.fn()
 const mockGetPublicUrl = jest.fn()
 
-const mockStorageFrom = jest.fn(() => ({
+const mockStorageFrom = jest.fn((..._args: unknown[]) => ({
   upload: mockUpload,
   remove: mockRemove,
   createSignedUrl: mockCreateSignedUrl,

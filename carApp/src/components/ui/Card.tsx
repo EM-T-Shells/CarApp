@@ -6,6 +6,7 @@ import React, { useMemo } from 'react';
 import {
   View,
   Pressable,
+  StyleProp,
   ViewStyle,
   useColorScheme,
   StyleSheet,
@@ -26,9 +27,9 @@ export interface CardProps {
   /** Content rendered inside the card. */
   children: React.ReactNode;
   /** Override the outer card container style. */
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   /** Override the inner content padding style. */
-  contentStyle?: ViewStyle;
+  contentStyle?: StyleProp<ViewStyle>;
   /** Accessibility label read by screen readers (recommended when card is pressable). */
   accessibilityLabel?: string;
   /** Accessibility hint read by screen readers. */

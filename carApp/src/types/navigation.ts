@@ -5,6 +5,21 @@
  * Expo Router delivers all params as strings at runtime.
  */
 
+// ── Auth ──────────────────────────────────────────────────────────────
+
+/**
+ * (auth)/otp-verify.tsx — one-time-code entry.
+ * Must stay a type alias, not an interface: `useLocalSearchParams<T>()`
+ * constrains T to `Record<string, string | string[]>`, and only type aliases
+ * get the implicit index signature that satisfies it.
+ */
+export type OtpVerifyParams = {
+  /** 'email' or 'phone'; any other value is treated as email. */
+  method?: string;
+  email?: string;
+  phone?: string;
+};
+
 // ── Search ────────────────────────────────────────────────────────────
 
 /** (tabs)/search/provider/[id].tsx */
