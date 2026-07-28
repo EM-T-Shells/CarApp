@@ -154,14 +154,46 @@ export async function signInWithApple(): Promise<AuthResult<Session>> {
 
 // ── OTP ────────────────────────────────────────────────────────────────
 
+type OtpDelivery =
+  | { method: 'email'; email: string }
+  | { method: 'phone'; phone: string }
+
+// Resolves an OtpTarget to a delivery channel with a non-empty contact.
+//
+// OtpTarget admits `{ email: '' }` — an empty string is a valid `string`, so
+// the type alone does not guarantee a usable contact. Both screens validate
+// before calling today, but that guarantee lives in the call sites rather than
+// here; checking locally stops a future caller from round-tripping an empty
+// contact to Supabase for an error we can produce ourselves. Contacts are
+// trimmed so whitespace-only input is rejected rather than sent.
+function resolveOtpTarget(target: OtpTarget): AuthResult<OtpDelivery> {
+  if (target.email !== undefined) {
+    const email = target.email.trim()
+    return email.length > 0
+      ? { data: { method: 'email', email }, error: null }
+      : { data: null, error: new Error('Email is required') }
+  }
+
+  const phone = target.phone.trim()
+  return phone.length > 0
+    ? { data: { method: 'phone', phone }, error: null }
+    : { data: null, error: new Error('Phone number is required') }
+}
+
 export async function signInWithOtp(
   target: OtpTarget,
 ): Promise<AuthResult<{ method: 'email' | 'phone' }>> {
+  const resolved = resolveOtpTarget(target)
+  if (resolved.error) {
+    return { data: null, error: resolved.error }
+  }
+  const delivery = resolved.data
+
   try {
     const { error } = await supabase.auth.signInWithOtp(
-      target.email !== undefined
-        ? { email: target.email }
-        : { phone: target.phone },
+      delivery.method === 'email'
+        ? { email: delivery.email }
+        : { phone: delivery.phone },
     )
 
     if (error) {
@@ -169,7 +201,7 @@ export async function signInWithOtp(
     }
 
     return {
-      data: { method: target.email !== undefined ? 'email' : 'phone' },
+      data: { method: delivery.method },
       error: null,
     }
   } catch (err) {
@@ -184,11 +216,17 @@ export async function verifyOtp(
   target: OtpTarget,
   token: string,
 ): Promise<AuthResult<Session>> {
+  const resolved = resolveOtpTarget(target)
+  if (resolved.error) {
+    return { data: null, error: resolved.error }
+  }
+  const delivery = resolved.data
+
   try {
     const { data, error } = await supabase.auth.verifyOtp(
-      target.email !== undefined
-        ? { email: target.email, token, type: 'email' }
-        : { phone: target.phone, token, type: 'sms' },
+      delivery.method === 'email'
+        ? { email: delivery.email, token, type: 'email' }
+        : { phone: delivery.phone, token, type: 'sms' },
     )
 
     if (error || !data.session) {
