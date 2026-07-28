@@ -1,8 +1,10 @@
 // VehicleForm.test.tsx — blur validation for the vehicle capture step.
 //
-// Guards the blur path specifically: as of React Native 0.83 `onBlur` delivers
-// a BlurEvent whose nativeEvent no longer carries `text`, so the handler reads
-// the committed draft value from the store instead of the event payload.
+// Guards the blur path specifically: as of React Native 0.83 `onBlur` is typed
+// as a BlurEvent exposing only `target`, so the handler reads the committed
+// draft value from the store rather than the event payload. Native still sends
+// `text`, so these cases pin the intended contract — validation must not depend
+// on the event payload at all — rather than reproduce a past runtime failure.
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';

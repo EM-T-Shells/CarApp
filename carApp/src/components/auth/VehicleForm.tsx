@@ -67,9 +67,12 @@ export function VehicleForm({
   }
 
   function handleBlur(field: FieldKey) {
-    // Validate the committed draft value rather than the blur event: as of
-    // React Native 0.83 `onBlur` delivers a BlurEvent, whose nativeEvent no
-    // longer carries `text`.
+    // Validate the committed draft value rather than the blur event. As of
+    // React Native 0.83 `onBlur` is typed as BlurEvent
+    // (NativeSyntheticEvent<TargetedEvent>), which exposes only `target` —
+    // reading `text` off it no longer typechecks. The native side still sends
+    // `text`, so this is a typing fix, not a behaviour change; the draft store
+    // is the source of truth here regardless.
     return () => {
       const value = vehicle[field] ?? '';
       setErrors((prev) => ({ ...prev, [field]: validate(field, value) }));
