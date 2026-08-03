@@ -10,14 +10,30 @@ jest.mock('../../../src/lib/supabase/queries', () => ({
   getProviderVetting: (...a: unknown[]) => mockGetProviderVetting(...a),
 }));
 
+const mockInsertProviderProfile = jest.fn();
+jest.mock('../../../src/lib/supabase/mutations', () => ({
+  insertProviderProfile: (...a: unknown[]) => mockInsertProviderProfile(...a),
+}));
+
 const mockAuthUser = { id: 'user-1' };
+let mockRole = 'provider';
 jest.mock('../../../src/state/auth', () => ({
-  useAuthStore: (sel: (s: { user: unknown }) => unknown) => sel({ user: mockAuthUser }),
+  useAuthStore: (sel: (s: { user: unknown; role: string }) => unknown) =>
+    sel({ user: mockAuthUser, role: mockRole }),
+  selectIsProvider: (s: { role: string }) =>
+    s.role === 'provider' || s.role === 'both',
+}));
+
+const mockSetActiveMode = jest.fn();
+jest.mock('../../../src/state/mode', () => ({
+  useModeStore: (sel: (s: { setActiveMode: unknown }) => unknown) =>
+    sel({ setActiveMode: mockSetActiveMode }),
 }));
 
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const React = require('react');
     React.useEffect(() => cb(), [cb]);
@@ -32,6 +48,16 @@ jest.mock('lucide-react-native', () => {
 jest.mock('../../../src/components/ui/Text', () => {
   const { Text } = require('react-native');
   return { Text: ({ children, ...p }: { children: React.ReactNode }) => <Text {...p}>{children}</Text> };
+});
+jest.mock('../../../src/components/ui/Button', () => {
+  const { Text, TouchableOpacity } = require('react-native');
+  return {
+    Button: ({ label, onPress, testID }: { label: string; onPress?: () => void; testID?: string }) => (
+      <TouchableOpacity onPress={onPress} testID={testID}>
+        <Text>{label}</Text>
+      </TouchableOpacity>
+    ),
+  };
 });
 jest.mock('../../../src/components/ui/Spacer', () => {
   const { View } = require('react-native');
@@ -54,6 +80,11 @@ import VettingHubScreen from '../vetting';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRole = 'provider';
+  mockInsertProviderProfile.mockResolvedValue({
+    data: { id: 'pp-1', verification_status: 'pending' },
+    error: null,
+  });
   mockGetProviderByUserId.mockResolvedValue({
     data: { id: 'pp-1', verification_status: 'pending' },
     error: null,
@@ -100,9 +131,53 @@ describe('VettingHubScreen', () => {
     ).toBeTruthy();
   });
 
-  it('shows an error when the provider profile is missing', async () => {
+  it('sends an approved provider to the dashboard', async () => {
+    mockGetProviderByUserId.mockResolvedValue({
+      data: { id: 'pp-1', verification_status: 'approved' },
+      error: null,
+    });
+    render(<VettingHubScreen />);
+    fireEvent.press(await screen.findByTestId('vetting-go-to-dashboard'));
+    expect(mockSetActiveMode).toHaveBeenCalledWith('provider');
+    expect(mockReplace).toHaveBeenCalledWith('/(provider-tabs)/jobs');
+  });
+
+  it('offers no dashboard shortcut while the application is unapproved', async () => {
+    render(<VettingHubScreen />);
+    expect(await screen.findByText('Profile')).toBeTruthy();
+    expect(screen.queryByTestId('vetting-go-to-dashboard')).toBeNull();
+  });
+
+  it('shows an error when the profile lookup fails', async () => {
     mockGetProviderByUserId.mockResolvedValue({ data: null, error: new Error('nope') });
     render(<VettingHubScreen />);
     expect(await screen.findByText('Something went wrong')).toBeTruthy();
+    expect(mockInsertProviderProfile).not.toHaveBeenCalled();
+  });
+
+  it('creates the missing provider profile for a provider account', async () => {
+    mockGetProviderByUserId.mockResolvedValue({ data: null, error: null });
+    render(<VettingHubScreen />);
+    expect(await screen.findByText('Profile')).toBeTruthy();
+    expect(mockInsertProviderProfile).toHaveBeenCalledWith({ user_id: 'user-1' });
+    expect(mockGetProviderVetting).toHaveBeenCalledWith('pp-1');
+  });
+
+  it('shows an error when creating the missing profile fails', async () => {
+    mockGetProviderByUserId.mockResolvedValue({ data: null, error: null });
+    mockInsertProviderProfile.mockResolvedValue({ data: null, error: new Error('nope') });
+    render(<VettingHubScreen />);
+    expect(await screen.findByText('Something went wrong')).toBeTruthy();
+    expect(
+      screen.getByText('We could not start your provider application.'),
+    ).toBeTruthy();
+  });
+
+  it('does not create a profile for a customer-only account', async () => {
+    mockRole = 'customer';
+    mockGetProviderByUserId.mockResolvedValue({ data: null, error: null });
+    render(<VettingHubScreen />);
+    expect(await screen.findByText('Something went wrong')).toBeTruthy();
+    expect(mockInsertProviderProfile).not.toHaveBeenCalled();
   });
 });

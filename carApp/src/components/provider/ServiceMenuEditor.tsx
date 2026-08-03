@@ -62,11 +62,20 @@ const EMPTY: DraftFields = {
   description: '',
 };
 
+// service_packages.base_price is NUMERIC(10,2) holding WHOLE DOLLARS (69.00),
+// not cents — the customer side reads it that way everywhere (bookingDraft,
+// the provider detail screen, the booking screen all do `base_price * 100`).
+// Convert at the edges of this editor: dollars in from the row, cents for
+// display/validation, dollars back out on save.
+function priceCents(pkg: ServicePackage): number | null {
+  return pkg.base_price != null ? Math.round(Number(pkg.base_price) * 100) : null;
+}
+
 function toDraft(pkg: ServicePackage): DraftFields {
   return {
     name: pkg.name ?? '',
     category: (pkg.category as Category) ?? 'detailing',
-    price: pkg.base_price != null ? String(pkg.base_price / 100) : '',
+    price: pkg.base_price != null ? Number(pkg.base_price).toFixed(2) : '',
     duration: pkg.duration_mins != null ? String(pkg.duration_mins) : '',
     description: pkg.description ?? '',
   };
@@ -132,7 +141,9 @@ export function ServiceMenuEditor({
     const fields = {
       name,
       category: draft.category,
-      base_price: cents,
+      // Parsed as cents so "69.9" can't land as a float artifact, stored as
+      // the dollars the column (and the customer side) expects.
+      base_price: cents / 100,
       duration_mins: duration,
       description: draft.description.trim() || null,
     };
@@ -209,7 +220,10 @@ export function ServiceMenuEditor({
               </View>
               <Spacer size="xs" />
               <Text variant="bodySmall" color="midGray">
-                {pkg.base_price != null ? centsToDisplay(pkg.base_price) : '—'}
+                {(() => {
+                  const cents = priceCents(pkg);
+                  return cents != null ? centsToDisplay(cents) : '—';
+                })()}
                 {pkg.duration_mins != null ? ` · ${pkg.duration_mins} min` : ''}
               </Text>
               <Spacer size="sm" />

@@ -67,7 +67,8 @@ const makePkg = (o: Record<string, unknown> = {}) => ({
   name: 'Full Detail',
   description: null,
   category: 'detailing',
-  base_price: 15000,
+  // NUMERIC(10,2) whole dollars, as the column and every seeded row store it.
+  base_price: 150,
   duration_mins: 120,
   is_active: true,
   is_custom: true,
@@ -91,7 +92,7 @@ describe('ServiceMenuEditor', () => {
     expect(screen.getByText('$150.00 · 120 min')).toBeTruthy();
   });
 
-  it('adds a service, storing the price in cents', async () => {
+  it('adds a service, storing the price in dollars', async () => {
     render(<ServiceMenuEditor providerId="pp-1" />);
     await screen.findByText('Full Detail');
     fireEvent.press(screen.getByTestId('service-add'));
@@ -106,10 +107,27 @@ describe('ServiceMenuEditor', () => {
       is_custom: true,
       name: 'Express Wash',
       category: 'detailing',
-      base_price: 6000,
+      base_price: 60,
       duration_mins: 45,
       description: null,
     });
+  });
+
+  it('keeps cents intact through a price round-trip', async () => {
+    mockGetOwn.mockResolvedValue({ data: [makePkg({ base_price: 69.99 })], error: null });
+    mockUpdate.mockResolvedValue({ data: makePkg(), error: null });
+    render(<ServiceMenuEditor providerId="pp-1" />);
+    await screen.findByText('$69.99 · 120 min');
+    fireEvent.press(screen.getByLabelText('Edit Full Detail'));
+    // The editor prefills dollars, not a cents value read as dollars.
+    expect(screen.getByTestId('field-Price (USD)').props.value).toBe('69.99');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('service-save'));
+    });
+    expect(mockUpdate).toHaveBeenCalledWith(
+      'pkg-1',
+      expect.objectContaining({ base_price: 69.99 }),
+    );
   });
 
   it('marks unapproved packages as pending review', async () => {
