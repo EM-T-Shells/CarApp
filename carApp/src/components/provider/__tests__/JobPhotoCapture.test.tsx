@@ -2,7 +2,7 @@
 // uploader (Flow 5.5).
 
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native';
 
 const mockRequestCamera = jest.fn();
@@ -105,6 +105,41 @@ describe('JobPhotoCapture', () => {
       fireEvent.press(screen.getByTestId('add-after-photo'));
     });
 
+    expect(mockUploadPhoto).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('offers Settings when permission can no longer be requested', async () => {
+    mockRequestCamera.mockResolvedValue({ granted: false, canAskAgain: false });
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue();
+    render(<JobPhotoCapture bookingId="booking-1" photos={[]} onChanged={jest.fn()} />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('add-before-photo'));
+    });
+
+    const denial = (Alert.alert as jest.Mock).mock.calls.at(-1);
+    expect(denial?.[0]).toBe('Camera access needed');
+    const settingsButton = (denial?.[2] ?? []).find(
+      (b: { text: string }) => b.text === 'Open Settings',
+    );
+    settingsButton?.onPress?.();
+    expect(openSettings).toHaveBeenCalled();
+    expect(mockLaunchCamera).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing camera instead of rejecting', async () => {
+    mockLaunchCamera.mockRejectedValue(new Error('Camera not available on simulator'));
+    const onChanged = jest.fn();
+    render(<JobPhotoCapture bookingId="booking-1" photos={[]} onChanged={onChanged} />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('add-before-photo'));
+    });
+
+    await waitFor(() => {
+      expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[0]).toBe('Camera unavailable');
+    });
     expect(mockUploadPhoto).not.toHaveBeenCalled();
     expect(onChanged).not.toHaveBeenCalled();
   });

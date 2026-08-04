@@ -21,7 +21,7 @@
 // expo-location is approved but not yet installed (External); like LiveMap's
 // react-native-maps, this screen compiles against it and works once installed.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -76,11 +76,10 @@ import { sendProviderLocation } from '../../../src/lib/location/tracking';
 import { useAuthStore } from '../../../src/state/auth';
 import { centsToDisplay } from '../../../src/utils/money';
 import { formatDateTime } from '../../../src/utils/date';
+import { MIN_PHOTOS_PER_TYPE, photoRequirement } from '../../../src/utils/jobPhotos';
 import type { ProviderJobParams } from '../../../src/types/navigation';
 import type { BookingPhoto } from '../../../src/types/models';
 
-// Minimum before/after photos before a job can be completed (CLAUDE.md / Flow 5.5).
-const MIN_PHOTOS_TO_COMPLETE = 4;
 const GPS_INTERVAL_MS = 5_000;
 const ACTIVE_STATUSES: BookingStatus[] = ['en_route', 'in_progress'];
 
@@ -116,6 +115,8 @@ export default function ProviderJobScreen(): React.ReactElement {
   const [error, setError] = useState<Error | null>(null);
   const [isMutating, setIsMutating] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+
+  const photoReq = useMemo(() => photoRequirement(photos), [photos]);
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
 
@@ -374,10 +375,10 @@ export default function ProviderJobScreen(): React.ReactElement {
 
   const handleComplete = useCallback(() => {
     if (!job) return;
-    if (photos.length < MIN_PHOTOS_TO_COMPLETE) {
+    if (!photoReq.satisfied) {
       Alert.alert(
         'Add more photos',
-        `Capture at least ${MIN_PHOTOS_TO_COMPLETE} before/after photos before completing the job.`,
+        `Every job needs at least ${MIN_PHOTOS_PER_TYPE} before and ${MIN_PHOTOS_PER_TYPE} after photos. Capture ${photoReq.missingLabel}.`,
       );
       return;
     }
@@ -404,7 +405,7 @@ export default function ProviderJobScreen(): React.ReactElement {
         },
       ],
     );
-  }, [job, photos.length, fetchJob]);
+  }, [job, photoReq, fetchJob]);
 
   // ── Navigate / message ───────────────────────────────────────────────
   const handleOpenInMaps = useCallback(() => {
@@ -644,7 +645,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             <Text variant="caption" color="midGray">
               {isTerminal
                 ? `${photos.length} photo${photos.length === 1 ? '' : 's'} on file.`
-                : `Add at least ${MIN_PHOTOS_TO_COMPLETE} to complete the job (${photos.length}/${MIN_PHOTOS_TO_COMPLETE}).`}
+                : `Add at least ${MIN_PHOTOS_PER_TYPE} of each to complete the job — before ${photoReq.before}/${MIN_PHOTOS_PER_TYPE}, after ${photoReq.after}/${MIN_PHOTOS_PER_TYPE}.`}
             </Text>
             <Spacer size="md" />
             <JobPhotoCapture

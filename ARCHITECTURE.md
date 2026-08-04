@@ -141,7 +141,8 @@ CarApp/                                   # Git repo root
     │   ├── utils/ 
     │   │   ├── validators.ts             # Form validation + content moderation 
     │   │   ├── money.ts                  # Cents ↔ display formatting 
-    │   │   └── date.ts                   # ISO string parsing and formatting 
+    │   │   ├── date.ts                   # ISO string parsing and formatting 
+    │   │   └── jobPhotos.ts              # Per-type before/after photo gate for completing a job 
     │   ├── components/ 
     │   │   ├── ui/                       # Button, Text, TextField, Card, Avatar, Rating, Sheet, Spacer, GearRating, KudosBadge 
     │   │   ├── search/                   # LocationSearchBar, LocationSuggestionRow, ProviderCarousel, ProviderCard, ProvidersMap, FiltersSheet 
