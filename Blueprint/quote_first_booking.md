@@ -238,32 +238,73 @@ migration tests. Phase 3 needs a `quote-flow.yaml` alongside `booking-flow.yaml`
 
 ## 9. Current state (2026-08-17)
 
-**Done:**
-- Branch `feature/quote-first-booking` created off `dev`.
-- Baseline test suite green: **71 suites / 843 tests**.
-- Supabase CLI initialized (`supabase/config.toml` created — it never existed;
-  migrations had been applied by hand) and linked to `apbubklogxgqkokbctwz`.
-- **Migration history reconciled.** Local and remote had drifted:
-  - `20260624120000_admin_panel.sql` → renamed to `20260625023803_admin_panel.sql`
-  - `20260713000000_storage_buckets.sql` → renamed to `20260713215620_storage_buckets.sql`
-    (both had been applied via the SQL editor under different timestamps)
-  - Recovered two migrations that existed only on the remote with no file in the
-    repo: `20260722200103_add_provider_base_coordinates.sql` and
-    `20260725200513_recategorize_addon_services_by_provider_type.sql`
-  - `supabase migration list` now aligns on every row.
-- Phase 0 migration written: `20260817000000_booking_duration.sql`
-  (duration columns, generated `estimated_completion_at`, backfill from the
-  services JSONB, `stamp_actual_duration` trigger, provider/schedule index).
+### Phase 0 — complete
 
-**Not yet done:**
-- Phase 0 migration is written but **NOT applied** (`supabase db push` pending).
-- `src/types/supabase.ts` needs regenerating after the push.
-- No application code changed yet. `src/utils/duration.ts` was drafted but not
-  written to disk.
-- Nothing committed — all of the above is uncommitted working-tree state.
+**Database.** `20260817000000_booking_duration.sql` is written **and applied**;
+`supabase migration list` aligns on every row. It adds
+`estimated_duration_mins`, `actual_duration_mins`, the generated
+`estimated_completion_at`, the `stamp_actual_duration` trigger, and the
+provider/schedule index. The migration is idempotent end to end — it was
+re-applied via `migration repair --status reverted` + `db push` and skipped
+every existing object cleanly.
 
-**Next action:** `supabase db push`, regenerate types, then build
-`src/utils/duration.ts` + tests and wire the "ready by" display.
+Backfill landed on all 26 existing bookings (26 with a duration, 26 with an
+ETC, 3 completed jobs stamped with an actual duration).
+
+Two things were wrong in the migration as originally written, both fixed:
+
+- **`timestamptz + interval` is only STABLE**, so Postgres rejected it in a
+  generated column (`42P17 generation expression is not immutable`) — an
+  interval carrying month/day parts has to be resolved against the session
+  TimeZone. The column now converts to UTC first: `timezone(text, timestamptz)`
+  and `timestamp + interval` are both IMMUTABLE, and UTC has no DST for the
+  addition to trip over. Do not "simplify" it back to a bare `+`.
+- `stamp_actual_duration` tripped the `function_search_path_mutable` advisor;
+  it now carries `SET search_path = public`, matching the other functions in
+  this repo. Advisors report nothing new from this migration.
+
+**Types.** `src/types/supabase.ts` regenerated — diff was exactly the three new
+columns. ⚠️ Codegen lists `estimated_completion_at` in `Insert` and `Update`
+even though it is `GENERATED ALWAYS`; writing it raises a Postgres error the
+type system will not catch. Nothing writes it today. Keep it that way.
+
+**Application code.**
+- `src/utils/duration.ts` — `formatDuration`, `sumServiceDurationMins`,
+  `resolveDurationMins`, `computeCompletionAt`, `resolveCompletionAt`,
+  `formatReadyBy`, `formatBookingReadyBy`. Reads the committed column and falls
+  back to the services snapshot for rows that predate it. Unknown duration
+  resolves to `null`, never `0`, so "ready by" is absent rather than "ready
+  immediately".
+- **`insertBooking` now persists `estimated_duration_mins`.** This was the gap
+  that made the rest inert: the review screen computed a duration, displayed
+  it, and discarded it, so without this every *new* booking would have had a
+  NULL duration and no ready-by — the display would have worked only for
+  backfilled legacy rows.
+- Booking detail renders `Est. 1 hr 30 min · ready by ~4:00 PM`.
+- Three identical copies of `formatDuration` (booking detail, provider detail,
+  booking flow) collapsed into the shared util.
+
+**Tests.** 72 suites / 879 tests green, up from the 71 / 843 baseline.
+`src/utils/__tests__/duration.test.ts` covers the util; `e2e/booking-flow.yaml`
+asserts the ready-by line on the detail screen after checkout.
+
+⚠️ **Jest now pins `TZ=UTC`** via `jest.globalSetup.js`. It was unpinned, so
+every wall-clock assertion silently depended on the developer's zone — which is
+why `date.test.ts` asserts times with regexes like `/\d{1,2}:\d{2}\s?(AM|PM)/`
+instead of real values. New date/time tests can assert exact times. The
+existing regex assertions still pass and were left alone.
+
+### Next action — Phase 1
+
+Buffers, working hours, `provider_profiles.timezone`, time-off, DayTimeline,
+the `EXCLUDE` constraint, and the RLS tightening from §4. Start with the schema
+(the `btree_gist` + `EXCLUDE` pair needs `occupied_range`, which needs the
+buffer columns), and give it a `__tests__/*.test.sql` as §8 calls for.
+
+The **RLS security fix in §4 is still open** and gates Phase 3: `"bookings:
+update own"` is `FOR UPDATE` with no column restriction, so either party can
+still write `total_amount`, `provider_payout`, or `status` directly. It must be
+closed before providers can set prices.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the

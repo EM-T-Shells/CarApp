@@ -215,6 +215,11 @@ appId: com.emre.carapp
 - assertVisible: "Confirmed"
 - assertVisible: "Message"
 
+# The booking now persists the duration the review screen quoted, so the detail
+# screen can answer "when will the car be ready?". The wall-clock time depends
+# on the slot picked above, so match the shape rather than a literal time.
+- assertVisible: "Est\\..*ready by ~.*"
+
 ---
 
 # Sub-flow: Cancelling the booking flow mid-way resets draft state

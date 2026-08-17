@@ -29,13 +29,27 @@ ALTER TABLE public.bookings
 
 -- Ready-by time. NULL when we have no duration to work from — an ETC equal to
 -- the start time would read as "ready immediately", which is worse than absent.
+--
+-- The obvious spelling, `timestamptz + make_interval(...)`, is rejected here:
+-- that operator is only STABLE, because an interval carrying month or day parts
+-- has to be resolved against the session TimeZone (a "1 day" jump across a DST
+-- boundary is 23 or 25 hours). Generated columns require IMMUTABLE.
+--
+-- Converting to UTC first sidesteps it. `timezone(text, timestamptz)` and
+-- `timestamp + interval` are both immutable, and UTC has no DST for the wall-
+-- clock addition to trip over, so the round-trip is exact: adding N minutes
+-- here means N minutes of real elapsed time, which is what a service duration
+-- is. Do not "simplify" this back to a bare `+`.
 ALTER TABLE public.bookings
   ADD COLUMN IF NOT EXISTS estimated_completion_at TIMESTAMPTZ
     GENERATED ALWAYS AS (
       CASE
         WHEN estimated_duration_mins IS NULL THEN NULL
-        ELSE COALESCE(started_at, scheduled_at)
-             + make_interval(mins => estimated_duration_mins)
+        ELSE timezone(
+               'UTC',
+               timezone('UTC', COALESCE(started_at, scheduled_at))
+                 + make_interval(mins => estimated_duration_mins)
+             )
       END
     ) STORED;
 
@@ -84,6 +98,7 @@ WHERE actual_duration_mins IS NULL
 CREATE OR REPLACE FUNCTION public.stamp_actual_duration()
   RETURNS TRIGGER
   LANGUAGE plpgsql
+  SET search_path = public
 AS $$
 BEGIN
   IF NEW.completed_at IS NOT NULL

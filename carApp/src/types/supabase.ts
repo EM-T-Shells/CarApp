@@ -48,6 +48,7 @@ export type Database = {
       }
       bookings: {
         Row: {
+          actual_duration_mins: number | null
           approval_expires_at: string | null
           cancellation_fee: number | null
           cancelled_by: string | null
@@ -58,6 +59,8 @@ export type Database = {
           declined_reason: string | null
           deposit_amount: number | null
           deposit_forfeited: boolean | null
+          estimated_completion_at: string | null
+          estimated_duration_mins: number | null
           id: string
           location_lat: number | null
           location_lng: number | null
@@ -79,6 +82,7 @@ export type Database = {
           vehicle_id: string | null
         }
         Insert: {
+          actual_duration_mins?: number | null
           approval_expires_at?: string | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
@@ -89,6 +93,8 @@ export type Database = {
           declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
+          estimated_completion_at?: string | null
+          estimated_duration_mins?: number | null
           id?: string
           location_lat?: number | null
           location_lng?: number | null
@@ -110,6 +116,7 @@ export type Database = {
           vehicle_id?: string | null
         }
         Update: {
+          actual_duration_mins?: number | null
           approval_expires_at?: string | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
@@ -120,6 +127,8 @@ export type Database = {
           declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
+          estimated_completion_at?: string | null
+          estimated_duration_mins?: number | null
           id?: string
           location_lat?: number | null
           location_lng?: number | null

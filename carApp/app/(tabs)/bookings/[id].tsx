@@ -82,6 +82,11 @@ import {
   isWithin24Hours,
   isWithinDisputeWindow,
 } from '../../../src/utils/date';
+import {
+  formatBookingReadyBy,
+  formatDuration,
+  resolveDurationMins,
+} from '../../../src/utils/duration';
 import type { BookingDetailParams } from '../../../src/types/navigation';
 import type { ServiceSnapshot } from '../../../src/state/bookingDraft';
 import type { BookingPhoto, Rating } from '../../../src/types/models';
@@ -108,19 +113,6 @@ function parseServicesSnapshot(value: unknown): ServiceSnapshot[] {
       duration_mins:
         s.duration_mins == null ? null : Number(s.duration_mins),
     }));
-}
-
-function totalDurationMins(services: ServiceSnapshot[]): number {
-  return services.reduce((sum, s) => sum + (s.duration_mins ?? 0), 0);
-}
-
-function formatDuration(mins: number): string {
-  if (mins <= 0) return '';
-  if (mins < 60) return `${mins} min`;
-  const hours = Math.floor(mins / 60);
-  const remainder = mins % 60;
-  if (remainder === 0) return `${hours} hr`;
-  return `${hours} hr ${remainder} min`;
 }
 
 const ACTIVE_FOR_TRACKING: BookingStatus[] = ['en_route', 'in_progress'];
@@ -192,7 +184,16 @@ export default function BookingDetailScreen(): React.ReactElement {
     () => parseServicesSnapshot(booking?.services),
     [booking?.services],
   );
-  const duration = useMemo(() => totalDurationMins(services), [services]);
+  // Prefers the provider-committed duration on the booking row, falling back
+  // to the services snapshot for rows written before that column existed.
+  const duration = useMemo(
+    () => (booking ? resolveDurationMins(booking) : null),
+    [booking],
+  );
+  const readyBy = useMemo(
+    () => (booking ? formatBookingReadyBy(booking) : ''),
+    [booking],
+  );
 
   const providerName =
     booking?.provider_profiles?.users?.full_name ?? 'Provider';
@@ -536,9 +537,10 @@ export default function BookingDetailScreen(): React.ReactElement {
                 <Text variant="body" color="charcoal">
                   {formatDateTime(booking.scheduled_at)}
                 </Text>
-                {duration > 0 && (
+                {duration != null && (
                   <Text variant="caption" color="midGray">
                     Est. {formatDuration(duration)}
+                    {readyBy ? ` · ready by ${readyBy}` : ''}
                   </Text>
                 )}
               </View>

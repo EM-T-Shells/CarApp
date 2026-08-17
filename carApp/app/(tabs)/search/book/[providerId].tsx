@@ -67,16 +67,7 @@ import {
   calculateProviderPayout,
   STANDARD_PLATFORM_FEE_RATE,
 } from '../../../../src/utils/money';
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function formatDuration(mins: number): string {
-  if (mins < 60) return `${mins} min`;
-  const hours = Math.floor(mins / 60);
-  const remainder = mins % 60;
-  if (remainder === 0) return `${hours} hr`;
-  return `${hours} hr ${remainder} min`;
-}
+import { formatDuration } from '../../../../src/utils/duration';
 
 // ── Step Enum ────────────────────────────────────────────────────────
 
@@ -240,6 +231,12 @@ export default function BookProviderScreen(): React.ReactElement {
       location_lng: draft.locationLng,
       notes: draft.notes || null,
       scheduled_at: draft.scheduledAt!,
+      // The duration the review screen just quoted the customer. Persisting it
+      // is what lets the booking report a ready-by time; before this it was
+      // computed for display and thrown away. Providers take ownership of this
+      // number when quoting lands (Phase 3) — until then it is the sum of the
+      // selected packages.
+      estimated_duration_mins: duration > 0 ? duration : null,
     });
 
     if (bookingResult.error) {

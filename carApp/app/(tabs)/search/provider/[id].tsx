@@ -24,16 +24,7 @@ import { getProviderById } from '../../../../src/lib/supabase/queries';
 import type { ProviderDetail } from '../../../../src/lib/supabase/queries';
 import type { ProviderDetailParams } from '../../../../src/types/navigation';
 import { centsToDisplay } from '../../../../src/utils/money';
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function formatDuration(mins: number): string {
-  if (mins < 60) return `${mins} min`;
-  const hours = Math.floor(mins / 60);
-  const remainder = mins % 60;
-  if (remainder === 0) return `${hours} hr`;
-  return `${hours} hr ${remainder} min`;
-}
+import { formatDuration } from '../../../../src/utils/duration';
 
 // ── Screen ───────────────────────────────────────────────────────────
 

@@ -12,7 +12,8 @@
     "seed:e2e:clean": "node scripts/seed-e2e.mjs --clean"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "globalSetup": "<rootDir>/jest.globalSetup.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
