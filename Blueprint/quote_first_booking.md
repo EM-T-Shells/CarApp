@@ -153,11 +153,37 @@ INSERT policy for `'intake'` only. Intake photos attach to the
 `pending_provider_quote` row, which reuses the existing
 `booking-photos/{bookingId}/` bucket path and both storage policies unchanged.
 
-### Security fix (do this before providers can set prices)
-`"bookings: update own"` is `FOR UPDATE` with **no column restriction** — either
-party can currently write `total_amount`, `provider_payout`, or `status`
-directly. Tighten to a column allowlist, or route all state/price writes through
-the Edge Function.
+### Security fix (do this before providers can set prices) — ✅ DONE
+`"bookings: update own"` was `FOR UPDATE` with no `WITH CHECK` and **no column
+restriction**, so Postgres reused its `USING` clause as the check: either party
+could write `total_amount`, `provider_payout`, or set `status` straight to
+`'completed'` — collecting the service without the balance ever being captured.
+
+Closed by `20260817120000_bookings_update_column_guard.sql`, in two layers,
+because RLS has no column-level granularity and neither layer suffices alone:
+
+1. **Column privileges.** `REVOKE UPDATE … FROM anon, authenticated`, then
+   `GRANT UPDATE (scheduled_at, status, started_at) TO authenticated`. Postgres
+   checks column privileges independently of RLS, so a future policy bug cannot
+   reopen this.
+2. **Status-transition trigger.** The allowlist has to leave `status` writable
+   (the provider drives the lifecycle from the app), so
+   `enforce_booking_status_transition` pins the client to the only three
+   transitions the app performs — customer `pending → cancelled`, provider
+   `confirmed → en_route → in_progress` — and reserves `started_at` to the
+   assigned provider, since it feeds `estimated_completion_at` and the
+   `actual_duration_mins` stamp.
+
+⚠️ The trigger must stay **SECURITY INVOKER**. As `SECURITY DEFINER` it would
+run as its owner, making `current_user` `'postgres'` for every caller, so the
+trusted-role early return would match on every write and silently disable the
+whole guard.
+
+Verified by `__tests__/bookings_update_column_guard.test.sql` — 12 checks, all
+passing, covering both the blocked exploits and the three flows that must keep
+working. Edge Functions are untouched: they connect with
+`SUPABASE_SERVICE_ROLE_KEY`, which is already where accept/decline, both
+captures, the cancellation policy, and completion live.
 
 ---
 
@@ -294,17 +320,24 @@ why `date.test.ts` asserts times with regexes like `/\d{1,2}:\d{2}\s?(AM|PM)/`
 instead of real values. New date/time tests can assert exact times. The
 existing regex assertions still pass and were left alone.
 
-### Next action — Phase 1
+### Phase 1 — in progress
 
-Buffers, working hours, `provider_profiles.timezone`, time-off, DayTimeline,
-the `EXCLUDE` constraint, and the RLS tightening from §4. Start with the schema
-(the `btree_gist` + `EXCLUDE` pair needs `occupied_range`, which needs the
-buffer columns), and give it a `__tests__/*.test.sql` as §8 calls for.
+**Done: the §4 RLS security fix**, which gated Phase 3. See §4 for the design
+and the SECURITY INVOKER warning. `20260817120000_bookings_update_column_guard.sql`
+is applied; `__tests__/bookings_update_column_guard.test.sql` passes 12/12.
 
-The **RLS security fix in §4 is still open** and gates Phase 3: `"bookings:
-update own"` is `FOR UPDATE` with no column restriction, so either party can
-still write `total_amount`, `provider_payout`, or `status` directly. It must be
-closed before providers can set prices.
+The client's entire write surface on `bookings` is now three columns and three
+status transitions. Anything Phase 3 adds — quote submission, price approval,
+duration adjustment — must either go through an Edge Function or be added
+deliberately to both layers. That is the intended friction.
+
+**Next:** buffers, working hours, `provider_profiles.timezone`, time-off,
+DayTimeline, and the `EXCLUDE` constraint. Start with the schema — the
+`btree_gist` + `EXCLUDE` pair needs `occupied_range`, which needs the buffer
+columns — and give it a `__tests__/*.test.sql` as §8 calls for. Note that
+`estimated_completion_at` already proves the duration half of `occupied_range`
+works; the buffers extend the same generated-column approach, and the same
+IMMUTABLE constraint will apply to the range expression.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the
