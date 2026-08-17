@@ -47,7 +47,6 @@ import {
 import { useAuthStore } from '../../../../src/state/auth';
 import {
   useBookingDraftStore,
-  selectSubtotalCents,
   selectServiceFeeCents,
   selectTotalCents,
   selectDepositCents,
@@ -60,13 +59,6 @@ import type { ProviderDetail } from '../../../../src/lib/supabase/queries';
 import type { ServicePackage, Vehicle } from '../../../../src/types/models';
 import type { BookProviderParams } from '../../../../src/types/navigation';
 import { formatDateTime } from '../../../../src/utils/date';
-import {
-  calculateDeposit,
-  calculateServiceFee,
-  calculatePlatformFee,
-  calculateProviderPayout,
-  STANDARD_PLATFORM_FEE_RATE,
-} from '../../../../src/utils/money';
 import { formatDuration } from '../../../../src/utils/duration';
 
 // ── Step Enum ────────────────────────────────────────────────────────
@@ -87,7 +79,6 @@ export default function BookProviderScreen(): React.ReactElement {
 
   // Draft store
   const draft = useBookingDraftStore();
-  const subtotal = useBookingDraftStore(selectSubtotalCents);
   const serviceFee = useBookingDraftStore(selectServiceFeeCents);
   const total = useBookingDraftStore(selectTotalCents);
   const deposit = useBookingDraftStore(selectDepositCents);
@@ -197,46 +188,26 @@ export default function BookProviderScreen(): React.ReactElement {
 
     setIsSubmitting(true);
 
-    const platformFeeRate = Number(provider.platform_fee_rate ?? STANDARD_PLATFORM_FEE_RATE);
-    const totalCents = total;
-    const depositCents = deposit;
-    const serviceFeeCents = serviceFee;
-    const platformFeeCents = calculatePlatformFee(subtotal, platformFeeRate);
-    const providerPayoutCents = calculateProviderPayout(subtotal, platformFeeRate);
-
-    // Snapshot services as JSONB
-    const servicesSnapshot = draft.selectedServices.map((svc) => ({
-      id: svc.id,
-      name: svc.name,
-      description: svc.description,
-      category: svc.category,
-      base_price: svc.base_price,
-      duration_mins: svc.duration_mins,
-    }));
-
-    // 1. Create booking row
+    // 1. Create booking row.
+    //
+    // The client states intent — which provider, which packages — and never a
+    // price. trg_derive_booking_amounts recomputes every money column from
+    // service_packages, rebuilds this snapshot from the same rows, and sets
+    // estimated_duration_mins; the client has no INSERT privilege on those
+    // columns at all. The totals on the review screen come from the same
+    // formula (src/utils/money.ts), so what the customer approved is what
+    // comes back on the row.
     const bookingResult = await insertBooking({
       customer_id: user.id,
       provider_id: provider.id,
       vehicle_id: draft.vehicleId,
-      services: servicesSnapshot,
+      services: draft.selectedServices.map((svc) => ({ id: svc.id })),
       status: 'pending',
-      total_amount: totalCents / 100,
-      deposit_amount: depositCents / 100,
-      platform_fee: platformFeeCents / 100,
-      service_fee: serviceFeeCents / 100,
-      provider_payout: providerPayoutCents / 100,
       service_address: draft.serviceAddress,
       location_lat: draft.locationLat,
       location_lng: draft.locationLng,
       notes: draft.notes || null,
       scheduled_at: draft.scheduledAt!,
-      // The duration the review screen just quoted the customer. Persisting it
-      // is what lets the booking report a ready-by time; before this it was
-      // computed for display and thrown away. Providers take ownership of this
-      // number when quoting lands (Phase 3) — until then it is the sum of the
-      // selected packages.
-      estimated_duration_mins: duration > 0 ? duration : null,
     });
 
     if (bookingResult.error) {
@@ -256,10 +227,12 @@ export default function BookProviderScreen(): React.ReactElement {
       await updateBooking(booking.id, { status: 'cancelled' });
     };
 
-    // 2. Create deposit payment intent
+    // 2. Create deposit payment intent. The amount is whatever the server
+    // priced on the row above — the Edge Function re-reads it and ignores any
+    // figure sent from here, so this is the honest source to pass.
     const intentResult = await createDepositPaymentIntent(
       booking.id,
-      depositCents,
+      Math.round(Number(booking.deposit_amount ?? 0) * 100),
     );
 
     if (intentResult.error) {
@@ -292,7 +265,7 @@ export default function BookProviderScreen(): React.ReactElement {
     // Success — navigate to the booking detail screen
     draft.reset();
     router.replace(`/bookings/${booking.id}`);
-  }, [user, provider, isReady, total, deposit, serviceFee, subtotal, draft, router]);
+  }, [user, provider, isReady, draft, router]);
 
   // ── Loading state ────────────────────────────────────────────────
 

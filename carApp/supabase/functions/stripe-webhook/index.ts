@@ -154,7 +154,7 @@ async function handleAppAction(req: Request): Promise<Response> {
 
   switch (body.action) {
     case 'create_deposit_intent':
-      return await createDepositIntent(body as { action: string; booking_id: string; amount: number });
+      return await createDepositIntent(body as { action: string; booking_id: string; amount?: number });
     case 'capture_balance':
       return await captureBalance(body as { action: string; booking_id: string });
     case 'refund_deposit':
@@ -186,14 +186,14 @@ async function handleAppAction(req: Request): Promise<Response> {
 async function createDepositIntent(body: {
   action: string;
   booking_id: string;
-  amount: number; // cents
+  amount?: number; // cents — ignored, see below
 }): Promise<Response> {
-  const { booking_id, amount } = body;
+  const { booking_id } = body;
 
-  // Fetch booking to verify it exists and get the customer ID.
+  // Fetch booking to verify it exists and get the customer ID and the deposit.
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, customer_id, status')
+    .select('id, customer_id, status, deposit_amount')
     .eq('id', booking_id)
     .single();
 
@@ -206,6 +206,21 @@ async function createDepositIntent(body: {
 
   if (booking.status !== 'pending') {
     return new Response(JSON.stringify({ error: 'Booking is not in a payable state' }), {
+      status: 409,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Charge what the row says, never what the caller asked for. body.amount is
+  // accepted for compatibility with older clients and deliberately discarded:
+  // this endpoint is reachable directly with any user's JWT, so trusting it
+  // let the caller name their own deposit. The row's deposit_amount is derived
+  // server-side by trg_derive_booking_amounts from the provider's published
+  // prices, which is the only figure either party ever agreed to.
+  const amount = Math.round(Number(booking.deposit_amount ?? 0) * 100);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return new Response(JSON.stringify({ error: 'Booking has no deposit to charge' }), {
       status: 409,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

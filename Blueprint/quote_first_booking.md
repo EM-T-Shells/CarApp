@@ -185,6 +185,49 @@ working. Edge Functions are untouched: they connect with
 `SUPABASE_SERVICE_ROLE_KEY`, which is already where accept/decline, both
 captures, the cancellation policy, and completion live.
 
+### The same hole on INSERT — ✅ DONE
+
+Fixing UPDATE only stopped a customer *rewriting* a price. It did nothing about
+them *setting* it: `"bookings: customer insert"` only checks
+`auth.uid() = customer_id`, and the client computed every money column itself.
+`create_deposit_intent` also took its `amount` straight from the request body.
+
+The dangerous variant is not underpaying — the provider notices a wrong price on
+the job card. It is a **normal-looking `total_amount` with `platform_fee = 0`
+and `provider_payout = total_amount`**: the customer pays what they expect, the
+provider is paid in full and has no reason to look, and the platform's cut
+silently goes to zero.
+
+Closed by `20260817140000_bookings_server_derived_pricing.sql`. The client now
+states *intent* — which provider, which packages — and never a price:
+
+1. **`derive_booking_amounts`** (BEFORE INSERT) recomputes every money column
+   from `service_packages`, mirroring `src/utils/money.ts` in integer cents so
+   the floors land identically. It also **rebuilds the services snapshot** from
+   the same rows, so a forged `base_price` cannot survive even as display text,
+   and derives `estimated_duration_mins` from the same authoritative source.
+2. **Column privileges on INSERT** remove the money columns from the client's
+   vocabulary, so a stale or hostile client gets a hard 403 rather than having
+   its numbers quietly overwritten.
+3. **`create_deposit_intent` charges `booking.deposit_amount`** off the row.
+   `body.amount` is still accepted for older clients and deliberately discarded.
+
+Also SECURITY INVOKER, for the same `current_user` reason as the status guard —
+and invoker rights are what make the lookup correct, since
+`"service_packages: read public"` limits it to active, approved packages, so an
+unbookable package fails rather than being priced.
+
+Verified by `__tests__/bookings_server_derived_pricing.test.sql` — 15 checks.
+
+⚠️ Two traps that fixture hit, worth knowing before writing similar tests:
+- `id` **must** be in the INSERT grant list. Postgres reports INSERT column
+  denials at *table* level (`permission denied for table bookings`), so one
+  ungranted column looks like a blanket failure.
+- The **Founding Provider Program trigger** (migration `20260622140000`)
+  rewrites `platform_fee_rate` to 0% for the first 100 approved providers,
+  overriding whatever the fixture seeds. Set the rate *after* insert, or every
+  `platform_fee` assertion passes trivially against zero.
+
 ---
 
 ## 5. API changes
@@ -322,14 +365,23 @@ existing regex assertions still pass and were left alone.
 
 ### Phase 1 — in progress
 
-**Done: the §4 RLS security fix**, which gated Phase 3. See §4 for the design
-and the SECURITY INVOKER warning. `20260817120000_bookings_update_column_guard.sql`
-is applied; `__tests__/bookings_update_column_guard.test.sql` passes 12/12.
+**Done: the §4 RLS security fix**, which gated Phase 3, *and* its INSERT
+sibling found while reviewing it. See §4 for both designs and the SECURITY
+INVOKER warning. Applied and green:
 
-The client's entire write surface on `bookings` is now three columns and three
-status transitions. Anything Phase 3 adds — quote submission, price approval,
-duration adjustment — must either go through an Edge Function or be added
-deliberately to both layers. That is the intended friction.
+| Migration | Test | Checks |
+|---|---|---|
+| `20260817120000_bookings_update_column_guard` | `bookings_update_column_guard.test.sql` | 12/12 |
+| `20260817140000_bookings_server_derived_pricing` | `bookings_server_derived_pricing.test.sql` | 15/15 |
+
+`stripe-webhook` redeployed for the deposit-derivation change.
+
+The client's entire write surface on `bookings` is now: insert a row naming a
+provider, packages, time and place; reschedule it; and three status
+transitions. **It cannot state a price at any point.** Anything Phase 3 adds —
+quote submission, price approval, duration adjustment — must go through an Edge
+Function or be added deliberately to both layers. That is the intended
+friction, and it is also exactly the shape Phase 3 already assumes in §5.
 
 **Next:** buffers, working hours, `provider_profiles.timezone`, time-off,
 DayTimeline, and the `EXCLUDE` constraint. Start with the schema — the
