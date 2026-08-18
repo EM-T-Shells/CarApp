@@ -119,6 +119,19 @@ CREATE TABLE provider_profiles (
   created_at          TIMESTAMPTZ DEFAULT now()
 );
 
+-- Provider profile write surface (20260818120000). "provider_profiles: write
+-- own" scopes writes to the caller's own row correctly, but RLS cannot express
+-- *which columns* — so the owner could write every one of them, including
+-- platform_fee_rate (zero out the platform's cut) and verification_status
+-- (self-approve past all six vetting steps). Column privileges close that; the
+-- policy is unchanged. DELETE is revoked outright: the row is an FK target for
+-- bookings, payouts and service packages.
+REVOKE INSERT, UPDATE, DELETE ON provider_profiles FROM anon, authenticated;
+GRANT INSERT (id, user_id, provider_type_id) ON provider_profiles TO authenticated;
+GRANT UPDATE (bio, coverage_area, mile_radius, base_lat, base_lng, availability,
+              default_buffer_before_mins, default_buffer_after_mins)
+  ON provider_profiles TO authenticated;
+
 -- PROVIDER VETTING
 CREATE TABLE provider_vetting (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),

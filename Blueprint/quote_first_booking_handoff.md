@@ -85,13 +85,14 @@ DB but **cannot apply migrations**. Use the CLI for all DDL.
 | `20260817120000_bookings_update_column_guard` | Column allowlist + status-transition trigger on UPDATE | ✅ |
 | `20260817140000_bookings_server_derived_pricing` | Server-side pricing on INSERT + column allowlist | ✅ |
 | `20260818000000_booking_buffers_and_overlap_guard` | Buffers, generated `occupied_range`, `bookings_no_provider_overlap` EXCLUDE constraint | ❌ **PENDING** |
+| `20260818120000_provider_profiles_column_guard` | Column allowlist on `provider_profiles` (the confirmed fee/self-approval hole, §6) | ❌ **PENDING** |
 
 ### ⚠️ The pending one
 
-It could not be applied from the machine that wrote it: no Docker, no `psql`,
-the Supabase CLI not logged in, and the MCP server is `--read-only`. So it is
-**written, parsed, and reviewed — but never executed.** Same for its
-`__tests__/*.test.sql`. Treat both as unproven until §4 step 1 is done.
+Neither could be applied from the machine that wrote them: no Docker, no
+`psql`, the Supabase CLI not logged in, and the MCP server is `--read-only`. So
+both are **written, parsed, and reviewed — but never executed**, as are their
+`__tests__/*.test.sql`. Treat all four files as unproven until §4 step 1.
 
 What *was* established without a database connection:
 
@@ -174,8 +175,12 @@ supabase link --project-ref apbubklogxgqkokbctwz
 supabase migration list --linked          # expect the first three applied, the fourth not
 supabase db push
 supabase db query --linked -f supabase/migrations/__tests__/booking_buffers_and_overlap_guard.test.sql
-# expect every row's pass = t (14 checks)
+supabase db query --linked -f supabase/migrations/__tests__/provider_profiles_column_guard.test.sql
+# expect every row's pass = t (14 checks, then 15)
 ```
+
+Re-run `npm run verify:checkout` afterwards — it exercises `provider_profiles`
+reads under the anon key and will catch an allowlist that came out too tight.
 
 Then, in order:
 
@@ -344,14 +349,36 @@ to the owner — it simply lets the owner write *everything*. In the same policy
   **`stripe_account_id`**, **`total_jobs`**, **`avg_gear_rating`**,
   **`kudos_count`** — reputation and payout routing, all self-writable.
 
-The fix is the pattern already used twice here: `REVOKE UPDATE … FROM anon,
-authenticated`, then `GRANT UPDATE (<the columns a provider legitimately owns>)`
-— `bio`, `coverage_area`, `mile_radius`, `base_lat`, `base_lng`, `availability`,
-`provider_type_id`, and the two new `default_buffer_*_mins` — plus a real
-`WITH CHECK` on the policy. Deciding that column list is a product call, not a
-mechanical one, which is why it was left rather than guessed at.
+**Fixed in `20260818120000_provider_profiles_column_guard.sql` — written, not
+applied.** The policy is left alone: `FOR ALL` with no `WITH CHECK` reuses
+`USING` as the check, so the *row* predicate was correct all along. The missing
+piece is that RLS has no column-level granularity at all, which is why this is a
+column-privilege fix and not a policy rewrite.
 
-Spec §8 already scopes "RLS tightening" to Phase 1, so this belongs here.
-`admin-review-provider` sets `verification_status` with the service role and is
-unaffected; check `app/(provider)/profile.tsx` and `vetting.tsx` for which
-columns the UI actually writes before fixing the grant list.
+The allowlist is what the app actually writes, from reading every caller of
+`insertProviderProfile`/`updateProviderProfile`:
+
+| | Columns |
+|---|---|
+| INSERT | `id`, `user_id`, `provider_type_id` |
+| UPDATE | `bio`, `coverage_area`, `mile_radius`, `base_lat`, `base_lng`, `availability`, `default_buffer_before_mins`, `default_buffer_after_mins` |
+| DELETE | revoked outright |
+
+Three judgement calls in that list:
+
+- **`provider_type_id` is INSERT-only.** It is chosen at opt-in and nothing in
+  the app changes it afterwards. Switching type post-approval should re-enter
+  vetting rather than being a profile edit, since the six steps are
+  type-specific.
+- **DELETE is revoked with nothing granted back.** No mutation deletes a
+  provider profile, and the row is the FK target for bookings (`ON DELETE SET
+  NULL`), payouts and service packages — a self-delete would quietly orphan a
+  provider's job history. Account deletion belongs to the service role.
+- **The reputation counters are service-role only.** Checked first that nothing
+  updates `avg_gear_rating` / `total_jobs` / `kudos_count` from a client role —
+  no rating or kudos trigger writes them, so revoking breaks nothing.
+
+`admin-review-provider`, the Connect onboarding function and the founding-fee
+sweep all use the service role and are unaffected; the test asserts that
+explicitly. Verified by `__tests__/provider_profiles_column_guard.test.sql` —
+15 checks, covering both the blocked exploits and every edit the UI performs.

@@ -219,6 +219,29 @@ unbookable package fails rather than being priced.
 
 Verified by `__tests__/bookings_server_derived_pricing.test.sql` — 15 checks.
 
+### The same hole on `provider_profiles` — ✅ DONE (written, not applied)
+
+Found while adding the provider buffer columns. `"provider_profiles: write own"`
+is `FOR ALL USING (auth.uid() = user_id)` with no column restriction. The row
+predicate was always correct — `FOR ALL` with no `WITH CHECK` reuses `USING` —
+but RLS cannot express *which columns*, so "your own row" meant every column on
+it. **Confirmed live** with the anon key that ships in the binary: a provider set
+their own `platform_fee_rate` to `0.999` and the write landed.
+
+Same quiet shape as the INSERT hole above: `platform_fee_rate = 0` takes the
+platform's cut to zero while nobody is underpaid, so nobody has reason to look.
+`verification_status` sits in the same policy, so a `pending` provider could
+also write `'approved'` and become bookable without passing any of the six
+vetting steps.
+
+Closed by `20260818120000_provider_profiles_column_guard.sql` with the same
+column-allowlist pattern. The client keeps `bio`, `coverage_area`,
+`mile_radius`, `base_lat/lng`, `availability` and the two `default_buffer_*_mins`
+columns on UPDATE, and `user_id` + `provider_type_id` on INSERT; DELETE is
+revoked outright, since the row is an FK target for bookings, payouts and
+service packages. Verified by
+`__tests__/provider_profiles_column_guard.test.sql` — 15 checks.
+
 ⚠️ Two traps that fixture hit, worth knowing before writing similar tests:
 - `id` **must** be in the INSERT grant list. Postgres reports INSERT column
   denials at *table* level (`permission denied for table bookings`), so one
