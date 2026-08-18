@@ -36,6 +36,7 @@ import { ServiceMenuEditor } from '../../../src/components/provider/ServiceMenuE
 import { WorkingHoursEditor } from '../../../src/components/provider/WorkingHoursEditor';
 import { TimeOffEditor } from '../../../src/components/provider/TimeOffEditor';
 import { TimezoneField } from '../../../src/components/provider/TimezoneField';
+import { DurationModifierEditor } from '../../../src/components/provider/DurationModifierEditor';
 import {
   DEFAULT_TIMEZONE,
   DEFAULT_WORKING_HOURS,
@@ -49,14 +50,21 @@ import { useAuthStore } from '../../../src/state/auth';
 import {
   getProviderByUserId,
   getProviderTimeOff,
+  getServiceDurationModifiers,
 } from '../../../src/lib/supabase/queries';
 import {
   deleteProviderTimeOff,
+  deleteServiceDurationModifier,
   insertProviderTimeOff,
   isTimeOffOverlapError,
   updateProviderProfile,
+  upsertServiceDurationModifier,
 } from '../../../src/lib/supabase/mutations';
-import type { ProviderTimeOff } from '../../../src/types/models';
+import type { FactorType } from '../../../src/utils/suggestion';
+import type {
+  ProviderTimeOff,
+  ServiceDurationModifier,
+} from '../../../src/types/models';
 
 const BIO_MIN = 20;
 
@@ -91,6 +99,8 @@ export default function ProviderManageScreen(): React.ReactElement {
   const [bufferAfter, setBufferAfter] = useState('');
   const [timeOff, setTimeOff] = useState<ProviderTimeOff[]>([]);
   const [timeOffBusy, setTimeOffBusy] = useState(false);
+  const [modifiers, setModifiers] = useState<ServiceDurationModifier[]>([]);
+  const [modifiersBusy, setModifiersBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
@@ -120,6 +130,9 @@ export default function ProviderManageScreen(): React.ReactElement {
       new Date(Date.now() + TIME_OFF_HORIZON_DAYS * 24 * 60 * 60 * 1000),
     );
     if (off.data) setTimeOff(off.data);
+
+    const mods = await getServiceDurationModifiers(res.data.id);
+    if (mods.data) setModifiers(mods.data);
     setLoading(false);
   }, [user]);
 
@@ -203,6 +216,58 @@ export default function ProviderManageScreen(): React.ReactElement {
       );
     },
     [providerId],
+  );
+
+  const handleModifierChange = useCallback(
+    async (
+      factorType: FactorType,
+      factorValue: string,
+      deltaMins: number | null,
+    ): Promise<void> => {
+      if (!providerId) return;
+      setModifiersBusy(true);
+
+      if (deltaMins === null) {
+        const existing = modifiers.find(
+          (m) => m.factor_type === factorType && m.factor_value === factorValue,
+        );
+        if (!existing) {
+          setModifiersBusy(false);
+          return;
+        }
+        const res = await deleteServiceDurationModifier(existing.id);
+        setModifiersBusy(false);
+        if (res.error) {
+          Alert.alert('Could not clear that', res.error.message);
+          return;
+        }
+        setModifiers((current) => current.filter((m) => m.id !== existing.id));
+        return;
+      }
+
+      // Upsert rather than insert: the unique constraint means a second row for
+      // the same factor value is never what the provider meant — they meant to
+      // change the number they already set.
+      const res = await upsertServiceDurationModifier({
+        provider_id: providerId,
+        factor_type: factorType,
+        factor_value: factorValue,
+        delta_mins: deltaMins,
+      });
+      setModifiersBusy(false);
+      if (res.error) {
+        Alert.alert('Could not save that', res.error.message);
+        return;
+      }
+      setModifiers((current) => {
+        const without = current.filter(
+          (m) =>
+            !(m.factor_type === factorType && m.factor_value === factorValue),
+        );
+        return [...without, res.data];
+      });
+    },
+    [providerId, modifiers],
   );
 
   const handleRemoveTimeOff = useCallback(
@@ -353,6 +418,22 @@ export default function ProviderManageScreen(): React.ReactElement {
           keyboardType="number-pad"
           maxLength={2}
           hint="Leave blank for no limit."
+        />
+
+        <Spacer size="lg" />
+        <Text variant="label" color="charcoal">
+          Job length adjustments
+        </Text>
+        <Spacer size="xs" />
+        <Text variant="caption" color="midGray">
+          How much longer a job takes for a given vehicle or condition. Used to
+          suggest a duration; you always set the final one. Saved immediately.
+        </Text>
+        <Spacer size="sm" />
+        <DurationModifierEditor
+          modifiers={modifiers}
+          onChange={handleModifierChange}
+          isBusy={modifiersBusy}
         />
 
         <Spacer size="lg" />

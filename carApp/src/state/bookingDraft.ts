@@ -11,6 +11,10 @@ import {
   calculateDeposit,
   calculateServiceFee,
 } from '../utils/money';
+import type {
+  ConditionAnswers,
+  VehicleSizeClass,
+} from '../utils/suggestion';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -42,6 +46,15 @@ export interface BookingDraftState {
   scheduledAt: string | null;
   /** Free-text notes from the customer. */
   notes: string;
+  /**
+   * Vehicle size as declared for THIS booking. Pre-filled from the chosen
+   * vehicle's own size_class and confirmable, per spec §3 — the customer should
+   * not retype it, but they should get the chance to correct it, since the
+   * duration is quoted against it.
+   */
+  vehicleSizeClass: VehicleSizeClass | null;
+  /** The three condition questions. Partial until all three are answered. */
+  conditionAnswers: ConditionAnswers;
 
   // ── Mutators ──────────────────────────────────────────────────────
 
@@ -52,6 +65,11 @@ export interface BookingDraftState {
   setLocation: (lat: number, lng: number) => void;
   setScheduledAt: (iso: string) => void;
   setNotes: (notes: string) => void;
+  setVehicleSizeClass: (sizeClass: VehicleSizeClass | null) => void;
+  setConditionAnswer: <K extends keyof ConditionAnswers>(
+    question: K,
+    answer: ConditionAnswers[K],
+  ) => void;
   reset: () => void;
 }
 
@@ -80,6 +98,8 @@ const INITIAL_STATE = {
   locationLng: null,
   scheduledAt: null,
   notes: '',
+  vehicleSizeClass: null,
+  conditionAnswers: {} as ConditionAnswers,
 };
 
 // ── Store ─────────────────────────────────────────────────────────────
@@ -116,7 +136,20 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
 
   setNotes: (notes) => set({ notes }),
 
-  reset: () => set({ ...INITIAL_STATE }),
+  setVehicleSizeClass: (vehicleSizeClass) => set({ vehicleSizeClass }),
+
+  // Merged rather than replaced, so answering one question does not clear the
+  // other two. An answer of undefined removes it, which is how a customer
+  // un-answers rather than being stuck with their first tap.
+  setConditionAnswer: (question, answer) =>
+    set((s) => {
+      const next = { ...s.conditionAnswers };
+      if (answer === undefined) delete next[question];
+      else next[question] = answer;
+      return { conditionAnswers: next };
+    }),
+
+  reset: () => set({ ...INITIAL_STATE, conditionAnswers: {} }),
 }));
 
 // ── Selectors ─────────────────────────────────────────────────────────

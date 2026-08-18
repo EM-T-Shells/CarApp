@@ -17,9 +17,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 const mockGetProviderByUserId = jest.fn();
 const mockGetProviderTimeOff = jest.fn();
 
+const mockGetServiceDurationModifiers = jest.fn();
+
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
   getProviderTimeOff: (...args: unknown[]) => mockGetProviderTimeOff(...args),
+  getServiceDurationModifiers: (...args: unknown[]) =>
+    mockGetServiceDurationModifiers(...args),
 }));
 
 // mutations.ts constructs the Supabase client at import time, and the tests
@@ -30,6 +34,8 @@ jest.mock('../../../../src/lib/supabase/client', () => ({ supabase: {} }));
 const mockUpdateProviderProfile = jest.fn();
 const mockInsertProviderTimeOff = jest.fn();
 const mockDeleteProviderTimeOff = jest.fn();
+const mockUpsertModifier = jest.fn();
+const mockDeleteModifier = jest.fn();
 
 jest.mock('../../../../src/lib/supabase/mutations', () => {
   const actual = jest.requireActual('../../../../src/lib/supabase/mutations');
@@ -40,6 +46,10 @@ jest.mock('../../../../src/lib/supabase/mutations', () => {
       mockInsertProviderTimeOff(...args),
     deleteProviderTimeOff: (...args: unknown[]) =>
       mockDeleteProviderTimeOff(...args),
+    upsertServiceDurationModifier: (...args: unknown[]) =>
+      mockUpsertModifier(...args),
+    deleteServiceDurationModifier: (...args: unknown[]) =>
+      mockDeleteModifier(...args),
     // The real guard, so the "already blocked" copy is exercised rather than
     // a stub that always agrees.
     isTimeOffOverlapError: actual.isTimeOffOverlapError,
@@ -123,6 +133,11 @@ beforeEach(() => {
     error: null,
   });
   mockDeleteProviderTimeOff.mockResolvedValue({ data: true, error: null });
+  mockGetServiceDurationModifiers.mockResolvedValue({ data: [], error: null });
+  mockUpsertModifier.mockImplementation((modifier: Record<string, unknown>) =>
+    Promise.resolve({ data: { id: 'mod-new', ...modifier }, error: null }),
+  );
+  mockDeleteModifier.mockResolvedValue({ data: true, error: null });
 });
 
 async function renderLoaded() {
@@ -395,6 +410,77 @@ describe('ProviderManageScreen — time off', () => {
       expect(Alert.alert).toHaveBeenCalledWith(
         'Could not add time off',
         'network unreachable',
+      ),
+    );
+  });
+});
+
+// ── Duration modifiers ───────────────────────────────────────────────────────
+
+describe('ProviderManageScreen — duration modifiers', () => {
+  it('loads the provider modifiers', async () => {
+    await renderLoaded();
+    expect(mockGetServiceDurationModifiers).toHaveBeenCalledWith(
+      'provider-profile-1',
+    );
+  });
+
+  it('upserts a delta on blur', async () => {
+    await renderLoaded();
+
+    const field = screen.getByTestId('modifier-size_class:suv');
+    fireEvent.changeText(field, '30');
+    fireEvent(field, 'blur');
+
+    await waitFor(() => expect(mockUpsertModifier).toHaveBeenCalled());
+    expect(mockUpsertModifier).toHaveBeenCalledWith({
+      provider_id: 'provider-profile-1',
+      factor_type: 'size_class',
+      factor_value: 'suv',
+      delta_mins: 30,
+    });
+  });
+
+  it('deletes the row when an existing delta is cleared', async () => {
+    mockGetServiceDurationModifiers.mockResolvedValue({
+      data: [
+        {
+          id: 'mod-1',
+          provider_id: 'provider-profile-1',
+          factor_type: 'size_class',
+          factor_value: 'suv',
+          delta_mins: 30,
+          delta_price: 0,
+          created_at: '2026-08-20T00:00:00Z',
+        },
+      ],
+      error: null,
+    });
+    await renderLoaded();
+
+    const field = screen.getByTestId('modifier-size_class:suv');
+    expect(field.props.value).toBe('30');
+    fireEvent.changeText(field, '');
+    fireEvent(field, 'blur');
+
+    await waitFor(() => expect(mockDeleteModifier).toHaveBeenCalledWith('mod-1'));
+  });
+
+  it('surfaces a modifier save failure', async () => {
+    mockUpsertModifier.mockResolvedValue({
+      data: null,
+      error: new Error('violates check constraint'),
+    });
+    await renderLoaded();
+
+    const field = screen.getByTestId('modifier-soil_level:heavy');
+    fireEvent.changeText(field, '45');
+    fireEvent(field, 'blur');
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Could not save that',
+        'violates check constraint',
       ),
     );
   });
