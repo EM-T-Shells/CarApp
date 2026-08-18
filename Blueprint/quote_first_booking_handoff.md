@@ -86,13 +86,14 @@ DB but **cannot apply migrations**. Use the CLI for all DDL.
 | `20260817140000_bookings_server_derived_pricing` | Server-side pricing on INSERT + column allowlist | ✅ |
 | `20260818000000_booking_buffers_and_overlap_guard` | Buffers, generated `occupied_range`, `bookings_no_provider_overlap` EXCLUDE constraint | ❌ **PENDING** |
 | `20260818120000_provider_profiles_column_guard` | Column allowlist on `provider_profiles` (the confirmed fee/self-approval hole, §6) | ❌ **PENDING** |
+| `20260819000000_provider_working_hours_and_time_off` | Timezone, per-day working hours, `max_jobs_per_day`, `provider_time_off` | ❌ **PENDING** |
 
 ### ⚠️ The pending one
 
-Neither could be applied from the machine that wrote them: no Docker, no
-`psql`, the Supabase CLI not logged in, and the MCP server is `--read-only`. So
-both are **written, parsed, and reviewed — but never executed**, as are their
-`__tests__/*.test.sql`. Treat all four files as unproven until §4 step 1.
+None could be applied from the machine that wrote them: no Docker, no `psql`,
+the Supabase CLI not logged in, and the MCP server is `--read-only`. So all
+three are **written, parsed, and reviewed — but never executed**, as are their
+`__tests__/*.test.sql`. Treat all six files as unproven until §4 step 1.
 
 What *was* established without a database connection:
 
@@ -120,7 +121,7 @@ Be precise about this — it decides what to do first.
 
 ### Verified
 
-- **Jest: 72 suites / 884 tests** green (was 72 / 879). `npx tsc --noEmit` clean.
+- **Jest: 75 suites / 966 tests** green (was 72 / 879 at the start of the macOS session). `npx tsc --noEmit` clean.
 - **`bookings_update_column_guard.test.sql` — 12/12.**
 - **`bookings_server_derived_pricing.test.sql` — 15/15.**
 - **`npm run verify:checkout` — 23/23 against the live project.** This closed
@@ -176,7 +177,8 @@ supabase migration list --linked          # expect the first three applied, the 
 supabase db push
 supabase db query --linked -f supabase/migrations/__tests__/booking_buffers_and_overlap_guard.test.sql
 supabase db query --linked -f supabase/migrations/__tests__/provider_profiles_column_guard.test.sql
-# expect every row's pass = t (14 checks, then 15)
+supabase db query --linked -f supabase/migrations/__tests__/provider_working_hours_and_time_off.test.sql
+# expect every row's pass = t (14 checks, then 15, then 16)
 ```
 
 Re-run `npm run verify:checkout` afterwards — it exercises `provider_profiles`
@@ -223,15 +225,47 @@ loudly:
   committed jobs close together for one provider will now be **refused**, where
   before it inserted happily.
 
-### 3. Then the rest of Phase 1
+### 3. Then wire up Phase 1's UI — this is what `gen types` unblocks
 
-Working hours, `provider_profiles.timezone`, time-off, DayTimeline. None of it
-is load-bearing the way the constraint was. Do `timezone` first — working hours
-are wall-clock and break across DST without it.
+Phase 1's schema and its pure layers are done. What is left is the thin data
+layer between them, and it is blocked for one specific reason: the client is
+`createClient<Database>`, so **`.from('provider_time_off')` and
+`profile.working_hours` do not typecheck until `gen types` has run**. That is
+why this session stopped where it did rather than leaving a red `tsc`.
 
-`provider_profiles.default_buffer_before_mins` / `_after_mins` exist and are
-already snapshotted onto bookings, but **nothing in the UI writes them yet**;
-every provider is on 15/30. The More → Manage control is unbuilt.
+Built and green today (no database types involved):
+
+| File | What it is |
+|---|---|
+| `src/utils/schedule.ts` | Working-hours parsing + timezone projection. 36 tests |
+| `src/components/provider/DayTimeline.tsx` | The day drawn to scale, buffers and conflicts. 24 tests |
+| `src/components/provider/WorkingHoursEditor.tsx` | Per-day window editor. 20 tests |
+| `AvailabilityCalendar.availabilityFromJson` | Now reads both shapes |
+
+Still to write, all mechanical once the types exist:
+
+1. **Queries** — `getProviderDaySchedule(providerId, date)` returning the
+   provider's bookings for a local day plus their `timeZone`, `working_hours`
+   and `provider_time_off` rows. `DayTimeline` already takes exactly this shape
+   (`TimelineJob[]`, `TimelineBlock[]`), so this is a mapping function.
+2. **Mutations** — `insertProviderTimeOff` / `deleteProviderTimeOff`, and
+   `updateProviderProfile` calls for `timezone`, `working_hours`,
+   `max_jobs_per_day` and the two `default_buffer_*_mins`. Watch for `23P01`
+   on the time-off insert: `provider_time_off_no_overlap` fires on a double
+   submit, and `SlotUnavailableError` is the wrong message there — it needs its
+   own.
+3. **Screens** — `DayTimeline` into `app/(provider-tabs)/jobs/index.tsx`;
+   `WorkingHoursEditor`, a timezone field, buffer fields and a time-off list
+   into `app/(provider-tabs)/more/manage.tsx`.
+
+**Nothing in the UI writes the buffers or the hours yet**, so until step 3 every
+provider sits on the 15/30 defaults and their backfilled 08:00–18:00 week.
+
+### 4. Then phases 2–4
+
+Per spec §8. Phase 3 is rated highest-risk and resequences payments (SetupIntent
+at request, deposit at approval) on top of the pricing trigger — do not start it
+against unapplied migrations.
 
 ---
 

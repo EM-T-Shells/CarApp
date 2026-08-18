@@ -107,6 +107,14 @@ CREATE TABLE provider_profiles (
   -- Travel time lives in the "after" buffer; there is no routing API in MVP.
   default_buffer_before_mins INT NOT NULL DEFAULT 15 CHECK (default_buffer_before_mins BETWEEN 0 AND 480),
   default_buffer_after_mins  INT NOT NULL DEFAULT 30 CHECK (default_buffer_after_mins BETWEEN 0 AND 480),
+  -- Calendar (20260819000000). working_hours supersedes the availability
+  -- booleans above, which stay for older clients; both shapes are read by
+  -- workingHoursFromJson(). Hours are wall-clock, so `timezone` is what keeps
+  -- them from drifting an hour twice a year. trg_validate_provider_schedule
+  -- rejects an unknown IANA zone or a malformed window.
+  timezone            TEXT NOT NULL DEFAULT 'America/New_York',
+  working_hours       JSONB,                 -- {"mon":[{"start":"08:00","end":"18:00"}],"sat":[]}
+  max_jobs_per_day    INT CHECK (max_jobs_per_day IS NULL OR max_jobs_per_day > 0),
   avg_gear_rating     NUMERIC(3,2) DEFAULT 0,
   total_jobs          INT DEFAULT 0,
   kudos_count         INT DEFAULT 0,
@@ -131,6 +139,35 @@ GRANT INSERT (id, user_id, provider_type_id) ON provider_profiles TO authenticat
 GRANT UPDATE (bio, coverage_area, mile_radius, base_lat, base_lng, availability,
               default_buffer_before_mins, default_buffer_after_mins)
   ON provider_profiles TO authenticated;
+GRANT UPDATE (timezone, working_hours, max_jobs_per_day)
+  ON provider_profiles TO authenticated;
+
+-- PROVIDER TIME OFF (20260819000000)
+-- One-off blocks on a provider's calendar. Advisory in Phase 1 — DayTimeline
+-- surfaces the clash, nothing refuses a booking inside one. Contrast
+-- bookings_no_provider_overlap, which is reserved for what is genuinely
+-- impossible (two jobs at once).
+CREATE TABLE provider_time_off (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id UUID NOT NULL REFERENCES provider_profiles(id) ON DELETE CASCADE,
+  starts_at   TIMESTAMPTZ NOT NULL,
+  ends_at     TIMESTAMPTZ NOT NULL,
+  reason      TEXT,                          -- provider's private note; do NOT expose to customers
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT provider_time_off_ends_after_start CHECK (ends_at > starts_at),
+  blocked_range TSTZRANGE GENERATED ALWAYS AS (tstzrange(starts_at, ends_at, '[)')) STORED,
+  -- Overlapping blocks are always a double-submit, never a meaningful state.
+  CONSTRAINT provider_time_off_no_overlap
+    EXCLUDE USING gist (provider_id WITH =, blocked_range WITH &&)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_time_off_provider_range
+  ON provider_time_off USING gist (provider_id, blocked_range);
+
+REVOKE INSERT, UPDATE, DELETE ON provider_time_off FROM anon, authenticated;
+GRANT INSERT (id, provider_id, starts_at, ends_at, reason) ON provider_time_off TO authenticated;
+GRANT UPDATE (starts_at, ends_at, reason) ON provider_time_off TO authenticated;
+GRANT DELETE ON provider_time_off TO authenticated;
 
 -- PROVIDER VETTING
 CREATE TABLE provider_vetting (
@@ -486,6 +523,7 @@ LEFT JOIN provider_types pt ON pt.name = s.type_name;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE provider_time_off ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_vetting ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_catalog ENABLE ROW LEVEL SECURITY;
@@ -539,6 +577,18 @@ CREATE POLICY "provider_profiles: read approved" ON provider_profiles
 
 CREATE POLICY "provider_profiles: write own" ON provider_profiles
   FOR ALL USING (auth.uid() = user_id);
+
+-- Time off is provider-only for now. The customer-facing availability query
+-- (getAvailableWindows) arrives with ArrivalWindowPicker in Phase 3 and needs
+-- its own read path — one that does NOT expose `reason`.
+CREATE POLICY "provider_time_off: manage own" ON provider_time_off
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM provider_profiles pp
+       WHERE pp.id = provider_time_off.provider_id
+         AND pp.user_id = auth.uid()
+    )
+  );
 
 -- Admins read every provider (any verification_status) for the vetting queue.
 CREATE POLICY "provider_profiles: admin read all" ON provider_profiles

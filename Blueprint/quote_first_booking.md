@@ -450,10 +450,46 @@ committed status).
 the Edge Function's `accept_booking` — which is where it will actually fire,
 since requests do not reserve time and the first accept wins.
 
-**Next:** working hours, `provider_profiles.timezone`, time-off, and
-DayTimeline. None of it is load-bearing the way the constraint was. Working
-hours are wall-clock and break across DST without the timezone column, so that
-one comes first.
+**Done: working hours, timezone, time-off, DayTimeline** —
+`20260819000000_provider_working_hours_and_time_off.sql` with
+`__tests__/provider_working_hours_and_time_off.test.sql` (16 checks), plus
+`src/utils/schedule.ts`, `DayTimeline`, and `WorkingHoursEditor`.
+
+`provider_profiles.availability` was a weekly boolean map that
+`app/(provider)/profile.tsx` wrote and nothing ever read. It is superseded by
+`working_hours`, per-day local windows, with `timezone` (IANA, NOT NULL) making
+them mean anything at all — hours are wall-clock, so without the column every
+comparison would be right for half the year. An array of windows per day makes
+a split day expressible; a `trg_validate_provider_schedule` trigger enforces the
+zone and the `HH:MM` / `end > start` grammar, since a CHECK constraint can do
+neither. `provider_time_off` carries one-off blocks with the same generated-range
+treatment bookings got, and an EXCLUDE constraint against overlapping blocks.
+
+Three decisions worth not re-litigating:
+
+- **None of it is enforced against bookings.** A job outside working hours or
+  inside a time-off block is not refused. Hours are a stated preference, 26
+  existing bookings predate them, and refusing on a preference turns a
+  scheduling hint into an outage. `DayTimeline` surfaces the clash and the
+  provider decides. The EXCLUDE constraint stays reserved for what is genuinely
+  impossible — two jobs at once.
+- **The backfill treats a NULL `availability` as weekdays-open**, matching
+  `availabilityFromJson`'s `DEFAULT_AVAILABILITY`, not as closed-all-week.
+  Absent means "never configured". The other reading would have silently taken
+  every un-configured provider off the calendar.
+- **Both shapes are readable, in both directions.**
+  `workingHoursFromJson` reads the window shape *and* the legacy booleans;
+  `availabilityFromJson` now reads windows too. Without that, opening the
+  day-level picker for a provider who had set times would show their 9–5 Monday
+  as unset and offer to overwrite it.
+
+**Next:** the data layer for all of the above — `getProviderDaySchedule`,
+time-off mutations, and wiring `DayTimeline` / `WorkingHoursEditor` into the
+provider screens. **Blocked on `supabase gen types`**, which is blocked on the
+migrations being applied: the client is `createClient<Database>`, so
+`.from('provider_time_off')` and `working_hours` cannot typecheck until the
+generated types know they exist. Everything that does not touch a database type
+is built and green.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the

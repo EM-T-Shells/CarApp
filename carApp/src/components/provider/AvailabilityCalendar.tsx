@@ -12,8 +12,15 @@ import React from 'react';
 import { Pressable, StyleSheet, View, useColorScheme } from 'react-native';
 import { Text } from '../ui/Text';
 import { colors, spacing, borderRadius } from '../../design/tokens';
+import {
+  workingHoursFromJson,
+  workingHoursToAvailability,
+  type DayKey,
+} from '../../utils/schedule';
 
-export type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+// DayKey lives in utils/schedule now — working hours and this picker have to
+// agree on the week, and two identical unions drift.
+export type { DayKey };
 
 export type WeeklyAvailability = Record<DayKey, boolean>;
 
@@ -85,15 +92,31 @@ export function AvailabilityCalendar({
 }
 
 /**
- * Coerce a stored `provider_profiles.availability` value (Json | null) into a
- * full WeeklyAvailability. Missing or malformed days fall back to
- * DEFAULT_AVAILABILITY so the picker always renders a complete week.
+ * Coerce a stored availability value into a full WeeklyAvailability. Missing or
+ * malformed days fall back to DEFAULT_AVAILABILITY so the picker always renders
+ * a complete week.
+ *
+ * Reads **both shapes**, because after migration 20260819000000 a provider's
+ * real schedule lives in `provider_profiles.working_hours` as per-day windows
+ * while `availability` stays for older clients. Handed the window shape, a day
+ * with at least one window is available. That keeps this day-level picker
+ * honest against a provider who has already set times — without it, opening
+ * this screen would read their 9–5 Monday as "unset" and offer to overwrite it.
  */
 export function availabilityFromJson(value: unknown): WeeklyAvailability {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) {
     return { ...DEFAULT_AVAILABILITY };
   }
   const record = value as Record<string, unknown>;
+
+  // The window shape is unambiguous — an array value never appears in the
+  // boolean map — so detect it and go through the schedule parser, which
+  // already drops corrupt windows.
+  const hasWindows = DAYS.some(({ key }) => Array.isArray(record[key]));
+  if (hasWindows) {
+    return workingHoursToAvailability(workingHoursFromJson(value));
+  }
+
   const result: WeeklyAvailability = { ...DEFAULT_AVAILABILITY };
   for (const { key } of DAYS) {
     if (typeof record[key] === 'boolean') {
