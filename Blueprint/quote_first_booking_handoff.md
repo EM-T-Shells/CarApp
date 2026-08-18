@@ -32,14 +32,32 @@ else in this file matters until it is.
 
 | # | Thing | Why | How to check |
 |---|---|---|---|
-| 1 | `carApp/.env.local` | gitignored, must be recreated by hand. See `.env.example` | `npm run verify:checkout` fails loudly without it |
-| 2 | `SUPABASE_ACCESS_TOKEN` | every CLI command that talks to the API | `supabase projects list` |
-| 3 | `SUPABASE_DB_PASSWORD` **or** the IPv4 pooler URL | applying migrations. **This is the current blocker** | see §2 |
-| 4 | IPv4 pooler connection string | direct `db.<ref>.supabase.co` is IPv6-only | Dashboard → Connect → Transaction pooler |
+| 1 | `carApp/.env.local` | gitignored, must be recreated by hand | `npm run verify:checkout` fails loudly without it |
+| 2 | `admin/.env.local` | **easy to forget** — the admin panel is a separate Vite app with its own env file | `cd admin && npm run dev` |
+| 3 | `.mcp.json` (repo root) | configures the hosted Supabase MCP | `/mcp` in an interactive Claude Code session |
+| 4 | `SUPABASE_ACCESS_TOKEN` | every CLI command that talks to the API | `supabase projects list` |
+| 5 | `SUPABASE_DB_PASSWORD` **or** the IPv4 pooler URL | applying migrations. **This is the current blocker** | see §2 |
 
-`.env.local` needs `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY`
-(anon), `SUPABASE_SERVICE_ROLE_KEY` and `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-For cloud builds these must also be set on EAS, or the app crashes on launch.
+**Nothing in that table is in git.** All five are gitignored, so none of them
+survive a machine switch — this is the checklist for exactly that.
+
+```
+carApp/.env.local     EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_KEY (anon),
+                      SUPABASE_SERVICE_ROLE_KEY, EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
+admin/.env.local      VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+```
+
+Both have a committed `.env.example` next to them. For cloud builds the `carApp`
+values must also be set on EAS, not just locally, or the app crashes on launch.
+
+`.mcp.json` holds **no token** — it is `type: http` pointing at
+`https://mcp.supabase.com/mcp?project_ref=…`, and auth is OAuth via `/mcp`,
+cached per machine. So it has to be recreated *and* re-authorised on the new
+laptop. It runs `--read-only`: useful for reading the DB, never for DDL.
+
+Direct DB connections need IPv4 via the pooler — `db.<ref>.supabase.co` is
+IPv6-only and failed outright on the last machine. Grab the string from
+Dashboard → Connect → Transaction pooler.
 
 **Export 2 and 3 in the shell that launches Claude Code, not after.** Appending
 them to a shell profile is not enough — a profile that returns early for
@@ -56,9 +74,8 @@ command fails with a misleading "Cannot find project ref".
 | Maestro + simulator | unavailable | **not installed** |
 | IPv6 | — | **no route** (blocks direct DB connections) |
 
-Project ref `apbubklogxgqkokbctwz`. The Supabase MCP server runs `--read-only`
-(see `.mcp.json`), so it can read the DB but never apply migrations. Use the CLI
-for all DDL.
+Project ref `apbubklogxgqkokbctwz`. Use the CLI for all DDL — the MCP server is
+read-only.
 
 > **Note:** commits once appeared on `origin` in the WSL2 environment without an
 > explicit `git push` — most likely a VSCode `git.postCommitCommand`. Don't rely
