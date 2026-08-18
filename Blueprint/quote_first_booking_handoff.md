@@ -1,6 +1,7 @@
 # Quote-First Booking — Session Handoff
 
 **Updated:** 2026-08-18 (second session) · **Branch:** `feature/quote-first-booking`
+**Head:** `c7351d9` — **pushed; working tree clean, nothing local-only.**
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -10,9 +11,12 @@ this does not duplicate them.
 
 > **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
 > 3's additive foundation is in — seven migrations on the live project, all SQL
-> suites passing, Jest 82 suites / 1111 tests, `tsc` clean. The previous
-> session's blocker (three unapplied migrations) is gone. **The one live blocker
-> now is Stripe on a Mac**; see §4. Next work is the rest of Phase 3.
+> suites passing, `verify:checkout` 30/30, Jest 82 suites / 1111 tests, `tsc`
+> clean. Nothing is blocked except Stripe, which needs a Mac (§4).
+>
+> **To resume: run §5 step 0 to confirm the state, then start on §6 item 1 —
+> the `submit_quote` Edge Function action.** That is the smallest next piece
+> that moves Phase 3, and everything it needs is already in place.
 
 ---
 
@@ -95,8 +99,35 @@ Worth knowing if it recurs:
   (`sb_secret_XXXXX` + 26 `·`), and the MCP server exposes publishable keys
   only. Mint a new one rather than hunting for the old.
 
-> This session printed `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` into a
-> terminal transcript. Rotate both if that log is shared anywhere.
+### Credential exposure — assessed, deliberately not rotated
+
+A check early in the second session used `${VAR:-no}`, which prints the *value*
+when the variable is set, so `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD`
+were both echoed into that session's transcript. (`${VAR:+set}` gives the same
+yes/no answer without echoing anything — use that.)
+
+**Decision: not rotated, on evidence.** Do not re-open this without new
+information:
+
+- The transcript is `~/.claude/projects/-home-getaskale-CarApp/<uuid>.jsonl`,
+  mode `-rw-------`, on the WSL2 VM's own ext4 disk — **not** a `/mnt/c`
+  Windows mount, so OneDrive and File History cannot reach it. No sync folders
+  in `$HOME`.
+- Anyone able to read it can already read `carApp/.env.local` on the same
+  filesystem with the same ownership, which holds the service role, Stripe and
+  Firebase keys. The transcript duplicates an existing local secret rather than
+  widening the blast radius.
+- The token (`claude-cli-token`) expires 2026-09-16 regardless.
+
+**Rotate if any of these become true:** a transcript is pasted into an issue,
+bug report or support ticket; backup/sync starts reaching the WSL filesystem;
+or the machine becomes shared or is handed on. Then revoke the token row
+outright (Dashboard → Account → Access Tokens → ⋮ → Revoke — *generating a new
+token does not revoke the old one*, they coexist) and reset the database
+password under Project Settings → Database.
+
+> ⚠️ Unrelated to the above and easy to conflate: the **service role key** WAS
+> rotated this session, because it was disabled, not because it leaked.
 
 ### The DNS trap that cost an hour — already fixed, don't rediscover it
 
@@ -158,6 +189,24 @@ mapping.
 
 ## 4. What is proven, and what is not
 
+### Four test systems, and they do not substitute for each other
+
+Worth knowing before reading the numbers below, because the obvious reading of
+"Jest is green" is wrong:
+
+| System | Scope | How to run |
+|---|---|---|
+| **Jest** — 82 suites / 1111 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **`.test.sql`** — 7 files | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
+| **`verify-checkout.mjs`** — 30 checks | The real client payload against the real grants | `npm run verify:checkout` |
+| **Maestro** — `booking-flow.yaml` | The app in a simulator | needs macOS + simulator |
+
+A Jest test **cannot** prove that Postgres refuses a forged column: `supabase`
+is a mock, so such a test would assert that a fake returns the error it was told
+to return, and would pass just as happily against a database with the column
+wide open. That is why the guard assertions live in the other two systems, and
+why adding checks there does not move the Jest count.
+
 ### Proven
 
 - **Jest: 82 suites / 1111 tests.** `npx tsc --noEmit` clean.
@@ -197,6 +246,21 @@ is verified by Jest and `tsc` only.
 ---
 
 ## 5. Do this first, in this order
+
+0. **Confirm you are where this document says you are.** Two minutes, and it
+   distinguishes "something drifted" from "something broke":
+
+   ```bash
+   cd CarApp && git log --oneline -1        # expect c7351d9
+   git status --short                       # expect empty
+   cd carApp && npx tsc --noEmit && npm test # expect 82 suites / 1111 tests
+   npm run verify:checkout                  # expect 30/30 against the live project
+   supabase migration list --linked --workdir "$PWD"   # expect seven aligned rows
+   ```
+
+   `verify:checkout` is the one worth running every time: it is the only check
+   that exercises the real client payload against the real grants, so it catches
+   a booking-screen change that no Jest test can (they all mock Supabase).
 
 1. **Phase 3.** See §6. Everything below the Stripe line is unblocked.
 2. **On a Mac:** `brew install maestro`, boot a simulator,
