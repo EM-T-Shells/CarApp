@@ -383,13 +383,54 @@ quote submission, price approval, duration adjustment — must go through an Edg
 Function or be added deliberately to both layers. That is the intended
 friction, and it is also exactly the shape Phase 3 already assumes in §5.
 
-**Next:** buffers, working hours, `provider_profiles.timezone`, time-off,
-DayTimeline, and the `EXCLUDE` constraint. Start with the schema — the
-`btree_gist` + `EXCLUDE` pair needs `occupied_range`, which needs the buffer
-columns — and give it a `__tests__/*.test.sql` as §8 calls for. Note that
-`estimated_completion_at` already proves the duration half of `occupied_range`
-works; the buffers extend the same generated-column approach, and the same
-IMMUTABLE constraint will apply to the range expression.
+**Done: the checkout seam is verified.** `scripts/verify-checkout.mjs`
+(`npm run verify:checkout`) signs in as the seeded customer with the **anon**
+key and fires the exact payload `handleConfirm()` sends — 23/23 green against
+the live project. It proves client payload → column privileges → trigger → row,
+the forged-price rejections, and the abandon path. It does **not** touch Stripe;
+`create_deposit_intent`, the PaymentSheet, and the `stripe-events` promotion to
+`pending_provider_approval` still need a simulator run.
+
+**Done: buffers, `occupied_range`, and the `EXCLUDE` constraint** —
+`20260818000000_booking_buffers_and_overlap_guard.sql`, with
+`__tests__/booking_buffers_and_overlap_guard.test.sql` (14 checks). Per §1 there
+was no conflict check anywhere in this codebase, so two customers could confirm
+the same provider for the same minute; that is now impossible at the DB level
+regardless of client behaviour.
+
+Two decisions in that migration are load-bearing and should not be "simplified":
+
+- **`occupied_range` keys off `scheduled_at`, not `COALESCE(started_at,
+  scheduled_at)`.** It deliberately diverges from `estimated_completion_at`,
+  which *should* follow reality so a job starting 20 minutes late reports a
+  ready-by 20 minutes later. Occupancy is a property of the *schedule*: keying
+  it off `started_at` would move the range when the provider taps Start Job, so
+  starting two hours late could slide it into the next booking and fail the
+  transition with `23P01` — locking the provider out of a job they are standing
+  in front of. Overruns are Phase 4's cascade, not the constraint's business.
+  The test asserts both halves of this.
+- **Legacy rows backfill to 0 buffers, not the new 15/30 defaults.** Those
+  bookings were agreed under a no-buffer regime; widening them retroactively
+  would invent conflicts and could block the constraint from being created at
+  all. New rows snapshot the provider's defaults via
+  `trg_snapshot_booking_buffers` — snapshotted, so retuning a provider's
+  defaults never rewrites a job already on the calendar, and the post-MVP
+  distance-aware upgrade stays non-breaking.
+
+The migration pre-scans for existing overlaps and refuses with the conflicting
+pairs listed, rather than failing on whichever row the index happened to reject
+first. A dry run against the live project found none (26 bookings; 1 in a
+committed status).
+
+`23P01` surfaces as `SlotUnavailableError` ("That time was just taken") from
+`insertBooking`/`updateBooking`, and as a 409 `{ code: 'slot_conflict' }` from
+the Edge Function's `accept_booking` — which is where it will actually fire,
+since requests do not reserve time and the first accept wins.
+
+**Next:** working hours, `provider_profiles.timezone`, time-off, and
+DayTimeline. None of it is load-bearing the way the constraint was. Working
+hours are wall-clock and break across DST without the timezone column, so that
+one comes first.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the

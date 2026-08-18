@@ -252,11 +252,59 @@ export function deleteServicePackage(
 
 // ── Bookings ───────────────────────────────────────────────────────────
 
-export function insertBooking(
+// Postgres exclusion_violation. Raised by bookings_no_provider_overlap
+// (migration 20260818000000) when a committed booking would overlap another
+// job on the same provider's calendar, buffers included.
+const EXCLUSION_VIOLATION = '23P01'
+
+/**
+ * The slot a booking asked for is already committed to someone else.
+ *
+ * Distinguished from a transport error because the recovery is different and
+ * specific: nothing is wrong with the request, the customer simply has to pick
+ * another time. The race it reports is real — two customers can both be holding
+ * requests for the same window, since only acceptance reserves a slot.
+ */
+export class SlotUnavailableError extends Error {
+  readonly slotUnavailable = true
+  constructor(message = 'That time was just taken. Pick another time and try again.') {
+    super(message)
+    this.name = 'SlotUnavailableError'
+  }
+}
+
+/** Type guard for offering "pick another time" instead of a bare retry. */
+export function isSlotUnavailableError(
+  err: Error | null,
+): err is SlotUnavailableError {
+  return (
+    err instanceof SlotUnavailableError ||
+    (err as { slotUnavailable?: boolean })?.slotUnavailable === true
+  )
+}
+
+// Postgres phrases 23P01 as 'conflicting key value violates exclusion
+// constraint "bookings_no_provider_overlap"', which is true and useless to a
+// customer. Everything else passes through untouched.
+function translateSchedulingError<T>(
+  result: MutationResult<T>,
+): MutationResult<T> {
+  if (
+    result.error &&
+    (result.error as Partial<PostgrestError>).code === EXCLUSION_VIOLATION
+  ) {
+    return { data: null, error: new SlotUnavailableError() }
+  }
+  return result
+}
+
+export async function insertBooking(
   booking: BookingInsert,
 ): Promise<MutationResult<Booking>> {
-  return runMutation<Booking>(
-    supabase.from('bookings').insert(booking).select().single(),
+  return translateSchedulingError(
+    await runMutation<Booking>(
+      supabase.from('bookings').insert(booking).select().single(),
+    ),
   )
 }
 
@@ -264,13 +312,17 @@ export async function updateBooking(
   bookingId: string,
   updates: BookingUpdate,
 ): Promise<MutationResult<Booking>> {
-  const result = await runMutation<Booking>(
-    supabase
-      .from('bookings')
-      .update(updates)
-      .eq('id', bookingId)
-      .select()
-      .single(),
+  // Rescheduling runs through here, so it can collide with another job just as
+  // an insert can.
+  const result = translateSchedulingError(
+    await runMutation<Booking>(
+      supabase
+        .from('bookings')
+        .update(updates)
+        .eq('id', bookingId)
+        .select()
+        .single(),
+    ),
   )
 
   // Notify the customer when the provider goes en route. (booking_confirmed

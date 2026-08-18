@@ -60,6 +60,7 @@ import {
   updateServicePackage,
   deleteServicePackage,
   insertBooking,
+  isSlotUnavailableError,
   updateBooking,
   insertBookingPhoto,
   insertRating,
@@ -261,6 +262,48 @@ describe('insertBooking', () => {
     expect(result.data).toEqual(booking)
     expect(mockFrom).toHaveBeenCalledWith('bookings')
   })
+
+  // bookings_no_provider_overlap (migration 20260818000000) raises 23P01 when
+  // the slot is already committed. Postgres phrases that as 'conflicting key
+  // value violates exclusion constraint', which tells a customer nothing.
+  it('translates 23P01 into a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "bookings_no_provider_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertBooking({
+      customer_id: 'u1',
+      provider_id: 'pp1',
+      scheduled_at: '2026-05-01T10:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(isSlotUnavailableError(result.error)).toBe(true)
+    expect(result.error?.message).toMatch(/just taken/i)
+  })
+
+  it('leaves other database errors alone', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '23503', message: 'insert or update violates foreign key' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertBooking({
+      customer_id: 'u1',
+      provider_id: 'pp1',
+      scheduled_at: '2026-05-01T10:00:00Z',
+    })
+
+    expect(isSlotUnavailableError(result.error)).toBe(false)
+    expect(result.error?.message).toMatch(/foreign key/)
+  })
 })
 
 describe('updateBooking', () => {
@@ -287,6 +330,27 @@ describe('updateBooking', () => {
     expect(mockInvoke).toHaveBeenCalledWith('notify-provider-enroute', {
       body: { booking_id: 'b1' },
     })
+  })
+
+  // Rescheduling writes scheduled_at, which regenerates occupied_range, so an
+  // update hits the same constraint an insert does.
+  it('translates 23P01 on a reschedule into a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "bookings_no_provider_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await updateBooking('b1', {
+      scheduled_at: '2026-05-02T10:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(isSlotUnavailableError(result.error)).toBe(true)
   })
 })
 

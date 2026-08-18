@@ -337,6 +337,47 @@ describe('acceptBooking', () => {
     expect(result.data).toBeNull();
     expect(result.error!.message).toBe('boom');
   });
+
+  // The provider loses the race for a slot: another job on their calendar now
+  // overlaps this one, so bookings_no_provider_overlap refuses the transition
+  // and the Edge Function answers 409 with an explanation. invoke() reports
+  // only "non-2xx", so the explanation has to come off the response body or
+  // the provider is told nothing actionable.
+  it('reads the slot-conflict message out of a 409 body', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({
+            error:
+              'That time overlaps a job you have already confirmed. Decline this request or reschedule the other job.',
+            code: 'slot_conflict',
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('overlaps a job you have already confirmed');
+  });
+
+  it('falls back to the invoke message when the body is not JSON', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response('<html>502</html>', { status: 502 }),
+      },
+    });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.error!.message).toBe('Edge Function returned a non-2xx status code');
+  });
 });
 
 describe('declineBooking', () => {

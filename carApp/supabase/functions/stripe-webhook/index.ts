@@ -675,6 +675,22 @@ async function acceptBooking(body: {
     .select('id');
 
   if (error) {
+    // 23P01 from bookings_no_provider_overlap: this provider already committed
+    // to an overlapping job, buffers included. Requests do not reserve a slot —
+    // several customers may hold one for the same window and the first accept
+    // wins — so losing that race is an expected outcome, not a server fault.
+    // 409 for the same reason as the guard below: the client should refetch and
+    // show the day as it now stands.
+    if (error.code === '23P01') {
+      return jsonResponse(
+        {
+          error:
+            'That time overlaps a job you have already confirmed. Decline this request or reschedule the other job.',
+          code: 'slot_conflict',
+        },
+        409,
+      );
+    }
     return jsonResponse({ error: error.message }, 500);
   }
 

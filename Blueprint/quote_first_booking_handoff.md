@@ -1,8 +1,9 @@
 # Quote-First Booking — Session Handoff
 
-**Written:** 2026-08-17
+**Written:** 2026-08-17 · **Updated:** 2026-08-17 (macOS session)
 **Branch:** `feature/quote-first-booking`
-**Head:** `2cf778b` — **pushed, remote confirmed via `git ls-remote`**
+**Head:** see `git log` — the EXCLUDE-constraint work is committed but its
+migration is **written, not applied**. Read §2 and §4 before anything else.
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -16,18 +17,20 @@ design and the per-phase state live in the spec — this does not duplicate them
 
 ```bash
 git clone git@github.com:EM-T-Shells/CarApp.git   # or: git fetch && git checkout
-git checkout feature/quote-first-booking          # should land on 2cf778b
+git checkout feature/quote-first-booking
 cd CarApp/carApp && npm ci
 ```
 
 Verify you have everything:
 
 ```bash
-git log --oneline -4
+git log --oneline -6
+# feat(booking): Phase 1 — buffers, occupied_range, overlap guard
+# test(booking): add checkout verification script for server-derived pricing
+# docs: add quote-first booking session handoff
 # 2cf778b fix(security): derive booking prices server-side
 # 48b8af3 fix(security): close the booking UPDATE hole
 # 3efc6aa feat(booking): Phase 0 — durations and ready-by time
-# 509cb39 chore(db): reconcile migration history; add Phase 0 booking duration
 ```
 
 > **Note:** commits appeared on `origin` in this environment without an
@@ -37,11 +40,13 @@ git log --oneline -4
 
 ### Environment
 
-| Thing | Value |
-|---|---|
-| Node | v20.20.0 |
-| Supabase CLI | 2.90.0 (2.114.0 available; not required) |
-| Supabase project ref | `apbubklogxgqkokbctwz` |
+| Thing | WSL2 box | macOS box |
+|---|---|---|
+| Node | v20.20.0 | v24.15.0 |
+| Supabase CLI | 2.90.0 | 2.107.0, **not logged in** |
+| Docker / `psql` | — | **neither installed** |
+| Maestro + simulator | unavailable | **not installed** |
+| Supabase project ref | `apbubklogxgqkokbctwz` | same |
 
 **Shell exports — required before launching Claude Code, not after:**
 
@@ -53,6 +58,13 @@ export SUPABASE_DB_PASSWORD=...
 Appending these to `~/.bashrc` is **not enough** — Ubuntu's `.bashrc` returns
 early for non-interactive shells, so tool invocations won't see them unless the
 parent process already has them. (Same note as spec §9.)
+
+**This is the binding constraint, not a footnote.** Without those two exports
+the CLI cannot `link`, so it cannot `db push`, `migration list`, `db query`, or
+`gen types` — and with no Docker and no `psql` there is no local fallback
+either. That is exactly why `20260818000000` is written but unapplied. Anything
+needing only the anon/service-role keys (`.env.local`) still works, which is why
+`npm run verify:checkout` and the seed script do run.
 
 `carApp/.env.local` is gitignored and must be recreated. See `.env.example`;
 the app reads `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
@@ -67,17 +79,36 @@ DB but **cannot apply migrations**. Use the CLI for all DDL.
 
 ## 2. State of the database
 
-All migrations are **applied** to the remote; `supabase migration list` aligns
-on every row. Nothing is pending.
+| Migration | What it does | Applied? |
+|---|---|---|
+| `20260817000000_booking_duration` | Phase 0 duration columns, generated `estimated_completion_at`, backfill, `stamp_actual_duration` | ✅ |
+| `20260817120000_bookings_update_column_guard` | Column allowlist + status-transition trigger on UPDATE | ✅ |
+| `20260817140000_bookings_server_derived_pricing` | Server-side pricing on INSERT + column allowlist | ✅ |
+| `20260818000000_booking_buffers_and_overlap_guard` | Buffers, generated `occupied_range`, `bookings_no_provider_overlap` EXCLUDE constraint | ❌ **PENDING** |
 
-| Migration | What it does |
-|---|---|
-| `20260817000000_booking_duration` | Phase 0 duration columns, generated `estimated_completion_at`, backfill, `stamp_actual_duration` |
-| `20260817120000_bookings_update_column_guard` | Column allowlist + status-transition trigger on UPDATE |
-| `20260817140000_bookings_server_derived_pricing` | Server-side pricing on INSERT + column allowlist |
+### ⚠️ The pending one
 
-`stripe-webhook` was **redeployed** for the deposit-derivation change. If you
-roll the DB back you must also redeploy the previous function, or
+It could not be applied from the machine that wrote it: no Docker, no `psql`,
+the Supabase CLI not logged in, and the MCP server is `--read-only`. So it is
+**written, parsed, and reviewed — but never executed.** Same for its
+`__tests__/*.test.sql`. Treat both as unproven until §4 step 1 is done.
+
+What *was* established without a database connection:
+
+- Both files parse clean against libpg_query (`pglast`). Statement-level only —
+  that catches syntax, not semantics.
+- A dry run of the migration's overlap pre-scan against the live project, using
+  the same arithmetic the generated column will use, found **no existing
+  overlaps** (26 bookings; 20 cancelled, 3 completed, 2 pending, 1 confirmed).
+  So the constraint should create cleanly rather than tripping the pre-scan.
+
+`stripe-webhook` also has an **undeployed change**: `accept_booking` now maps
+`23P01` to a 409 `{ code: 'slot_conflict' }` instead of a 500. Deploy it with
+the migration, not before — the constraint has to exist for the branch to ever
+run, and shipping the branch early is harmless but pointless.
+
+`stripe-webhook` was previously **redeployed** for the deposit-derivation
+change. If you roll the DB back you must also redeploy the previous function, or
 `create_deposit_intent` will read a `deposit_amount` that isn't being set.
 
 ---
@@ -88,9 +119,15 @@ Be precise about this — it decides what to do first.
 
 ### Verified
 
-- **Jest: 72 suites / 879 tests** green (baseline was 71 / 843). `npx tsc --noEmit` clean.
+- **Jest: 72 suites / 884 tests** green (was 72 / 879). `npx tsc --noEmit` clean.
 - **`bookings_update_column_guard.test.sql` — 12/12.**
 - **`bookings_server_derived_pricing.test.sql` — 15/15.**
+- **`npm run verify:checkout` — 23/23 against the live project.** This closed
+  the gap the previous session flagged as the open risk. It signs in as the
+  seeded customer with the **anon** key and fires the exact payload
+  `handleConfirm()` sends, so it covers client payload → column privileges →
+  trigger → row, the forged-price rejections, and the abandon path. Re-run it
+  after any change to the booking screen's payload or to the INSERT grant list.
 
 Run the SQL tests any time (they wrap in a transaction and `ROLLBACK`, so they
 never touch real data):
@@ -102,59 +139,120 @@ supabase db query --linked -f supabase/migrations/__tests__/bookings_server_deri
 # expect every row's pass = t
 ```
 
-### ⚠️ NOT verified — the checkout path end to end
+### ⚠️ NOT verified
 
-**This is the open risk and the reason for the recommendation below.**
+**1. Everything in `20260818000000` and its test.** Never executed — see §2.
+This is now the open risk and the reason for §4.
 
-The payment entry path was rewritten in `2cf778b`: the client stopped sending
-prices, inserts now pass through `trg_derive_booking_amounts`, and the deposit
-amount changed source. Nothing has exercised that end to end.
-
-- Every Jest test **mocks Supabase**. `insertBooking` is only asserted as a
-  passthrough in `src/lib/supabase/__tests__/mutations.test.ts`.
-- There is **no test at all** for `app/(tabs)/search/book/[providerId].tsx`.
-- The SQL tests prove the *database* prices correctly. They do **not** prove the
-  *client* sends a payload the database accepts. Different claims; the seam
-  between them is exactly what changed.
+**2. Stripe, still.** `verify-checkout.mjs` deliberately stops at the database:
+no `create_deposit_intent`, no PaymentSheet, no `stripe-events` promotion
+`pending → pending_provider_approval`. A green run does **not** mean checkout
+works end to end.
 
 E2E (`e2e/run-e2e.sh`, `booking-flow.yaml`) needs **macOS + a booted iOS
-Simulator + Maestro** — it cannot run on the WSL2 box this was written on.
+Simulator + Maestro**. The macOS box has neither Maestro nor a simulator booted
+(`brew install maestro`), so this is still the untested half.
+
+**3. The 409 → provider UI path.** `acceptBooking` in `src/lib/stripe/index.ts`
+now reads the Edge Function's error body off the `FunctionsHttpError` `context`
+Response, because `invoke()` otherwise collapses every non-2xx to "Edge Function
+returned a non-2xx status code" and the provider would be told nothing. That is
+unit-tested against a synthetic `Response`, not against a real 409.
 
 ---
 
 ## 4. Do this first
 
-**Verify checkout before building anything on top of it.** Two ways, pick one:
+### 1. Apply `20260818000000` and run its test
 
-1. **On a Mac (better):** install Maestro, boot a simulator, then
-   `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. This covers Stripe's
-   PaymentSheet too. `booking-flow.yaml` now also asserts the Phase 0 ready-by
-   line on the detail screen.
-2. **Anywhere (cheaper):** a Node script that signs in as a seeded customer with
-   the anon key and performs the exact insert the client now performs, asserting
-   the row comes back correctly priced. Covers client payload → column
-   privileges → trigger → row; does not cover Stripe. *Not yet written* — this
-   was the offered next step when the session ended.
+Nothing else on this branch should be built on top of an unapplied constraint.
+From a shell that already has the two exports:
 
-New failure mode to expect: `booking-flow.yaml` now performs a real
-server-priced insert, so a seeded package that is `is_active = false` or
-`is_approved = false` will make the booking **fail at insert** rather than
-silently price to zero. That is intended, but it is a new way for the seed to
-break loudly.
+```bash
+cd carApp
+supabase link --project-ref apbubklogxgqkokbctwz
+supabase migration list --linked          # expect the first three applied, the fourth not
+supabase db push
+supabase db query --linked -f supabase/migrations/__tests__/booking_buffers_and_overlap_guard.test.sql
+# expect every row's pass = t (14 checks)
+```
 
-**Then: Phase 1, starting with the `EXCLUDE` constraint.** Not for Phase 3's
-sake — for a live bug. Per spec §1 there is no conflict check anywhere today, so
-two customers can book the same provider for the same instant right now. The
-`btree_gist` + `EXCLUDE` pair makes that structurally impossible regardless of
-client behaviour. It needs `occupied_range`, which needs the buffer columns.
-Give it a `__tests__/*.test.sql` as §8 calls for.
+Then, in order:
 
-The rest of Phase 1 (working hours, timezone, time-off, DayTimeline) is real
-work but none of it is load-bearing the way the constraint is.
+```bash
+supabase gen types typescript --project-id apbubklogxgqkokbctwz > src/types/supabase.ts
+npx tsc --noEmit && npm test
+npm run verify:checkout                    # buffers now land on every insert
+supabase functions deploy stripe-webhook   # the 23P01 -> 409 mapping
+```
+
+**The types are stale until you run `gen types`.** No app code reads the new
+columns yet, so `tsc` is clean either way — but a DayTimeline that reads
+`occupied_range` will not typecheck before that regeneration. Expect the same
+codegen quirk §5 documents: `occupied_range` will appear in `Insert`/`Update`
+despite being `GENERATED ALWAYS`. Nothing writes it. Keep it that way.
+
+**If `db push` fails on the pre-scan**, it will name the conflicting booking
+pairs. Those are live double-bookings — the bug the constraint prevents,
+already committed — so a human decides which customer keeps the slot. A dry run
+found none, but the data may have moved since.
+
+**If it fails on `btree_gist`**, the extension did not resolve. Check
+`select * from pg_extension where extname = 'btree_gist'` and which schema it
+landed in; the constraint needs `gist_uuid_ops` visible at DDL time.
+
+### 2. Then the Stripe half, on this Mac
+
+Still the oldest untested path. `brew install maestro`, boot a simulator, then
+`./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. This is the only thing that
+covers `create_deposit_intent`, the PaymentSheet, and the `stripe-events`
+promotion to `pending_provider_approval`. `booking-flow.yaml` asserts the Phase
+0 ready-by line on the detail screen.
+
+Two failure modes to expect, both intended, both new ways for the seed to break
+loudly:
+
+- A seeded package that is `is_active = false` or `is_approved = false` now
+  makes the booking **fail at insert** rather than silently pricing to zero.
+- Seeded bookings now occupy real ranges with buffers. A seed that places two
+  committed jobs close together for one provider will now be **refused**, where
+  before it inserted happily.
+
+### 3. Then the rest of Phase 1
+
+Working hours, `provider_profiles.timezone`, time-off, DayTimeline. None of it
+is load-bearing the way the constraint was. Do `timezone` first — working hours
+are wall-clock and break across DST without it.
+
+`provider_profiles.default_buffer_before_mins` / `_after_mins` exist and are
+already snapshotted onto bookings, but **nothing in the UI writes them yet**;
+every provider is on 15/30. The More → Manage control is unbuilt.
 
 ---
 
 ## 5. Traps already paid for — don't rediscover these
+
+**`occupied_range` and `estimated_completion_at` deliberately disagree.** One
+keys off `scheduled_at`, the other off `COALESCE(started_at, scheduled_at)`, and
+making them consistent breaks the app. Occupancy is a property of the schedule;
+if it followed `started_at`, tapping Start Job two hours late would slide the
+range into the next booking and `23P01` the provider out of a job they are
+standing in front of. The ready-by time *should* follow reality. Both halves are
+asserted in `booking_buffers_and_overlap_guard.test.sql`.
+
+**`supabase.functions.invoke` throws away Edge Function error bodies.** Every
+non-2xx collapses to "Edge Function returned a non-2xx status code"; the real
+message sits on `error.context`, a `Response`. `acceptBooking` in
+`src/lib/stripe/index.ts` now reads it back out — the other wrappers in that
+file do not, and still surface the generic string. If a message you wrote in an
+Edge Function never reaches the UI, this is why.
+
+**`schema.sql` had drifted three migrations behind** and is now current for the
+bookings/provider_profiles columns, the generated columns, the EXCLUDE
+constraint and the booking GRANT lists. The triggers and functions still live
+only in the migrations, which is deliberate — but it means reading `schema.sql`
+alone will not tell you that inserts are priced server-side. The trigger names
+are listed in a comment there.
 
 **`timestamptz + interval` is only STABLE.** Postgres rejects it in a generated
 column (`42P17`), because an interval carrying month/day parts must resolve
@@ -205,10 +303,55 @@ The client's entire write surface on `bookings` is now:
 - **Status transitions** — customer `pending → cancelled`; provider
   `confirmed → en_route → in_progress`
 
-**It cannot state a price at any point.** Anything Phase 3 adds — quote
-submission, price approval, duration adjustment — must go through an Edge
-Function or be added deliberately to both layers. That friction is the point,
-and it is the shape spec §5 already assumes.
+**It cannot state a price at any point**, and after `20260818000000` it cannot
+state how much of a provider's day it takes either — `buffer_before_mins`,
+`buffer_after_mins` and `occupied_range` are outside both grant lists the moment
+they exist, with no REVOKE needed. Anything Phase 3 adds — quote submission,
+price approval, duration adjustment — must go through an Edge Function or be
+added deliberately to both layers. That friction is the point, and it is the
+shape spec §5 already assumes.
 
 Edge Functions are unaffected throughout: they connect with
 `SUPABASE_SERVICE_ROLE_KEY`. So does `scripts/seed-e2e.mjs`.
+
+### ⚠️ The same hole is still open on `provider_profiles` — confirmed live
+
+`"provider_profiles: write own"` is `FOR ALL USING (auth.uid() = user_id)` with
+**no `WITH CHECK` and no column restriction**, so Postgres reuses the `USING`
+clause as the check. That is the exact shape of the two bookings holes this
+branch already closed, on a table nobody re-examined.
+
+Probed against the live project as `provider@carapp.dev` with the **anon** key,
+which is the key that ships in the binary:
+
+```
+original platform_fee_rate: 0
+  write accepted; value is now 0.999
+✖ CONFIRMED: a provider can rewrite their own platform_fee_rate.
+restored to 0
+```
+
+A customer attempting the same write is correctly blocked, so the policy scopes
+to the owner — it simply lets the owner write *everything*. In the same policy:
+
+- **`platform_fee_rate`** — set it to 0 and the platform's cut disappears. The
+  quiet version of the exploit §4 of the spec describes, one table over.
+- **`verification_status`** — a `pending` provider can set `'approved'`,
+  bypassing all six vetting steps and becoming bookable. This also re-fires the
+  Founding Provider enrollment trigger (`20260622140000`), which is why the
+  probe above deliberately did **not** test it on the real project.
+- **`is_founding_provider`**, **`founding_provider_expires_at`**,
+  **`stripe_account_id`**, **`total_jobs`**, **`avg_gear_rating`**,
+  **`kudos_count`** — reputation and payout routing, all self-writable.
+
+The fix is the pattern already used twice here: `REVOKE UPDATE … FROM anon,
+authenticated`, then `GRANT UPDATE (<the columns a provider legitimately owns>)`
+— `bio`, `coverage_area`, `mile_radius`, `base_lat`, `base_lng`, `availability`,
+`provider_type_id`, and the two new `default_buffer_*_mins` — plus a real
+`WITH CHECK` on the policy. Deciding that column list is a product call, not a
+mechanical one, which is why it was left rather than guessed at.
+
+Spec §8 already scopes "RLS tightening" to Phase 1, so this belongs here.
+`admin-review-provider` sets `verification_status` with the service role and is
+unaffected; check `app/(provider)/profile.tsx` and `vetting.tsx` for which
+columns the UI actually writes before fixing the grant list.

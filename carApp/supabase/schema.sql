@@ -2,6 +2,10 @@
 -- CARAPP — UNIFIED MERGED SCHEMA
 -- ============================================================
 
+-- btree_gist supplies btree operators (`provider_id WITH =`) inside a GiST
+-- index, which is what bookings_no_provider_overlap needs alongside `&&`.
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;
+
 -- PROVIDER TYPES (admin managed)
 CREATE TABLE provider_types (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -98,6 +102,11 @@ CREATE TABLE provider_profiles (
   base_lng            NUMERIC(9,6),          -- geocoded base longitude
 
   availability        JSONB,                 -- weekly { "mon": true, …, "sun": false }; NULL = not set (Flow 5.2)
+  -- Scheduling buffers (20260818000000). Snapshotted onto each booking at
+  -- insert, so tuning them never rewrites a job already on the calendar.
+  -- Travel time lives in the "after" buffer; there is no routing API in MVP.
+  default_buffer_before_mins INT NOT NULL DEFAULT 15 CHECK (default_buffer_before_mins BETWEEN 0 AND 480),
+  default_buffer_after_mins  INT NOT NULL DEFAULT 30 CHECK (default_buffer_after_mins BETWEEN 0 AND 480),
   avg_gear_rating     NUMERIC(3,2) DEFAULT 0,
   total_jobs          INT DEFAULT 0,
   kudos_count         INT DEFAULT 0,
@@ -208,9 +217,67 @@ CREATE TABLE bookings (
   scheduled_at     TIMESTAMPTZ NOT NULL,
   started_at       TIMESTAMPTZ,
   completed_at     TIMESTAMPTZ,
+
+  -- Duration (20260817000000). estimated_duration_mins is what the provider
+  -- commits to; the client cannot write it — trg_derive_booking_amounts sums it
+  -- from service_packages. actual_duration_mins is stamped on completion by
+  -- trg_stamp_actual_duration and feeds calibration.
+  estimated_duration_mins INT CHECK (estimated_duration_mins IS NULL OR estimated_duration_mins > 0),
+  actual_duration_mins    INT CHECK (actual_duration_mins IS NULL OR actual_duration_mins >= 0),
+  -- Ready-by time. Keys off started_at once the job begins, so a late start
+  -- reports a late finish. NULL without a duration — an ETC equal to the start
+  -- would read as "ready immediately".
+  estimated_completion_at TIMESTAMPTZ GENERATED ALWAYS AS (
+    CASE WHEN estimated_duration_mins IS NULL THEN NULL
+         ELSE timezone('UTC', timezone('UTC', COALESCE(started_at, scheduled_at))
+                              + make_interval(mins => estimated_duration_mins))
+    END
+  ) STORED,
+
+  -- Scheduling buffers + occupancy (20260818000000). Buffers are snapshotted
+  -- from the provider's defaults by trg_snapshot_booking_buffers; legacy rows
+  -- are 0. occupied_range keys off scheduled_at, NOT started_at, so a late
+  -- start cannot slide a committed slot into the next job — see the migration.
+  buffer_before_mins INT CHECK (buffer_before_mins IS NULL OR buffer_before_mins >= 0),
+  buffer_after_mins  INT CHECK (buffer_after_mins IS NULL OR buffer_after_mins >= 0),
+  occupied_range   TSTZRANGE GENERATED ALWAYS AS (
+    tstzrange(
+      timezone('UTC', timezone('UTC', scheduled_at)
+                      - make_interval(mins => COALESCE(buffer_before_mins, 0))),
+      timezone('UTC', timezone('UTC', scheduled_at)
+                      + make_interval(mins => COALESCE(estimated_duration_mins, 0)
+                                              + COALESCE(buffer_after_mins, 0))),
+      '[)'
+    )
+  ) STORED,
+
   created_at       TIMESTAMPTZ DEFAULT now(),
-  updated_at       TIMESTAMPTZ DEFAULT now()
+  updated_at       TIMESTAMPTZ DEFAULT now(),
+
+  -- A provider cannot hold two committed bookings whose occupied ranges
+  -- overlap (20260818000000). pending / pending_provider_approval are excluded
+  -- deliberately: several customers may request the same window and the first
+  -- accept wins. Raises 23P01, surfaced as "That time was just taken."
+  -- Requires btree_gist for `provider_id WITH =`.
+  CONSTRAINT bookings_no_provider_overlap EXCLUDE USING gist (
+    provider_id WITH =,
+    occupied_range WITH &&
+  ) WHERE (status IN ('confirmed', 'en_route', 'in_progress'))
 );
+
+-- Booking write surface (20260817120000 / 20260817140000). RLS has no column
+-- granularity, so the client's vocabulary is fixed by column privileges and
+-- two SECURITY INVOKER triggers, both of which live in those migrations:
+--   trg_derive_booking_amounts        prices every client insert server-side
+--   trg_enforce_booking_status_transition  pins clients to three transitions
+--   trg_snapshot_booking_buffers      copies the provider's buffers onto a row
+--   trg_stamp_actual_duration         stamps actual_duration_mins on completion
+-- The client can state who/what/when/where and never an amount or a buffer.
+REVOKE INSERT, UPDATE ON bookings FROM anon, authenticated;
+GRANT INSERT (id, customer_id, provider_id, vehicle_id, package_id, services,
+              status, scheduled_at, service_address, location_lat, location_lng,
+              notes) ON bookings TO authenticated;
+GRANT UPDATE (scheduled_at, status, started_at) ON bookings TO authenticated;
 
 -- Auto-cancel sweep (expire_pending_approvals) scans expired approvals; index the hot path.
 CREATE INDEX IF NOT EXISTS idx_bookings_pending_approval_expiry

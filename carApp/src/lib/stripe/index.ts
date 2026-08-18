@@ -32,6 +32,37 @@ export type StripeResult<T> =
   | { data: T; error: null }
   | { data: null; error: Error };
 
+// ── Edge Function Error Bodies ────────────────────────────────────────
+
+/**
+ * supabase.functions.invoke collapses every non-2xx into a bare "Edge Function
+ * returned a non-2xx status code" and leaves the response itself on the error's
+ * `context`. The function's own message is the useful half — "that time
+ * overlaps a job you have already confirmed" rather than a status code — so
+ * read it back out when it is there, and fall back otherwise.
+ */
+async function readFunctionError(
+  error: unknown,
+  fallback: string,
+): Promise<Error> {
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    try {
+      const body: unknown = await context.clone().json();
+      const message = (body as { error?: unknown })?.error;
+      if (typeof message === 'string' && message.length > 0) {
+        return new Error(message);
+      }
+    } catch {
+      // Body was not JSON, or was already consumed. Fall through.
+    }
+  }
+  const message = (error as { message?: unknown })?.message;
+  return new Error(
+    typeof message === 'string' && message.length > 0 ? message : fallback,
+  );
+}
+
 // ── Edge Function Response Shapes ─────────────────────────────────────
 
 export interface CreatePaymentIntentResponse {
@@ -406,7 +437,11 @@ export async function acceptBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Accept failed') };
+      // Two different 409s land here and the provider needs to tell them
+      // apart: the window closed, or the slot is now double-booked. Only the
+      // Edge Function knows which, so surface its message rather than the
+      // generic invoke() one.
+      return { data: null, error: await readFunctionError(error, 'Accept failed') };
     }
 
     const response = data as AcceptBookingResponse;

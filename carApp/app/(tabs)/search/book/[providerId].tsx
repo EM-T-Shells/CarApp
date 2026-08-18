@@ -39,7 +39,11 @@ import { colors, spacing, borderRadius, type Palette } from '../../../../src/des
 import { centsToDisplay } from '../../../../src/utils/money';
 import { getProviderById } from '../../../../src/lib/supabase/queries';
 import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
-import { insertBooking, updateBooking } from '../../../../src/lib/supabase/mutations';
+import {
+  insertBooking,
+  isSlotUnavailableError,
+  updateBooking,
+} from '../../../../src/lib/supabase/mutations';
 import {
   createDepositPaymentIntent,
   presentDepositPaymentSheet,
@@ -212,6 +216,20 @@ export default function BookProviderScreen(): React.ReactElement {
 
     if (bookingResult.error) {
       setIsSubmitting(false);
+      // 23P01 from bookings_no_provider_overlap: the provider committed that
+      // slot to someone else. Nothing is wrong with the request, so the ask is
+      // a different time rather than a retry — send them back to the step that
+      // holds the picker instead of leaving them on a review screen they cannot
+      // submit.
+      if (isSlotUnavailableError(bookingResult.error)) {
+        Alert.alert('Time No Longer Available', bookingResult.error.message, [
+          {
+            text: 'Pick Another Time',
+            onPress: () => setStepIndex(STEPS.indexOf('Details')),
+          },
+        ]);
+        return;
+      }
       Alert.alert('Booking Failed', bookingResult.error.message);
       return;
     }
