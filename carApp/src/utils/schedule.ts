@@ -24,10 +24,14 @@
 export type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
 /** A local wall-clock window. Both ends are "HH:MM" in 24-hour form. */
-export interface TimeWindow {
+// A type alias rather than an interface, deliberately. Only aliases get an
+// implicit index signature, and without one a WorkingHours value cannot be
+// assigned to the generated `Json` column type — so persisting working_hours
+// would need a cast at every call site.
+export type TimeWindow = {
   start: string;
   end: string;
-}
+};
 
 export type WorkingHours = Record<DayKey, TimeWindow[]>;
 
