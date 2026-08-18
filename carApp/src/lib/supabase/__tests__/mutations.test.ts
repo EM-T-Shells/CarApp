@@ -61,6 +61,10 @@ import {
   deleteServicePackage,
   insertBooking,
   isSlotUnavailableError,
+  insertProviderTimeOff,
+  deleteProviderTimeOff,
+  isTimeOffOverlapError,
+  TimeOffOverlapError,
   updateBooking,
   insertBookingPhoto,
   insertRating,
@@ -589,5 +593,118 @@ describe('error handling', () => {
 
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('No data returned')
+  })
+})
+
+// ── Provider Time Off ──────────────────────────────────────────────────
+
+describe('insertProviderTimeOff', () => {
+  const BLOCK = {
+    provider_id: 'pp1',
+    starts_at: '2026-09-01T12:00:00Z',
+    ends_at: '2026-09-05T12:00:00Z',
+  }
+
+  it('inserts a valid block and returns the row', async () => {
+    const row = { id: 'to1', ...BLOCK }
+    const builder = makeBuilder({ data: row, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual(row)
+    expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
+    expect(builder.insert).toHaveBeenCalledWith(BLOCK)
+  })
+
+  // provider_time_off_no_overlap also raises 23P01, but it means the provider
+  // collided with themselves — not that a customer took the slot. Sharing
+  // SlotUnavailableError's copy would tell them a stranger claimed their
+  // vacation.
+  it('translates 23P01 into a TimeOffOverlapError, not a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "provider_time_off_no_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(result.data).toBeNull()
+    expect(result.error).toBeInstanceOf(TimeOffOverlapError)
+    expect(isTimeOffOverlapError(result.error)).toBe(true)
+    expect(isSlotUnavailableError(result.error)).toBe(false)
+    expect(result.error?.message).toMatch(/already have time off/i)
+  })
+
+  // blocked_range is GENERATED ALWAYS and STORED, so tstzrange() runs before
+  // provider_time_off_ends_after_start and raises a bare 22000 the provider
+  // must never see. Caught client-side, where the values are still in hand.
+  it('refuses an inverted range before it reaches the database', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff({
+      ...BLOCK,
+      starts_at: '2026-09-05T12:00:00Z',
+      ends_at: '2026-09-01T12:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toMatch(/end after it starts/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('refuses a zero-length block, which the range would also reject', async () => {
+    mockFrom.mockReturnValue(makeBuilder({ data: null, error: null }))
+
+    const result = await insertProviderTimeOff({
+      ...BLOCK,
+      ends_at: BLOCK.starts_at,
+    })
+
+    expect(result.error?.message).toMatch(/end after it starts/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unparseable date rather than sending Invalid Date', async () => {
+    mockFrom.mockReturnValue(makeBuilder({ data: null, error: null }))
+
+    const result = await insertProviderTimeOff({ ...BLOCK, ends_at: 'later' })
+
+    expect(result.error?.message).toMatch(/valid start and end/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('passes a non-exclusion error through untranslated', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '42501', message: 'permission denied' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(isTimeOffOverlapError(result.error)).toBe(false)
+    expect(result.error?.message).toBe('permission denied')
+  })
+})
+
+describe('deleteProviderTimeOff', () => {
+  it('deletes by id', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await deleteProviderTimeOff('to1')
+
+    expect(result.error).toBeNull()
+    expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
+    expect(builder.delete).toHaveBeenCalled()
+    expect(builder.eq).toHaveBeenCalledWith('id', 'to1')
   })
 })

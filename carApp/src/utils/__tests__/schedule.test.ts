@@ -11,7 +11,10 @@ import {
   isWithinWorkingHours,
   localDateKey,
   localDayKey,
+  localDayOffset,
+  localDayRange,
   minutesIntoLocalDay,
+  startOfLocalDay,
   parseHHMM,
   workingHoursFromJson,
   workingHoursToAvailability,
@@ -339,5 +342,87 @@ describe('describeWorkingHours', () => {
 describe('DAY_KEYS', () => {
   it('runs Monday first', () => {
     expect(DAY_KEYS).toEqual(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+  });
+});
+
+// ── Local day boundaries ──────────────────────────────────────────────
+
+describe('startOfLocalDay', () => {
+  it('returns local midnight as a UTC instant, not UTC midnight', () => {
+    // 20:00 on Jan 14 in New York (EST, -05:00).
+    const start = startOfLocalDay(new Date('2026-01-15T01:00:00Z'), NY);
+    expect(start.toISOString()).toBe('2026-01-14T05:00:00.000Z');
+  });
+
+  it('uses the offset in effect at midnight, not the one at the given instant', () => {
+    // 2026-03-08 is the US spring-forward. At 18:00Z New York is already EDT
+    // (-04:00), but midnight that morning was still EST (-05:00). Subtracting
+    // the instant's own offset would land at 04:00Z — an hour into the day.
+    const start = startOfLocalDay(new Date('2026-03-08T18:00:00Z'), NY);
+    expect(start.toISOString()).toBe('2026-03-08T05:00:00.000Z');
+  });
+
+  it('is idempotent — the start of a day is its own day start', () => {
+    const once = startOfLocalDay(new Date('2026-03-08T18:00:00Z'), NY);
+    expect(startOfLocalDay(once, NY).toISOString()).toBe(once.toISOString());
+  });
+});
+
+describe('localDayRange', () => {
+  it('spans exactly 24 hours on an ordinary day', () => {
+    const { start, end } = localDayRange(new Date('2026-01-15T01:00:00Z'), NY);
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(24);
+  });
+
+  // The reason end is not start + 24h. A fixed addition would leave the range
+  // an hour short or long on exactly the days a provider's calendar is most
+  // likely to be misread.
+  it('spans 23 hours on the spring-forward day', () => {
+    const { start, end } = localDayRange(new Date('2026-03-08T18:00:00Z'), NY);
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(23);
+    expect(end.toISOString()).toBe('2026-03-09T04:00:00.000Z');
+  });
+
+  it('spans 25 hours on the fall-back day', () => {
+    // 2026-11-01 is the US autumn transition.
+    const { start, end } = localDayRange(new Date('2026-11-01T15:00:00Z'), NY);
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(25);
+  });
+
+  it('is half-open — the end is the next day start', () => {
+    const { end } = localDayRange(new Date('2026-01-15T01:00:00Z'), NY);
+    expect(startOfLocalDay(end, NY).toISOString()).toBe(end.toISOString());
+  });
+});
+
+describe('localDayOffset', () => {
+  const ref = new Date('2026-01-15T17:00:00Z'); // Jan 15 noon in NY
+
+  it('is zero for two instants on the same local day', () => {
+    expect(localDayOffset(new Date('2026-01-15T05:00:00Z'), ref, NY)).toBe(0);
+    expect(localDayOffset(new Date('2026-01-16T04:59:00Z'), ref, NY)).toBe(0);
+  });
+
+  it('signs the difference, so tomorrow is +1 and yesterday is -1', () => {
+    expect(localDayOffset(new Date('2026-01-16T05:00:00Z'), ref, NY)).toBe(1);
+    expect(localDayOffset(new Date('2026-01-14T05:00:00Z'), ref, NY)).toBe(-1);
+  });
+
+  // 23 and 25-hour days both have to round to one, or a job either side of a
+  // DST boundary lands on the wrong day of the timeline.
+  it('counts a DST day as one day', () => {
+    const before = new Date('2026-03-07T17:00:00Z');
+    const after = new Date('2026-03-09T16:00:00Z');
+    const dst = new Date('2026-03-08T17:00:00Z');
+    expect(localDayOffset(dst, before, NY)).toBe(1);
+    expect(localDayOffset(after, dst, NY)).toBe(1);
+    expect(localDayOffset(after, before, NY)).toBe(2);
+  });
+
+  it('reads the same instant differently in two zones', () => {
+    // 02:00Z on Jan 15 is still Jan 14 in New York but already Jan 15 in UTC.
+    const instant = new Date('2026-01-15T02:00:00Z');
+    expect(localDayOffset(instant, ref, NY)).toBe(-1);
+    expect(localDayOffset(instant, ref, 'UTC')).toBe(0);
   });
 });

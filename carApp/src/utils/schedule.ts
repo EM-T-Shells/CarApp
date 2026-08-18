@@ -323,6 +323,63 @@ export function localDateKey(date: Date, timeZone: string): string {
   return toZonedClock(date, timeZone).toISOString().slice(0, 10);
 }
 
+/**
+ * The UTC instant at which `date`'s local day begins in `timeZone`.
+ *
+ * Two passes, and the second one is not optional. The offset in effect at
+ * midday is not necessarily the offset in effect at midnight — on a DST
+ * boundary they differ by an hour — so a single subtraction lands an hour off
+ * on exactly the two days a year where being off by an hour reorders a
+ * provider's calendar. The second pass re-reads the offset at the candidate
+ * instant and corrects it.
+ */
+export function startOfLocalDay(date: Date, timeZone: string): Date {
+  const midnightAsUtc = Date.parse(`${localDateKey(date, timeZone)}T00:00:00Z`);
+  const firstGuess = new Date(
+    midnightAsUtc - zoneOffsetMinutes(date, timeZone) * 60_000,
+  );
+  return new Date(
+    midnightAsUtc - zoneOffsetMinutes(firstGuess, timeZone) * 60_000,
+  );
+}
+
+/**
+ * Half-open `[start, end)` UTC bounds of `date`'s local day in `timeZone`.
+ *
+ * `end` is derived by landing 36 hours ahead and snapping back to that day's
+ * midnight, rather than adding 24 hours. A DST day is 23 or 25 hours long, and
+ * 36 hours is inside the next local day under either, so the result is the real
+ * next midnight instead of an hour adrift from it.
+ */
+export function localDayRange(
+  date: Date,
+  timeZone: string,
+): { start: Date; end: Date } {
+  const start = startOfLocalDay(date, timeZone);
+  const end = startOfLocalDay(
+    new Date(start.getTime() + 36 * 60 * 60_000),
+    timeZone,
+  );
+  return { start, end };
+}
+
+/**
+ * Whole local days from `reference`'s day to `date`'s day: 0 same day, -1 the
+ * day before, +1 the day after.
+ *
+ * Rounding the difference between two local midnights is what makes this
+ * DST-proof — the gap is 23, 24 or 25 hours and all three round to one day.
+ */
+export function localDayOffset(
+  date: Date,
+  reference: Date,
+  timeZone: string,
+): number {
+  const a = startOfLocalDay(date, timeZone).getTime();
+  const b = startOfLocalDay(reference, timeZone).getTime();
+  return Math.round((a - b) / (24 * 60 * 60_000));
+}
+
 // ── Working-hours queries ─────────────────────────────────────────────
 
 /** The windows for one day, always an array. */

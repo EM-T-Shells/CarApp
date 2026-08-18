@@ -80,6 +80,45 @@ describe('placeJobs', () => {
     expect(placed[0].occupiedEnd).toBe(60); // runs to 01:00
   });
 
+  // The mirror of the previous case, and the one a signed day offset is needed
+  // for. Reading "not today" as "yesterday" put a next-day job 24 hours on the
+  // wrong side of the timeline: this one's approach buffer genuinely reaches
+  // back across midnight and consumes the end of tonight.
+  it('keeps a job whose buffer spills back from the next local day', () => {
+    const placed = placeJobs(
+      [
+        job({
+          id: 'a',
+          scheduledAt: '2026-09-15T04:15:00Z', // 00:15 Tuesday local
+          durationMins: 60,
+          bufferBeforeMins: 30,
+          bufferAfterMins: 0,
+        }),
+      ],
+      DAY,
+      NY,
+    );
+    expect(placed).toHaveLength(1);
+    // Occupancy opens at 23:45 Monday and runs past midnight.
+    expect(placed[0].occupiedStart).toBe(1425);
+    expect(placed[0].serviceStart).toBe(1455);
+  });
+
+  it('still drops a next-day job that does not reach back across midnight', () => {
+    const placed = placeJobs(
+      [
+        job({
+          id: 'a',
+          scheduledAt: '2026-09-15T14:00:00Z', // 10:00 Tuesday local
+          bufferBeforeMins: 20,
+        }),
+      ],
+      DAY,
+      NY,
+    );
+    expect(placed).toHaveLength(0);
+  });
+
   it('drops a malformed instant rather than rendering it at midnight', () => {
     expect(placeJobs([job({ id: 'a', scheduledAt: 'not-a-date' })], DAY, NY)).toHaveLength(0);
   });

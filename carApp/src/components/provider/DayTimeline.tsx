@@ -32,6 +32,7 @@ import {
   formatClockLabel,
   formatHHMM,
   localDayKey,
+  localDayOffset,
   minutesIntoLocalDay,
   windowsForDay,
   type WorkingHours,
@@ -114,19 +115,20 @@ export function placeJobs(
   date: Date,
   timeZone: string,
 ): PlacedJob[] {
-  const day = localDayKey(date, timeZone);
-
   const placed: PlacedJob[] = jobs
     .map((job) => {
       const start = new Date(job.scheduledAt);
       if (Number.isNaN(start.getTime())) return null;
 
-      // Anchor off the same local day the timeline is drawing. A job on another
-      // day is skipped; one that merely runs past midnight is clamped below.
-      const sameDay = localDayKey(start, timeZone) === day;
-      const serviceStart = sameDay
-        ? minutesIntoLocalDay(start, timeZone)
-        : minutesIntoLocalDay(start, timeZone) - MINUTES_PER_DAY;
+      // Anchor off the same local day the timeline is drawing, using a SIGNED
+      // day offset. Assuming "not today means yesterday" silently mislocates
+      // tomorrow's jobs: a job at 00:15 tomorrow whose before-buffer reaches
+      // back across midnight genuinely consumes the end of today, and reading
+      // it as yesterday's put it 24 hours on the wrong side of the day.
+      // Anything fully off the day is dropped a few lines down either way.
+      const dayOffset = localDayOffset(start, date, timeZone);
+      const serviceStart =
+        minutesIntoLocalDay(start, timeZone) + dayOffset * MINUTES_PER_DAY;
 
       const duration = job.durationMins ?? 0;
       const serviceEnd = serviceStart + duration;

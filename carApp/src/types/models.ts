@@ -30,6 +30,11 @@ export type ProviderLocationCache = Tables<'provider_location_cache'>;
 export type ProviderLocationCacheInsert = TablesInsert<'provider_location_cache'>;
 export type ProviderLocationCacheUpdate = TablesUpdate<'provider_location_cache'>;
 
+// ── Provider Time Off ──────────────────────────────────────────────────
+export type ProviderTimeOff = Tables<'provider_time_off'>;
+export type ProviderTimeOffInsert = TablesInsert<'provider_time_off'>;
+export type ProviderTimeOffUpdate = TablesUpdate<'provider_time_off'>;
+
 // ── Service Catalog ────────────────────────────────────────────────────
 export type ServiceCatalog = Tables<'service_catalog'>;
 export type ServiceCatalogInsert = TablesInsert<'service_catalog'>;

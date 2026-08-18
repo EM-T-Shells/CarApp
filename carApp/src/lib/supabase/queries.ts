@@ -1,5 +1,11 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase } from './client'
+import {
+  DEFAULT_TIMEZONE,
+  localDayRange,
+  workingHoursFromJson,
+  type WorkingHours,
+} from '../../utils/schedule'
 import type {
   Booking,
   BookingPhoto,
@@ -12,6 +18,7 @@ import type {
   Promotion,
   ProviderLocationCache,
   ProviderProfile,
+  ProviderTimeOff,
   ProviderType,
   ProviderVetting,
   Rating,
@@ -696,5 +703,149 @@ export function getProviderLocation(
       .select('*')
       .eq('provider_id', providerId)
       .maybeSingle(),
+  )
+}
+
+// ── Provider Day Schedule ──────────────────────────────────────────────
+
+/**
+ * Everything needed to draw one provider day: the jobs on it, the time off
+ * blocking it, and the working hours it should be measured against.
+ *
+ * Assembled here rather than in the screen because the three pieces are not
+ * independent — the day's boundaries are local to the provider's timezone, and
+ * the timezone is a column on the profile. Fetching bookings first would mean
+ * guessing at the day boundaries before knowing which zone they are in.
+ */
+export interface ProviderDaySchedule {
+  /** Local-day bounds actually queried, as UTC instants. */
+  range: { start: string; end: string }
+  timeZone: string
+  workingHours: WorkingHours
+  maxJobsPerDay: number | null
+  defaultBufferBeforeMins: number
+  defaultBufferAfterMins: number
+  bookings: BookingSummary[]
+  timeOff: ProviderTimeOff[]
+}
+
+// Statuses that occupy a provider's calendar. Cancelled and no-show rows are
+// excluded because they release the slot; completed rows are kept, since a
+// finished job is still a thing that happened on that day and the provider
+// looking at today should see it.
+const SCHEDULE_BOOKING_STATUSES = [
+  'pending',
+  'pending_provider_approval',
+  'confirmed',
+  'en_route',
+  'in_progress',
+  'completed',
+] as const
+
+/**
+ * Bookings are fetched over a window one day wider on each side than the day
+ * being drawn, because occupancy is not the same thing as the start time: a job
+ * starting at 23:00 yesterday with a two-hour duration still consumes this
+ * morning, and one at 00:15 tomorrow with a 30-minute approach buffer already
+ * consumes tonight. DayTimeline.placeJobs clamps what crosses the boundary and
+ * drops what does not reach it, so over-fetching by a day is what makes the
+ * clamping correct rather than merely possible.
+ */
+const SCHEDULE_WINDOW_PAD_MS = 24 * 60 * 60 * 1000
+
+export async function getProviderDaySchedule(
+  providerId: string,
+  date: Date,
+): Promise<QueryResult<ProviderDaySchedule>> {
+  const profileResult = await runSingle<
+    Pick<
+      ProviderProfile,
+      | 'timezone'
+      | 'working_hours'
+      | 'max_jobs_per_day'
+      | 'default_buffer_before_mins'
+      | 'default_buffer_after_mins'
+    >
+  >(
+    supabase
+      .from('provider_profiles')
+      .select(
+        'timezone, working_hours, max_jobs_per_day, default_buffer_before_mins, default_buffer_after_mins',
+      )
+      .eq('id', providerId)
+      .single(),
+  )
+  if (profileResult.error) return { data: null, error: profileResult.error }
+
+  const profile = profileResult.data
+  // A profile row predating 20260819000000's NOT NULL default, or one read
+  // through a stale client, still has to render a day rather than throw.
+  const timeZone = profile.timezone || DEFAULT_TIMEZONE
+  const workingHours = workingHoursFromJson(profile.working_hours)
+  const { start, end } = localDayRange(date, timeZone)
+
+  const padStart = new Date(start.getTime() - SCHEDULE_WINDOW_PAD_MS)
+  const padEnd = new Date(end.getTime() + SCHEDULE_WINDOW_PAD_MS)
+
+  const [bookingsResult, timeOffResult] = await Promise.all([
+    runList<BookingSummary>(
+      supabase
+        .from('bookings')
+        .select(BOOKING_SUMMARY_SELECT)
+        .eq('provider_id', providerId)
+        .in('status', [...SCHEDULE_BOOKING_STATUSES])
+        .gte('scheduled_at', padStart.toISOString())
+        .lt('scheduled_at', padEnd.toISOString())
+        .order('scheduled_at', { ascending: true })
+        .returns<BookingSummary[]>(),
+    ),
+    // Time off is filtered on overlap, not on start: a week-long block started
+    // last Monday must still blank out today.
+    runList<ProviderTimeOff>(
+      supabase
+        .from('provider_time_off')
+        .select('*')
+        .eq('provider_id', providerId)
+        .lt('starts_at', end.toISOString())
+        .gt('ends_at', start.toISOString())
+        .order('starts_at', { ascending: true }),
+    ),
+  ])
+
+  if (bookingsResult.error) return { data: null, error: bookingsResult.error }
+  if (timeOffResult.error) return { data: null, error: timeOffResult.error }
+
+  return {
+    data: {
+      range: { start: start.toISOString(), end: end.toISOString() },
+      timeZone,
+      workingHours,
+      maxJobsPerDay: profile.max_jobs_per_day,
+      defaultBufferBeforeMins: profile.default_buffer_before_mins,
+      defaultBufferAfterMins: profile.default_buffer_after_mins,
+      bookings: bookingsResult.data,
+      timeOff: timeOffResult.data,
+    },
+    error: null,
+  }
+}
+
+/**
+ * Time off overlapping an arbitrary range — the More → Manage list, which shows
+ * upcoming blocks rather than one day's.
+ */
+export function getProviderTimeOff(
+  providerId: string,
+  fromInclusive: Date,
+  toExclusive: Date,
+): Promise<QueryResult<ProviderTimeOff[]>> {
+  return runList<ProviderTimeOff>(
+    supabase
+      .from('provider_time_off')
+      .select('*')
+      .eq('provider_id', providerId)
+      .lt('starts_at', toExclusive.toISOString())
+      .gt('ends_at', fromInclusive.toISOString())
+      .order('starts_at', { ascending: true }),
   )
 }

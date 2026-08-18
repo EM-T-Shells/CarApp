@@ -5,6 +5,8 @@ type MockBuilder = {
   eq: jest.Mock
   in: jest.Mock
   gte: jest.Mock
+  lt: jest.Mock
+  gt: jest.Mock
   order: jest.Mock
   limit: jest.Mock
   single: jest.Mock
@@ -26,6 +28,8 @@ function makeBuilder(
   builder.eq = jest.fn(() => builder)
   builder.in = jest.fn(() => builder)
   builder.gte = jest.fn(() => builder)
+  builder.lt = jest.fn(() => builder)
+  builder.gt = jest.fn(() => builder)
   builder.order = jest.fn(() => builder)
   builder.limit = jest.fn(() => builder)
   builder.single = jest.fn(() => builder)
@@ -44,6 +48,8 @@ jest.mock('../client', () => ({
 }))
 
 import {
+  getProviderDaySchedule,
+  getProviderTimeOff,
   getUserById,
   getVehiclesByUser,
   getPrimaryVehicle,
@@ -626,5 +632,181 @@ describe('getProviderLocation', () => {
     expect(mockFrom).toHaveBeenCalledWith('provider_location_cache')
     expect(builder.eq).toHaveBeenCalledWith('provider_id', 'p1')
     expect(builder.maybeSingle).toHaveBeenCalled()
+  })
+})
+
+describe('getProviderDaySchedule', () => {
+  const PROFILE = {
+    timezone: 'America/Chicago',
+    working_hours: { mon: [{ start: '09:00', end: '17:00' }] },
+    max_jobs_per_day: 3,
+    default_buffer_before_mins: 15,
+    default_buffer_after_mins: 30,
+  }
+
+  // The profile is fetched first, then bookings and time off in parallel, so
+  // the mock hands back a different builder per table.
+  function mockTables(overrides: {
+    profile?: { data: unknown; error: unknown }
+    bookings?: { data: unknown; error: unknown }
+    timeOff?: { data: unknown; error: unknown }
+  } = {}) {
+    const builders = {
+      provider_profiles: makeBuilder(
+        overrides.profile ?? { data: PROFILE, error: null },
+      ),
+      bookings: makeBuilder(overrides.bookings ?? { data: [], error: null }),
+      provider_time_off: makeBuilder(
+        overrides.timeOff ?? { data: [], error: null },
+      ),
+    }
+    mockFrom.mockImplementation(
+      (table: string) => builders[table as keyof typeof builders],
+    )
+    return builders
+  }
+
+  it('resolves the day window in the provider timezone, not the device one', async () => {
+    const builders = mockTables()
+
+    // 2026-03-10T02:00:00Z is 2026-03-09 20:00 in Chicago, so the local day is
+    // the 9th. DST began on the 8th, so Chicago is CDT (UTC-5) and the day
+    // starts at 05:00Z — neither midnight UTC nor the CST 06:00Z it would have
+    // been a week earlier.
+    const result = await getProviderDaySchedule(
+      'p1',
+      new Date('2026-03-10T02:00:00Z'),
+    )
+
+    expect(result.error).toBeNull()
+    expect(result.data?.range.start).toBe('2026-03-09T05:00:00.000Z')
+    expect(result.data?.range.end).toBe('2026-03-10T05:00:00.000Z')
+    expect(builders.provider_profiles.eq).toHaveBeenCalledWith('id', 'p1')
+  })
+
+  it('spans 23 hours across the spring-forward boundary', async () => {
+    mockTables()
+
+    // 2026-03-08 is the US DST transition: the local day loses an hour.
+    const result = await getProviderDaySchedule(
+      'p1',
+      new Date('2026-03-08T18:00:00Z'),
+    )
+
+    const start = new Date(result.data!.range.start).getTime()
+    const end = new Date(result.data!.range.end).getTime()
+    expect((end - start) / 3_600_000).toBe(23)
+  })
+
+  it('pads the booking window by a day on each side but not the time-off one', async () => {
+    const builders = mockTables()
+
+    await getProviderDaySchedule('p1', new Date('2026-03-10T02:00:00Z'))
+
+    // Bookings: padded, because a job's buffers reach across midnight.
+    expect(builders.bookings.gte).toHaveBeenCalledWith(
+      'scheduled_at',
+      '2026-03-08T05:00:00.000Z',
+    )
+    expect(builders.bookings.lt).toHaveBeenCalledWith(
+      'scheduled_at',
+      '2026-03-11T05:00:00.000Z',
+    )
+    // Time off: exact bounds, because it is filtered on overlap already.
+    expect(builders.provider_time_off.lt).toHaveBeenCalledWith(
+      'starts_at',
+      '2026-03-10T05:00:00.000Z',
+    )
+    expect(builders.provider_time_off.gt).toHaveBeenCalledWith(
+      'ends_at',
+      '2026-03-09T05:00:00.000Z',
+    )
+  })
+
+  it('excludes cancelled and no_show, which release the slot', async () => {
+    const builders = mockTables()
+
+    await getProviderDaySchedule('p1', new Date('2026-03-10T02:00:00Z'))
+
+    const statuses = builders.bookings.in.mock.calls[0][1] as string[]
+    expect(statuses).not.toContain('cancelled')
+    expect(statuses).not.toContain('no_show')
+    expect(statuses).toContain('completed')
+    expect(statuses).toContain('pending')
+  })
+
+  it('parses working hours and passes the buffer defaults through', async () => {
+    mockTables()
+
+    const result = await getProviderDaySchedule(
+      'p1',
+      new Date('2026-03-10T02:00:00Z'),
+    )
+
+    expect(result.data?.workingHours.mon).toEqual([
+      { start: '09:00', end: '17:00' },
+    ])
+    expect(result.data?.maxJobsPerDay).toBe(3)
+    expect(result.data?.defaultBufferBeforeMins).toBe(15)
+    expect(result.data?.defaultBufferAfterMins).toBe(30)
+  })
+
+  it('falls back to the default zone rather than throwing on a blank timezone', async () => {
+    mockTables({
+      profile: { data: { ...PROFILE, timezone: '' }, error: null },
+    })
+
+    const result = await getProviderDaySchedule(
+      'p1',
+      new Date('2026-03-10T02:00:00Z'),
+    )
+
+    expect(result.error).toBeNull()
+    expect(result.data?.timeZone).toBe('America/New_York')
+  })
+
+  it('surfaces a profile error without querying the day', async () => {
+    const builders = mockTables({
+      profile: { data: null, error: { message: 'nope' } },
+    })
+
+    const result = await getProviderDaySchedule('p1', new Date())
+
+    expect(result.data).toBeNull()
+    expect(result.error).toBeTruthy()
+    expect(builders.bookings.select).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a time-off error even when the bookings query succeeded', async () => {
+    mockTables({ timeOff: { data: null, error: { message: 'boom' } } })
+
+    const result = await getProviderDaySchedule('p1', new Date())
+
+    expect(result.data).toBeNull()
+    expect(result.error).toBeTruthy()
+  })
+})
+
+describe('getProviderTimeOff', () => {
+  it('filters on overlap so a block started earlier still matches', async () => {
+    const builder = makeBuilder({ data: [], error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await getProviderTimeOff(
+      'p1',
+      new Date('2026-04-01T00:00:00Z'),
+      new Date('2026-05-01T00:00:00Z'),
+    )
+
+    expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
+    expect(builder.eq).toHaveBeenCalledWith('provider_id', 'p1')
+    expect(builder.lt).toHaveBeenCalledWith(
+      'starts_at',
+      '2026-05-01T00:00:00.000Z',
+    )
+    expect(builder.gt).toHaveBeenCalledWith(
+      'ends_at',
+      '2026-04-01T00:00:00.000Z',
+    )
   })
 })
