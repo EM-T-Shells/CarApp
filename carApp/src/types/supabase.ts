@@ -74,6 +74,10 @@ export type Database = {
           platform_fee: number | null
           provider_id: string | null
           provider_payout: number | null
+          quote_line_items: Json | null
+          quoted_total_amount: number | null
+          requested_window_end: string | null
+          requested_window_start: string | null
           scheduled_at: string
           service_address: string | null
           service_fee: number | null
@@ -114,6 +118,10 @@ export type Database = {
           platform_fee?: number | null
           provider_id?: string | null
           provider_payout?: number | null
+          quote_line_items?: Json | null
+          quoted_total_amount?: number | null
+          requested_window_end?: string | null
+          requested_window_start?: string | null
           scheduled_at: string
           service_address?: string | null
           service_fee?: number | null
@@ -154,6 +162,10 @@ export type Database = {
           platform_fee?: number | null
           provider_id?: string | null
           provider_payout?: number | null
+          quote_line_items?: Json | null
+          quoted_total_amount?: number | null
+          requested_window_end?: string | null
+          requested_window_start?: string | null
           scheduled_at?: string
           service_address?: string | null
           service_fee?: number | null
