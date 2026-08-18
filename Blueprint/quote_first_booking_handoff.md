@@ -12,7 +12,7 @@ this does not duplicate them.
 > 3's additive foundation is in — seven migrations on the live project, all SQL
 > suites passing, Jest 82 suites / 1111 tests, `tsc` clean. The previous
 > session's blocker (three unapplied migrations) is gone. **The one live blocker
-> now is a Supabase secret key**; see §2. Next work is the rest of Phase 3.
+> now is Stripe on a Mac**; see §4. Next work is the rest of Phase 3.
 
 ---
 
@@ -70,38 +70,33 @@ runs `--read-only`.
 
 ---
 
-## 2. The one live blocker — a Supabase secret key
+## 2. API keys — resolved, but know the shape of it
 
-**Legacy API keys were disabled on this project on 2026-06-24.** The publishable
-key (`EXPO_PUBLIC_SUPABASE_KEY`) was migrated then and is fine — the app works.
-`SUPABASE_SERVICE_ROLE_KEY` in `carApp/.env.local` was **not**, and is still the
-old `eyJ…` JWT, which now returns:
+**Legacy API keys were disabled on this project on 2026-06-24T01:28:08Z.** The
+publishable key (`EXPO_PUBLIC_SUPABASE_KEY`) was migrated at the same time, but
+`SUPABASE_SERVICE_ROLE_KEY` in `carApp/.env.local` was missed and sat on the old
+`eyJ…` JWT until this session, returning:
 
 ```
-401 {"message":"Legacy API keys are disabled",
-     "hint":"Your legacy API keys (anon, service_role) were disabled on 2026-06-24…"}
+401 {"message":"Legacy API keys are disabled", "hint":"…disabled on 2026-06-24…"}
 ```
 
-**What this blocks:** `npm run verify:checkout` and `npm run seed:e2e`, both of
-which use the service role to mint a session for the seeded OTP-only accounts
-and to clean up afterwards. Nothing else.
+**Resolved** — a new `sb_secret_…` key is in `.env.local` and
+`verify:checkout` is 30/30 again.
 
-**What it does NOT block:** the deployed Edge Functions. Supabase rotated the
-value it injects into them — the digest of the injected `SUPABASE_SERVICE_ROLE_KEY`
-does not match the disabled legacy JWT, and a `SUPABASE_SECRET_KEYS` secret is
-also present. Functions are fine.
+Worth knowing if it recurs:
 
-**To fix:** reveal or re-create the secret key in
-Dashboard → Project Settings → API Keys, and set it as
-`SUPABASE_SERVICE_ROLE_KEY` in `carApp/.env.local`. There is already one named
-`carapp_secret_key` (`sb_secret_OWrdi…`, created 2026-06-24) — but a secret key
-is shown **once at creation** and both `supabase projects api-keys` and the MCP
-return it masked, so it cannot be recovered from the CLI. Reveal it in the
-dashboard or mint a new one.
+- The symptom is confined to `verify:checkout` and `seed:e2e`, the only two
+  things that use the service role locally. **Deployed Edge Functions are
+  unaffected** — Supabase rotates the value it injects into them, and a
+  `SUPABASE_SECRET_KEYS` secret is present alongside it.
+- **A secret key cannot be recovered.** Supabase shows it once at creation;
+  `supabase projects api-keys` returns it with the tail masked
+  (`sb_secret_XXXXX` + 26 `·`), and the MCP server exposes publishable keys
+  only. Mint a new one rather than hunting for the old.
 
-> While you are there: this session printed `SUPABASE_ACCESS_TOKEN` and
-> `SUPABASE_DB_PASSWORD` into a terminal transcript. Rotate both if that log is
-> shared anywhere.
+> This session printed `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` into a
+> terminal transcript. Rotate both if that log is shared anywhere.
 
 ### The DNS trap that cost an hour — already fixed, don't rediscover it
 
@@ -167,48 +162,44 @@ mapping.
 
 - **Jest: 82 suites / 1111 tests.** `npx tsc --noEmit` clean.
 - **All seven SQL suites green against the live project.**
-- The Phase 2 insert path is proven *at the SQL layer*: a customer can state
-  size and condition, the suggestion is derived server-side, and a forged
-  `suggested_duration_mins` is refused.
+- **`npm run verify:checkout` — 30/30 against the live project.** Signs in as
+  the seeded customer with the **anon** key and fires the exact payload
+  `handleConfirm()` sends, including the Phase 2 intake fields: client payload →
+  column privileges → trigger → row, the forged-price rejections, and the
+  abandon path. It now also proves `suggested_duration_mins` comes back derived
+  (so `trg_derive_booking_suggestion` ran and read the *rebuilt* services
+  snapshot — a broken trigger order would show up here as a null), and that
+  stating a suggested duration, a quoted total, an unknown size class, an
+  invalid condition answer or an unknown condition key are all refused.
+  **Re-run it after any change to the booking screen's payload or the INSERT
+  grant list.**
 
 ### ⚠️ NOT proven
 
-**1. `npm run verify:checkout` has not run this session** — blocked on §2. It
-was 23/23 on the previous session, but the booking payload has **changed since**
-(`vehicle_size_class` and `condition_answers` are now sent). Re-run it as the
-first thing after fixing the key. The SQL test covers the same ground from the
-database side, but not that `handleConfirm()` sends a payload the grants accept.
-
-**2. Stripe, still — the oldest untested path.** No `create_deposit_intent`, no
+**1. Stripe, still — the oldest untested path.** No `create_deposit_intent`, no
 PaymentSheet, no `stripe-events` promotion. Needs macOS + a booted simulator +
 Maestro; no machine so far has had all three.
 
-**3. The 409 → provider UI path.** `acceptBooking` reads the error body off the
+**2. The 409 → provider UI path.** `acceptBooking` reads the error body off the
 `FunctionsHttpError` `context` Response. Unit-tested against a synthetic
 `Response`, never a real 409.
 
-**4. `Intl` timezone support on device.** `src/utils/schedule.ts` uses
+**3. `Intl` timezone support on device.** `src/utils/schedule.ts` uses
 `Intl.DateTimeFormat` with an IANA `timeZone`. Works in Jest (Node has full
 ICU); never run under Hermes. The failure is graceful by construction — an
 unresolvable zone falls back to the device offset — but "graceful" means
 *silently wrong for a provider in another zone*, so check it on the first
 simulator run.
 
-**5. Nothing in the UI has been seen running.** Every screen change this session
+**4. Nothing in the UI has been seen running.** Every screen change this session
 is verified by Jest and `tsc` only.
 
 ---
 
 ## 5. Do this first, in this order
 
-1. **Fix the secret key** (§2), then `npm run verify:checkout`. The payload
-   changed; this is the highest-value single check available without a
-   simulator.
-2. **Consider extending `verify-checkout.mjs`** to assert
-   `suggested_duration_mins` comes back derived, and that a forged one is
-   refused through PostgREST rather than only through `db query`.
-3. **Phase 3.** See §6.
-4. **On a Mac:** `brew install maestro`, boot a simulator,
+1. **Phase 3.** See §6. Everything below the Stripe line is unblocked.
+2. **On a Mac:** `brew install maestro`, boot a simulator,
    `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two seed failure modes are
    intended: an inactive/unapproved package now fails the booking at insert, and
    seeded bookings occupy real ranges with buffers, so two committed jobs close

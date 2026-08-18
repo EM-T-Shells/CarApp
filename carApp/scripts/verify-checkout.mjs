@@ -228,6 +228,11 @@ function clientPayload(customerId, packageIds, overrides = {}) {
     location_lng: -77.2247,
     notes: 'verify-checkout.mjs',
     scheduled_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    // Phase 2. Facts, not conclusions: the client states what the car is and
+    // what condition it is in, and trg_derive_booking_suggestion turns those
+    // into suggested_duration_mins server-side.
+    vehicle_size_class: 'suv',
+    condition_answers: { soil_level: 'heavy', pets: 'frequent', stains: 'none' },
     ...overrides,
   }
 }
@@ -362,6 +367,37 @@ async function main() {
     return `${expected.estimated_duration_mins} min`
   })
 
+  await check('the declared size and condition are stored as sent', () => {
+    assert(
+      booking.vehicle_size_class === 'suv',
+      `expected suv, got ${booking.vehicle_size_class}`,
+    )
+    assert(
+      booking.condition_answers?.soil_level === 'heavy' &&
+        booking.condition_answers?.pets === 'frequent' &&
+        booking.condition_answers?.stains === 'none',
+      `condition_answers came back as ${JSON.stringify(booking.condition_answers)}`,
+    )
+    return 'suv, heavy soil, frequent pets'
+  })
+
+  // The seeded provider publishes no duration modifiers, so the suggestion
+  // should equal the package base. That is still worth asserting: it proves the
+  // trigger ran at all and read the REBUILT services snapshot rather than
+  // returning null, which is what a broken trigger ordering would look like.
+  await check('suggested_duration_mins derived server-side (Phase 2)', () => {
+    assert(
+      booking.suggested_duration_mins != null,
+      'suggested_duration_mins is null — did trg_derive_booking_suggestion run?',
+    )
+    assert(
+      booking.suggested_duration_mins === expected.estimated_duration_mins,
+      `expected ${expected.estimated_duration_mins} (base, no modifiers seeded), ` +
+        `got ${booking.suggested_duration_mins}`,
+    )
+    return `${booking.suggested_duration_mins} min`
+  })
+
   await check('estimated_completion_at generated from scheduled_at + duration', () => {
     assert(booking.estimated_completion_at, 'estimated_completion_at is null')
     const delta =
@@ -426,6 +462,81 @@ async function main() {
       forged.services[0].name !== 'Free Detail',
       'the forged name survived into the stored snapshot',
     )
+  })
+
+  // The Phase 2 sibling of "stating a price is refused". A client-stated
+  // duration is a client-stated cost, since duration is what occupies the
+  // provider's day — so suggested_duration_mins sits outside the INSERT grant
+  // list exactly as the money columns do.
+  await check('stating a suggested duration is refused', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      suggested_duration_mins: 5,
+    })
+    assert(error, 'the insert was accepted')
+    assert(
+      errCode(error) === '42501',
+      `expected 42501, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
+  })
+
+  await check('an invalid condition answer is refused (22023)', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      condition_answers: { soil_level: 'filthy' },
+    })
+    assert(error, 'the insert was accepted')
+    assert(
+      errCode(error) === '22023',
+      `expected 22023, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
+  })
+
+  // Rejecting unknown keys is the case a CHECK constraint could not express
+  // without enumerating the object, and the reason it is a trigger. Without it
+  // a client sending soilLevel would store a value no reader looks at, and the
+  // job would be quoted as though the question were unanswered.
+  await check('an unknown condition question is refused (22023)', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      condition_answers: { soilLevel: 'heavy' },
+    })
+    assert(error, 'the insert was accepted')
+    assert(
+      errCode(error) === '22023',
+      `expected 22023, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
+  })
+
+  await check('an unknown vehicle size class is refused (23514)', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      vehicle_size_class: 'spaceship',
+    })
+    assert(error, 'the insert was accepted')
+    assert(
+      errCode(error) === '23514',
+      `expected 23514, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
+  })
+
+  // Phase 3 foundation: the quote columns are unreachable from the client on
+  // INSERT, which is what keeps a price behind an Edge Function.
+  await check('stating a quoted total is refused', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      quoted_total_amount: 1.0,
+    })
+    assert(error, 'the insert was accepted')
+    assert(
+      errCode(error) === '42501',
+      `expected 42501, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
   })
 
   await check('an unknown package is refused (23503)', async () => {
