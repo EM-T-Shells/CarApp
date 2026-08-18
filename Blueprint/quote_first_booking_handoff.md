@@ -1,7 +1,7 @@
 # Quote-First Booking — Session Handoff
 
 **Updated:** 2026-08-18 (second session) · **Branch:** `feature/quote-first-booking`
-**Head:** `c7351d9` — **pushed; working tree clean, nothing local-only.**
+**Head:** `d227500` — **pushed; working tree clean, nothing local-only.**
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -251,7 +251,7 @@ is verified by Jest and `tsc` only.
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect c7351d9
+   cd CarApp && git log --oneline -1        # expect d227500 or later
    git status --short                       # expect empty
    cd carApp && npx tsc --noEmit && npm test # expect 82 suites / 1111 tests
    npm run verify:checkout                  # expect 30/30 against the live project
