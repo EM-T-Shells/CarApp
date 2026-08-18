@@ -9,7 +9,8 @@
     "web": "expo start --web",
     "test": "jest",
     "seed:e2e": "node scripts/seed-e2e.mjs",
-    "seed:e2e:clean": "node scripts/seed-e2e.mjs --clean"
+    "seed:e2e:clean": "node scripts/seed-e2e.mjs --clean",
+    "verify:checkout": "node scripts/verify-checkout.mjs"
   },
   "jest": {
     "preset": "jest-expo",
