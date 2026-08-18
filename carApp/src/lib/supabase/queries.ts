@@ -725,7 +725,7 @@ export interface ProviderDaySchedule {
   maxJobsPerDay: number | null
   defaultBufferBeforeMins: number
   defaultBufferAfterMins: number
-  bookings: BookingSummary[]
+  bookings: ProviderJobSummary[]
   timeOff: ProviderTimeOff[]
 }
 
@@ -788,16 +788,19 @@ export async function getProviderDaySchedule(
   const padEnd = new Date(end.getTime() + SCHEDULE_WINDOW_PAD_MS)
 
   const [bookingsResult, timeOffResult] = await Promise.all([
-    runList<BookingSummary>(
+    // PROVIDER_JOB_SELECT, not BOOKING_SUMMARY_SELECT: a provider looking at
+    // their own day needs the customer's name on the band, and only the
+    // provider-facing select joins it.
+    runList<ProviderJobSummary>(
       supabase
         .from('bookings')
-        .select(BOOKING_SUMMARY_SELECT)
+        .select(PROVIDER_JOB_SELECT)
         .eq('provider_id', providerId)
         .in('status', [...SCHEDULE_BOOKING_STATUSES])
         .gte('scheduled_at', padStart.toISOString())
         .lt('scheduled_at', padEnd.toISOString())
         .order('scheduled_at', { ascending: true })
-        .returns<BookingSummary[]>(),
+        .returns<ProviderJobSummary[]>(),
     ),
     // Time off is filtered on overlap, not on start: a week-long block started
     // last Monday must still blank out today.

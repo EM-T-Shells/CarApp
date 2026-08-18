@@ -9,11 +9,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 
 const mockGetUpcomingProvider = jest.fn();
 const mockGetProviderByUserId = jest.fn();
+const mockGetProviderDaySchedule = jest.fn();
 
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getUpcomingBookingsForProvider: (...args: unknown[]) =>
     mockGetUpcomingProvider(...args),
   getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
+  // The day view mounts inside this screen once the provider id resolves.
+  getProviderDaySchedule: (...args: unknown[]) =>
+    mockGetProviderDaySchedule(...args),
 }));
 
 let mockUser: { id: string } | null = { id: 'user-123' };
@@ -45,6 +49,7 @@ jest.mock('lucide-react-native', () => {
     };
   return {
     Briefcase: icon('Briefcase'),
+    ChevronLeft: icon('ChevronLeft'),
     ChevronRight: icon('ChevronRight'),
     Clock: icon('Clock'),
     Car: icon('Car'),
@@ -114,6 +119,30 @@ beforeEach(() => {
     error: null,
   });
   mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
+  mockGetProviderDaySchedule.mockResolvedValue({
+    data: {
+      range: {
+        start: '2026-09-14T04:00:00.000Z',
+        end: '2026-09-15T04:00:00.000Z',
+      },
+      timeZone: 'America/New_York',
+      workingHours: {
+        mon: [{ start: '08:00', end: '18:00' }],
+        tue: [],
+        wed: [],
+        thu: [],
+        fri: [],
+        sat: [],
+        sun: [],
+      },
+      maxJobsPerDay: null,
+      defaultBufferBeforeMins: 15,
+      defaultBufferAfterMins: 30,
+      bookings: [],
+      timeOff: [],
+    },
+    error: null,
+  });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -152,6 +181,28 @@ describe('ProviderJobsScreen', () => {
     render(<ProviderJobsScreen />);
     fireEvent.press(await screen.findByText('$150.00'));
     expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/job-1');
+  });
+
+  // The day view cannot mount until the provider profile id resolves, which is
+  // a separate round trip from the job list.
+  it('mounts the day view for the resolved provider once the profile loads', async () => {
+    render(<ProviderJobsScreen />);
+
+    await waitFor(() =>
+      expect(mockGetProviderDaySchedule).toHaveBeenCalledWith(
+        'provider-profile-1',
+        expect.any(Date),
+      ),
+    );
+  });
+
+  // An empty queue is when the day view matters most — it distinguishes
+  // "nothing booked" from "nothing booked because you are on time off".
+  it('keeps the day view on screen in the empty state', async () => {
+    render(<ProviderJobsScreen />);
+
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+    expect(mockGetProviderDaySchedule).toHaveBeenCalled();
   });
 
   it('navigates to past jobs when Past is pressed', async () => {

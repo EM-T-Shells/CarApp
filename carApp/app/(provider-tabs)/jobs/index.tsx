@@ -32,6 +32,7 @@ import {
   getProviderByUserId,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
+import ProviderDayView from '../../../src/components/provider/ProviderDayView';
 import { centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 
@@ -182,9 +183,14 @@ export default function ProviderJobsScreen(): React.ReactElement {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Bumped on pull-to-refresh so the day view refetches alongside the list.
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  // Cache the provider profile ID after the first lookup.
+  // Cached after the first lookup. Held in state as well as a ref because the
+  // day view cannot mount until the provider profile id is known, and a ref
+  // does not re-render when it is.
   const providerIdRef = useRef<string | null>(null);
+  const [providerId, setProviderId] = useState<string | null>(null);
 
   const fetchJobs = useCallback(
     async (refresh = false) => {
@@ -202,6 +208,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
           return;
         }
         providerIdRef.current = profile.id;
+        setProviderId(profile.id);
       }
       const { data, error: err } = await getUpcomingBookingsForProvider(
         providerIdRef.current,
@@ -220,6 +227,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
+    setRefreshToken((n) => n + 1);
     fetchJobs(true).finally(() => setIsRefreshing(false));
   }, [fetchJobs]);
 
@@ -242,6 +250,16 @@ export default function ProviderJobsScreen(): React.ReactElement {
   );
 
   const keyExtractor = useCallback((item: BookingSummary) => item.id, []);
+
+  // Rendered as the list header rather than above the FlatList so it scrolls
+  // away with the jobs instead of pinning a third of the screen.
+  const dayView = providerId ? (
+    <ProviderDayView
+      providerId={providerId}
+      onPressJob={handleJobPress}
+      refreshToken={refreshToken}
+    />
+  ) : null;
 
   const header = (
     <View
@@ -320,7 +338,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
       >
         {header}
         <ScrollView
-          contentContainerStyle={styles.centered}
+          contentContainerStyle={styles.emptyContent}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -329,15 +347,21 @@ export default function ProviderJobsScreen(): React.ReactElement {
             />
           }
         >
-          <Briefcase size={48} color={palette.midGray} strokeWidth={1.5} />
-          <Spacer size="md" />
-          <Text variant="subheading" color="charcoal">
-            No jobs scheduled
-          </Text>
-          <Spacer size="sm" />
-          <Text variant="body" color="midGray" style={styles.centeredText}>
-            New bookings from customers will appear here.
-          </Text>
+          {/* An empty queue is exactly when the day view is most worth seeing:
+              it is the difference between "nothing booked" and "nothing booked
+              because you are on time off all week". */}
+          {dayView}
+          <View style={styles.emptyMessage}>
+            <Briefcase size={48} color={palette.midGray} strokeWidth={1.5} />
+            <Spacer size="md" />
+            <Text variant="subheading" color="charcoal">
+              No jobs scheduled
+            </Text>
+            <Spacer size="sm" />
+            <Text variant="body" color="midGray" style={styles.centeredText}>
+              New bookings from customers will appear here.
+            </Text>
+          </View>
         </ScrollView>
       </SafeAreaView>
     );
@@ -354,6 +378,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
         data={bookings}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
+        ListHeaderComponent={dayView}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <Spacer size="md" />}
         showsVerticalScrollIndicator={false}
@@ -401,5 +426,16 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.base,
     paddingTop: spacing.sm,
+  },
+  emptyContent: {
+    flexGrow: 1,
+    padding: spacing.base,
+    paddingTop: spacing.sm,
+  },
+  emptyMessage: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
   },
 });
