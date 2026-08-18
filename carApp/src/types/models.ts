@@ -45,6 +45,11 @@ export type ServicePackage = Tables<'service_packages'>;
 export type ServicePackageInsert = TablesInsert<'service_packages'>;
 export type ServicePackageUpdate = TablesUpdate<'service_packages'>;
 
+// ── Service Duration Modifiers ─────────────────────────────────────────
+export type ServiceDurationModifier = Tables<'service_duration_modifiers'>;
+export type ServiceDurationModifierInsert = TablesInsert<'service_duration_modifiers'>;
+export type ServiceDurationModifierUpdate = TablesUpdate<'service_duration_modifiers'>;
+
 // ── Bookings ───────────────────────────────────────────────────────────
 export type Booking = Tables<'bookings'>;
 export type BookingInsert = TablesInsert<'bookings'>;

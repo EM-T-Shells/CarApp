@@ -2,6 +2,7 @@
 
 type MockBuilder = {
   insert: jest.Mock
+  upsert: jest.Mock
   update: jest.Mock
   delete: jest.Mock
   select: jest.Mock
@@ -20,6 +21,7 @@ function makeBuilder(
 ): MockBuilder {
   const builder = {} as MockBuilder
   builder.insert = jest.fn(() => builder)
+  builder.upsert = jest.fn(() => builder)
   builder.update = jest.fn(() => builder)
   builder.delete = jest.fn(() => builder)
   builder.select = jest.fn(() => builder)
@@ -61,6 +63,9 @@ import {
   deleteServicePackage,
   insertBooking,
   isSlotUnavailableError,
+  upsertServiceDurationModifier,
+  updateServiceDurationModifier,
+  deleteServiceDurationModifier,
   insertProviderTimeOff,
   deleteProviderTimeOff,
   isTimeOffOverlapError,
@@ -706,5 +711,73 @@ describe('deleteProviderTimeOff', () => {
     expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
     expect(builder.delete).toHaveBeenCalled()
     expect(builder.eq).toHaveBeenCalledWith('id', 'to1')
+  })
+})
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+describe('upsertServiceDurationModifier', () => {
+  // A second row for 'suv' would make the suggested duration depend on row
+  // order, which is why the table has a unique constraint and why this upserts
+  // rather than inserting and reporting a conflict the provider cannot act on.
+  it('upserts on the provider/factor/value key', async () => {
+    const builder = makeBuilder({ data: { id: 'm1' }, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await upsertServiceDurationModifier({
+      provider_id: 'pp1',
+      factor_type: 'size_class',
+      factor_value: 'suv',
+      delta_mins: 30,
+    })
+
+    expect(mockFrom).toHaveBeenCalledWith('service_duration_modifiers')
+    expect(builder.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ factor_value: 'suv' }),
+      { onConflict: 'provider_id,factor_type,factor_value' },
+    )
+  })
+
+  it('surfaces a constraint failure rather than swallowing it', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '23514', message: 'violates check constraint' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await upsertServiceDurationModifier({
+      provider_id: 'pp1',
+      factor_type: 'soil_level',
+      factor_value: 'suv',
+      delta_mins: 10,
+    })
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toMatch(/check constraint/)
+  })
+})
+
+describe('updateServiceDurationModifier', () => {
+  it('updates by id', async () => {
+    const builder = makeBuilder({ data: { id: 'm1' }, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await updateServiceDurationModifier('m1', { delta_mins: 45 })
+
+    expect(builder.update).toHaveBeenCalledWith({ delta_mins: 45 })
+    expect(builder.eq).toHaveBeenCalledWith('id', 'm1')
+  })
+})
+
+describe('deleteServiceDurationModifier', () => {
+  it('deletes by id', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await deleteServiceDurationModifier('m1')
+
+    expect(result.error).toBeNull()
+    expect(builder.delete).toHaveBeenCalled()
+    expect(builder.eq).toHaveBeenCalledWith('id', 'm1')
   })
 })

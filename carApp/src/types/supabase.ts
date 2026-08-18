@@ -55,6 +55,7 @@ export type Database = {
           cancellation_fee: number | null
           cancelled_by: string | null
           completed_at: string | null
+          condition_answers: Json | null
           confirmed_at: string | null
           created_at: string | null
           customer_id: string | null
@@ -80,9 +81,11 @@ export type Database = {
           services: Json
           started_at: string | null
           status: string
+          suggested_duration_mins: number | null
           total_amount: number | null
           updated_at: string | null
           vehicle_id: string | null
+          vehicle_size_class: string | null
         }
         Insert: {
           actual_duration_mins?: number | null
@@ -92,6 +95,7 @@ export type Database = {
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
+          condition_answers?: Json | null
           confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
@@ -117,9 +121,11 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
           vehicle_id?: string | null
+          vehicle_size_class?: string | null
         }
         Update: {
           actual_duration_mins?: number | null
@@ -129,6 +135,7 @@ export type Database = {
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
+          condition_answers?: Json | null
           confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
@@ -154,9 +161,11 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
           vehicle_id?: string | null
+          vehicle_size_class?: string | null
         }
         Relationships: [
           {
@@ -1011,6 +1020,44 @@ export type Database = {
           },
         ]
       }
+      service_duration_modifiers: {
+        Row: {
+          created_at: string
+          delta_mins: number
+          delta_price: number
+          factor_type: string
+          factor_value: string
+          id: string
+          provider_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta_mins?: number
+          delta_price?: number
+          factor_type: string
+          factor_value: string
+          id?: string
+          provider_id: string
+        }
+        Update: {
+          created_at?: string
+          delta_mins?: number
+          delta_price?: number
+          factor_type?: string
+          factor_value?: string
+          id?: string
+          provider_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_duration_modifiers_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "provider_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_packages: {
         Row: {
           base_price: number | null
@@ -1216,6 +1263,7 @@ export type Database = {
           license_plate: string | null
           make: string
           model: string
+          size_class: string | null
           trim: string | null
           user_id: string | null
           vin: string | null
@@ -1229,6 +1277,7 @@ export type Database = {
           license_plate?: string | null
           make: string
           model: string
+          size_class?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null
@@ -1242,6 +1291,7 @@ export type Database = {
           license_plate?: string | null
           make?: string
           model?: string
+          size_class?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null

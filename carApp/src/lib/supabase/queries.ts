@@ -23,6 +23,7 @@ import type {
   ProviderVetting,
   Rating,
   ServiceCatalog,
+  ServiceDurationModifier,
   ServicePackage,
   User,
   Vehicle,
@@ -850,5 +851,29 @@ export function getProviderTimeOff(
       .lt('starts_at', toExclusive.toISOString())
       .gt('ends_at', fromInclusive.toISOString())
       .order('starts_at', { ascending: true }),
+  )
+}
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+/**
+ * A provider's published duration modifiers.
+ *
+ * Readable by any signed-in user, not just the owner: the customer's booking
+ * screen shows the suggested duration while they are still choosing, before a
+ * booking row exists for the trigger to fire on, so the client needs the same
+ * numbers the server will use. They are the provider's own rate card in
+ * another form, not private data.
+ */
+export function getServiceDurationModifiers(
+  providerId: string,
+): Promise<QueryResult<ServiceDurationModifier[]>> {
+  return runList<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .select('*')
+      .eq('provider_id', providerId)
+      .order('factor_type', { ascending: true })
+      .order('factor_value', { ascending: true }),
   )
 }

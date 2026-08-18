@@ -48,6 +48,7 @@ jest.mock('../client', () => ({
 }))
 
 import {
+  getServiceDurationModifiers,
   getProviderDaySchedule,
   getProviderTimeOff,
   getUserById,
@@ -808,5 +809,20 @@ describe('getProviderTimeOff', () => {
       'ends_at',
       '2026-04-01T00:00:00.000Z',
     )
+  })
+})
+
+describe('getServiceDurationModifiers', () => {
+  it('reads a provider modifiers ordered by factor', async () => {
+    const builder = makeBuilder({ data: [], error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await getServiceDurationModifiers('pp1')
+
+    expect(mockFrom).toHaveBeenCalledWith('service_duration_modifiers')
+    expect(builder.eq).toHaveBeenCalledWith('provider_id', 'pp1')
+    expect(builder.order).toHaveBeenCalledWith('factor_type', {
+      ascending: true,
+    })
   })
 })

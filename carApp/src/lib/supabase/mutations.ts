@@ -25,6 +25,9 @@ import type {
   Rating,
   RatingInsert,
   RatingUpdate,
+  ServiceDurationModifier,
+  ServiceDurationModifierInsert,
+  ServiceDurationModifierUpdate,
   ServicePackage,
   ServicePackageInsert,
   ServicePackageUpdate,
@@ -339,6 +342,50 @@ export function deleteServicePackage(
 ): Promise<MutationResult<true>> {
   return runVoid(
     supabase.from('service_packages').delete().eq('id', packageId),
+  )
+}
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+/**
+ * Publishing the same factor value twice trips the
+ * service_duration_modifiers_unique constraint (23505). That is not a race and
+ * not a conflict with anyone else — it means the provider already has a delta
+ * for SUVs and is trying to add a second one, which would make the suggestion
+ * depend on row order. Upserting is the honest resolution: they meant to change
+ * the number, not to add a rival to it.
+ */
+export function upsertServiceDurationModifier(
+  modifier: ServiceDurationModifierInsert,
+): Promise<MutationResult<ServiceDurationModifier>> {
+  return runMutation<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .upsert(modifier, { onConflict: 'provider_id,factor_type,factor_value' })
+      .select()
+      .single(),
+  )
+}
+
+export function updateServiceDurationModifier(
+  modifierId: string,
+  updates: ServiceDurationModifierUpdate,
+): Promise<MutationResult<ServiceDurationModifier>> {
+  return runMutation<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .update(updates)
+      .eq('id', modifierId)
+      .select()
+      .single(),
+  )
+}
+
+export function deleteServiceDurationModifier(
+  modifierId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('service_duration_modifiers').delete().eq('id', modifierId),
   )
 }
 
