@@ -1,83 +1,73 @@
 # Quote-First Booking — Session Handoff
 
-**Written:** 2026-08-17 · **Updated:** 2026-08-17 (macOS session)
-**Branch:** `feature/quote-first-booking`
-**Head:** see `git log` — the EXCLUDE-constraint work is committed but its
-migration is **written, not applied**. Read §2 and §4 before anything else.
+**Updated:** 2026-08-18 · **Branch:** `feature/quote-first-booking`
+**Head:** `06587dd` — **pushed; working tree clean, no stashes, nothing local-only.**
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
-This file is the *operational* handoff: how to pick the work back up on another
-machine, what is verified versus merely written, and what to do first. The
-design and the per-phase state live in the spec — this does not duplicate them.
+This is the *operational* handoff: how to restart on another machine, what is
+proven versus merely written, and what to do first. The design and per-phase
+state live in the spec; this does not duplicate them.
+
+> **One-line summary:** Phases 0 and 1 are written and the app code is green
+> (75 suites / 966 tests, `tsc` clean). **Three migrations are written but have
+> never been executed.** Everything downstream is blocked behind applying them,
+> and applying them needs one credential — see §2.
 
 ---
 
-## 1. Pick up where it left off
+## 1. Restarting on a new machine
 
 ```bash
-git clone git@github.com:EM-T-Shells/CarApp.git   # or: git fetch && git checkout
-git checkout feature/quote-first-booking
-cd CarApp/carApp && npm ci
+git clone git@github.com:EM-T-Shells/CarApp.git
+cd CarApp && git checkout feature/quote-first-booking   # should land on 06587dd
+cd carApp && npm ci
+npx tsc --noEmit && npm test          # expect 75 suites / 966 tests, all green
 ```
 
-Verify you have everything:
+If that is green, the JavaScript half of the project is fully restored. Nothing
+else in this file matters until it is.
 
-```bash
-git log --oneline -6
-# feat(booking): Phase 1 — buffers, occupied_range, overlap guard
-# test(booking): add checkout verification script for server-derived pricing
-# docs: add quote-first booking session handoff
-# 2cf778b fix(security): derive booking prices server-side
-# 48b8af3 fix(security): close the booking UPDATE hole
-# 3efc6aa feat(booking): Phase 0 — durations and ready-by time
-```
+### What must exist before you launch Claude Code
 
-> **Note:** commits appeared on `origin` in this environment without an
-> explicit `git push` — most likely a VSCode `git.postCommitCommand` user
-> setting. Don't rely on it. Run `git ls-remote origin <branch>` before you
-> trust that work has left a machine.
+| # | Thing | Why | How to check |
+|---|---|---|---|
+| 1 | `carApp/.env.local` | gitignored, must be recreated by hand. See `.env.example` | `npm run verify:checkout` fails loudly without it |
+| 2 | `SUPABASE_ACCESS_TOKEN` | every CLI command that talks to the API | `supabase projects list` |
+| 3 | `SUPABASE_DB_PASSWORD` **or** the IPv4 pooler URL | applying migrations. **This is the current blocker** | see §2 |
+| 4 | IPv4 pooler connection string | direct `db.<ref>.supabase.co` is IPv6-only | Dashboard → Connect → Transaction pooler |
 
-### Environment
+`.env.local` needs `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY`
+(anon), `SUPABASE_SERVICE_ROLE_KEY` and `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+For cloud builds these must also be set on EAS, or the app crashes on launch.
 
-| Thing | WSL2 box | macOS box |
+**Export 2 and 3 in the shell that launches Claude Code, not after.** Appending
+them to a shell profile is not enough — a profile that returns early for
+non-interactive shells means tool invocations never see them, and every DDL
+command fails with a misleading "Cannot find project ref".
+
+### Machines this has run on
+
+| | WSL2 box | macOS box (this session) |
 |---|---|---|
 | Node | v20.20.0 | v24.15.0 |
-| Supabase CLI | 2.90.0 | 2.107.0, **not logged in** |
+| Supabase CLI | 2.90.0, logged in | 2.107.0, **not logged in** |
 | Docker / `psql` | — | **neither installed** |
 | Maestro + simulator | unavailable | **not installed** |
-| Supabase project ref | `apbubklogxgqkokbctwz` | same |
+| IPv6 | — | **no route** (blocks direct DB connections) |
 
-**Shell exports — required before launching Claude Code, not after:**
+Project ref `apbubklogxgqkokbctwz`. The Supabase MCP server runs `--read-only`
+(see `.mcp.json`), so it can read the DB but never apply migrations. Use the CLI
+for all DDL.
 
-```bash
-export SUPABASE_ACCESS_TOKEN=...
-export SUPABASE_DB_PASSWORD=...
-```
-
-Appending these to `~/.bashrc` is **not enough** — Ubuntu's `.bashrc` returns
-early for non-interactive shells, so tool invocations won't see them unless the
-parent process already has them. (Same note as spec §9.)
-
-**This is the binding constraint, not a footnote.** Without those two exports
-the CLI cannot `link`, so it cannot `db push`, `migration list`, `db query`, or
-`gen types` — and with no Docker and no `psql` there is no local fallback
-either. That is exactly why `20260818000000` is written but unapplied. Anything
-needing only the anon/service-role keys (`.env.local`) still works, which is why
-`npm run verify:checkout` and the seed script do run.
-
-`carApp/.env.local` is gitignored and must be recreated. See `.env.example`;
-the app reads `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
-`EXPO_PUBLIC_SUPABASE_KEY`, `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`. For cloud
-builds these must also be set on EAS, not just locally, or the app crashes on
-launch.
-
-The Supabase MCP server runs `--read-only` (see `.mcp.json`), so it can read the
-DB but **cannot apply migrations**. Use the CLI for all DDL.
+> **Note:** commits once appeared on `origin` in the WSL2 environment without an
+> explicit `git push` — most likely a VSCode `git.postCommitCommand`. Don't rely
+> on it. Run `git ls-remote origin <branch>` before trusting that work has left a
+> machine. (Verified for `06587dd`: local and remote match.)
 
 ---
 
-## 2. State of the database
+## 2. State of the database — and the blocker
 
 | Migration | What it does | Applied? |
 |---|---|---|
@@ -85,54 +75,73 @@ DB but **cannot apply migrations**. Use the CLI for all DDL.
 | `20260817120000_bookings_update_column_guard` | Column allowlist + status-transition trigger on UPDATE | ✅ |
 | `20260817140000_bookings_server_derived_pricing` | Server-side pricing on INSERT + column allowlist | ✅ |
 | `20260818000000_booking_buffers_and_overlap_guard` | Buffers, generated `occupied_range`, `bookings_no_provider_overlap` EXCLUDE constraint | ❌ **PENDING** |
-| `20260818120000_provider_profiles_column_guard` | Column allowlist on `provider_profiles` (the confirmed fee/self-approval hole, §6) | ❌ **PENDING** |
+| `20260818120000_provider_profiles_column_guard` | Column allowlist on `provider_profiles` (the confirmed fee / self-approval hole, §6) | ❌ **PENDING** |
 | `20260819000000_provider_working_hours_and_time_off` | Timezone, per-day working hours, `max_jobs_per_day`, `provider_time_off` | ❌ **PENDING** |
 
-### ⚠️ The pending one
+### Why the three are pending
 
-None could be applied from the machine that wrote them: no Docker, no `psql`,
-the Supabase CLI not logged in, and the MCP server is `--read-only`. So all
-three are **written, parsed, and reviewed — but never executed**, as are their
-`__tests__/*.test.sql`. Treat all six files as unproven until §4 step 1.
+They could not be executed from the macOS box. All four routes were tried and
+closed — don't re-derive this:
 
-What *was* established without a database connection:
+1. **CLI login** — not authenticated. `supabase projects list` → `Unauthorized`.
+   OAuth needs an interactive session.
+2. **Direct connection** — the ref *is* linked
+   (`supabase/.temp/linked-project.json` exists), but
+   `db.apbubklogxgqkokbctwz.supabase.co` resolves IPv6-only and the network has
+   no route. The CLI says so itself and tells you to use the IPv4 pooler.
+3. **service_role over PostgREST** — DML only, no DDL. Probed for an
+   `exec_sql`-style RPC under six plausible names; none exists, which is
+   correct — one would be a security hole.
+4. **Local Postgres** — no Docker, no `psql`, and `supabase start` needs Docker.
 
-- Both files parse clean against libpg_query (`pglast`). Statement-level only —
-  that catches syntax, not semantics.
-- A dry run of the migration's overlap pre-scan against the live project, using
-  the same arithmetic the generated column will use, found **no existing
-  overlaps** (26 bookings; 20 cancelled, 3 completed, 2 pending, 1 confirmed).
-  So the constraint should create cleanly rather than tripping the pre-scan.
+**The single missing credential is the database password.** With it,
+`supabase db push --db-url …` works *without logging in at all* — a dry run got
+all the way to the connection attempt and failed only on the IPv6 route. So on
+the next machine, the fastest unblock is the **IPv4 transaction-pooler
+connection string** from Dashboard → Connect.
 
-`stripe-webhook` also has an **undeployed change**: `accept_booking` now maps
-`23P01` to a 409 `{ code: 'slot_conflict' }` instead of a 500. Deploy it with
-the migration, not before — the constraint has to exist for the branch to ever
-run, and shipping the branch early is harmless but pointless.
+### What was established without a database connection
 
-`stripe-webhook` was previously **redeployed** for the deposit-derivation
-change. If you roll the DB back you must also redeploy the previous function, or
-`create_deposit_intent` will read a `deposit_amount` that isn't being set.
+- All six SQL files (3 migrations + 3 `.test.sql`) **parse clean** against
+  libpg_query via `pglast`. Statement-level only — that catches syntax, not
+  semantics. (`parse_plpgsql` reports a JSON error on *every* `CREATE FUNCTION`
+  in this repo including the three already applied and green, so that warning is
+  a parser quirk, not a signal.)
+- A dry run of the overlap pre-scan against live data, using the same arithmetic
+  the generated column will use, found **no existing overlaps** — 26 bookings:
+  20 cancelled, 3 completed, 2 pending, 1 confirmed. The EXCLUDE constraint
+  should create cleanly rather than tripping the pre-scan.
+- The `provider_profiles` hole was **confirmed live** before being fixed. See §6.
+
+### Undeployed Edge Function change
+
+`stripe-webhook`'s `accept_booking` now maps `23P01` to a 409
+`{ code: 'slot_conflict' }` instead of a 500. Deploy it **with** the migrations,
+not before — the constraint has to exist for the branch to ever run.
+
+`stripe-webhook` was previously redeployed for the deposit-derivation change. If
+you roll the DB back you must also redeploy the previous function, or
+`create_deposit_intent` will read a `deposit_amount` that is not being set.
 
 ---
 
-## 3. What is verified, and what is not
+## 3. What is proven, and what is not
 
 Be precise about this — it decides what to do first.
 
-### Verified
+### Proven
 
-- **Jest: 75 suites / 966 tests** green (was 72 / 879 at the start of the macOS session). `npx tsc --noEmit` clean.
-- **`bookings_update_column_guard.test.sql` — 12/12.**
-- **`bookings_server_derived_pricing.test.sql` — 15/15.**
-- **`npm run verify:checkout` — 23/23 against the live project.** This closed
-  the gap the previous session flagged as the open risk. It signs in as the
-  seeded customer with the **anon** key and fires the exact payload
-  `handleConfirm()` sends, so it covers client payload → column privileges →
-  trigger → row, the forged-price rejections, and the abandon path. Re-run it
-  after any change to the booking screen's payload or to the INSERT grant list.
+- **Jest: 75 suites / 966 tests** green. `npx tsc --noEmit` clean.
+- **`npm run verify:checkout` — 23/23 against the live project.** Signs in as
+  the seeded customer with the **anon** key and fires the exact payload
+  `handleConfirm()` sends: client payload → column privileges → trigger → row,
+  the forged-price rejections, and the abandon path. Re-run after any change to
+  the booking screen's payload or the INSERT grant list.
+- **`bookings_update_column_guard.test.sql`** — 12/12.
+- **`bookings_server_derived_pricing.test.sql`** — 15/15.
 
-Run the SQL tests any time (they wrap in a transaction and `ROLLBACK`, so they
-never touch real data):
+The SQL tests wrap in a transaction and `ROLLBACK`, so they never touch real
+data:
 
 ```bash
 cd carApp
@@ -141,50 +150,68 @@ supabase db query --linked -f supabase/migrations/__tests__/bookings_server_deri
 # expect every row's pass = t
 ```
 
-### ⚠️ NOT verified
+### ⚠️ NOT proven
 
-**1. Everything in `20260818000000` and its test.** Never executed — see §2.
-This is now the open risk and the reason for §4.
+**1. The three pending migrations and their tests.** Never executed. This is the
+open risk and the reason for §4.
 
-**2. Stripe, still.** `verify-checkout.mjs` deliberately stops at the database:
-no `create_deposit_intent`, no PaymentSheet, no `stripe-events` promotion
-`pending → pending_provider_approval`. A green run does **not** mean checkout
-works end to end.
+**2. Stripe, still — the oldest untested path.** `verify-checkout.mjs`
+deliberately stops at the database: no `create_deposit_intent`, no PaymentSheet,
+no `stripe-events` promotion `pending → pending_provider_approval`. A green run
+does **not** mean checkout works end to end. E2E (`e2e/run-e2e.sh`,
+`booking-flow.yaml`) needs macOS + a booted iOS Simulator + Maestro; no machine
+so far has had all three.
 
-E2E (`e2e/run-e2e.sh`, `booking-flow.yaml`) needs **macOS + a booted iOS
-Simulator + Maestro**. The macOS box has neither Maestro nor a simulator booted
-(`brew install maestro`), so this is still the untested half.
+**3. The 409 → provider UI path.** `acceptBooking` reads the Edge Function's
+error body off the `FunctionsHttpError` `context` Response, because `invoke()`
+otherwise collapses every non-2xx to a generic string. Unit-tested against a
+synthetic `Response`, never against a real 409.
 
-**3. The 409 → provider UI path.** `acceptBooking` in `src/lib/stripe/index.ts`
-now reads the Edge Function's error body off the `FunctionsHttpError` `context`
-Response, because `invoke()` otherwise collapses every non-2xx to "Edge Function
-returned a non-2xx status code" and the provider would be told nothing. That is
-unit-tested against a synthetic `Response`, not against a real 409.
+**4. `Intl` timezone support on device.** `src/utils/schedule.ts` uses
+`Intl.DateTimeFormat` with an IANA `timeZone`, which works in Jest (Node has
+full ICU) and should work under Hermes on both platforms. It has never run on a
+device. The failure is graceful by construction — an unresolvable zone falls
+back to the device offset and caches the null so it does not re-throw per
+frame — but "graceful" means *silently wrong for a provider in another zone*,
+so check it on the first simulator run.
 
 ---
 
-## 4. Do this first
+## 4. Do this first, in this order
 
-### 1. Apply `20260818000000` and run its test
+### Step 1 — apply the migrations
 
-Nothing else on this branch should be built on top of an unapplied constraint.
-From a shell that already has the two exports:
+Everything else is downstream of this. From a shell with the exports (§1):
 
 ```bash
 cd carApp
-supabase link --project-ref apbubklogxgqkokbctwz
-supabase migration list --linked          # expect the first three applied, the fourth not
+# If logged in:
 supabase db push
+# If not logged in, the pooler URL alone is enough:
+supabase db push --db-url "postgresql://postgres.apbubklogxgqkokbctwz:<PASSWORD>@<pooler-host>:5432/postgres"
+
+supabase migration list --linked      # all six rows should align
+```
+
+Then run the three new test files:
+
+```bash
 supabase db query --linked -f supabase/migrations/__tests__/booking_buffers_and_overlap_guard.test.sql
 supabase db query --linked -f supabase/migrations/__tests__/provider_profiles_column_guard.test.sql
 supabase db query --linked -f supabase/migrations/__tests__/provider_working_hours_and_time_off.test.sql
-# expect every row's pass = t (14 checks, then 15, then 16)
+# expect every row's pass = t — 14 checks, then 15, then 16
 ```
 
-Re-run `npm run verify:checkout` afterwards — it exercises `provider_profiles`
-reads under the anon key and will catch an allowlist that came out too tight.
+**Two failure modes worth recognising:**
 
-Then, in order:
+- *Pre-scan exception listing booking pairs.* Those are live double-bookings —
+  the bug the constraint prevents, already committed. A human decides which
+  customer keeps the slot. A dry run found none, but data moves.
+- *`btree_gist` unresolved.* Check
+  `select * from pg_extension where extname = 'btree_gist'` and which schema it
+  landed in; the constraint needs `gist_uuid_ops` visible at DDL time.
+
+### Step 2 — regenerate types, re-verify, redeploy
 
 ```bash
 supabase gen types typescript --project-id apbubklogxgqkokbctwz > src/types/supabase.ts
@@ -193,83 +220,95 @@ npm run verify:checkout                    # buffers now land on every insert
 supabase functions deploy stripe-webhook   # the 23P01 -> 409 mapping
 ```
 
-**The types are stale until you run `gen types`.** No app code reads the new
-columns yet, so `tsc` is clean either way — but a DayTimeline that reads
-`occupied_range` will not typecheck before that regeneration. Expect the same
-codegen quirk §5 documents: `occupied_range` will appear in `Insert`/`Update`
-despite being `GENERATED ALWAYS`. Nothing writes it. Keep it that way.
+Expect the same codegen quirk §5 documents: `occupied_range` and
+`blocked_range` will appear in `Insert`/`Update` despite being
+`GENERATED ALWAYS`. Nothing writes them. Keep it that way.
 
-**If `db push` fails on the pre-scan**, it will name the conflicting booking
-pairs. Those are live double-bookings — the bug the constraint prevents,
-already committed — so a human decides which customer keeps the slot. A dry run
-found none, but the data may have moved since.
+### Step 3 — the UI wiring that `gen types` unblocks
 
-**If it fails on `btree_gist`**, the extension did not resolve. Check
-`select * from pg_extension where extname = 'btree_gist'` and which schema it
-landed in; the constraint needs `gist_uuid_ops` visible at DDL time.
+This is where the last session stopped, and the reason is specific: the client
+is `createClient<Database>`, so **`.from('provider_time_off')` and
+`profile.working_hours` cannot typecheck until the generated types know they
+exist**. Everything on the near side of that line is built and green:
 
-### 2. Then the Stripe half, on this Mac
-
-Still the oldest untested path. `brew install maestro`, boot a simulator, then
-`./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. This is the only thing that
-covers `create_deposit_intent`, the PaymentSheet, and the `stripe-events`
-promotion to `pending_provider_approval`. `booking-flow.yaml` asserts the Phase
-0 ready-by line on the detail screen.
-
-Two failure modes to expect, both intended, both new ways for the seed to break
-loudly:
-
-- A seeded package that is `is_active = false` or `is_approved = false` now
-  makes the booking **fail at insert** rather than silently pricing to zero.
-- Seeded bookings now occupy real ranges with buffers. A seed that places two
-  committed jobs close together for one provider will now be **refused**, where
-  before it inserted happily.
-
-### 3. Then wire up Phase 1's UI — this is what `gen types` unblocks
-
-Phase 1's schema and its pure layers are done. What is left is the thin data
-layer between them, and it is blocked for one specific reason: the client is
-`createClient<Database>`, so **`.from('provider_time_off')` and
-`profile.working_hours` do not typecheck until `gen types` has run**. That is
-why this session stopped where it did rather than leaving a red `tsc`.
-
-Built and green today (no database types involved):
-
-| File | What it is |
-|---|---|
-| `src/utils/schedule.ts` | Working-hours parsing + timezone projection. 36 tests |
-| `src/components/provider/DayTimeline.tsx` | The day drawn to scale, buffers and conflicts. 24 tests |
-| `src/components/provider/WorkingHoursEditor.tsx` | Per-day window editor. 20 tests |
-| `AvailabilityCalendar.availabilityFromJson` | Now reads both shapes |
+| File | What it is | Tests |
+|---|---|---|
+| `src/utils/schedule.ts` | Working-hours parsing + timezone projection | 36 |
+| `src/components/provider/DayTimeline.tsx` | The day drawn to scale, buffers and conflicts | 24 |
+| `src/components/provider/WorkingHoursEditor.tsx` | Per-day window editor | 20 |
+| `AvailabilityCalendar.availabilityFromJson` | Now reads both shapes | +2 |
 
 Still to write, all mechanical once the types exist:
 
 1. **Queries** — `getProviderDaySchedule(providerId, date)` returning the
-   provider's bookings for a local day plus their `timeZone`, `working_hours`
+   provider's bookings for a local day plus their `timezone`, `working_hours`
    and `provider_time_off` rows. `DayTimeline` already takes exactly this shape
    (`TimelineJob[]`, `TimelineBlock[]`), so this is a mapping function.
 2. **Mutations** — `insertProviderTimeOff` / `deleteProviderTimeOff`, and
-   `updateProviderProfile` calls for `timezone`, `working_hours`,
-   `max_jobs_per_day` and the two `default_buffer_*_mins`. Watch for `23P01`
-   on the time-off insert: `provider_time_off_no_overlap` fires on a double
-   submit, and `SlotUnavailableError` is the wrong message there — it needs its
-   own.
+   `updateProviderProfile` for `timezone`, `working_hours`, `max_jobs_per_day`
+   and the two `default_buffer_*_mins`. ⚠️ `provider_time_off_no_overlap` also
+   raises `23P01` on a double submit, and `SlotUnavailableError`'s "that time
+   was just taken" is the **wrong** message for a duplicated vacation — give it
+   its own.
 3. **Screens** — `DayTimeline` into `app/(provider-tabs)/jobs/index.tsx`;
    `WorkingHoursEditor`, a timezone field, buffer fields and a time-off list
    into `app/(provider-tabs)/more/manage.tsx`.
 
-**Nothing in the UI writes the buffers or the hours yet**, so until step 3 every
-provider sits on the 15/30 defaults and their backfilled 08:00–18:00 week.
+Until step 3 lands, **nothing in the UI writes the buffers or the hours**: every
+provider sits on the 15/30 buffer defaults and their backfilled 08:00–18:00
+week.
 
-### 4. Then phases 2–4
+### Step 4 — the Stripe half, on a Mac
+
+`brew install maestro`, boot a simulator, then
+`./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two new seed failure modes,
+both intended:
+
+- A seeded package that is `is_active = false` or `is_approved = false` now
+  makes the booking **fail at insert** rather than silently pricing to zero.
+- Seeded bookings now occupy real ranges with buffers, so a seed placing two
+  committed jobs close together for one provider will be **refused**.
+
+### Step 5 — phases 2–4
 
 Per spec §8. Phase 3 is rated highest-risk and resequences payments (SetupIntent
-at request, deposit at approval) on top of the pricing trigger — do not start it
+at request, deposit at approval) on top of the pricing trigger. Do not start it
 against unapplied migrations.
 
 ---
 
 ## 5. Traps already paid for — don't rediscover these
+
+**Supabase grants ALL on every new public table by default.** `ALTER DEFAULT
+PRIVILEGES … GRANT ALL ON TABLES TO anon, authenticated, service_role` is part
+of the stock project setup, so a freshly created table starts **wide open at the
+column level** — the exact condition that produced the `provider_profiles` hole
+in §6. Every `CREATE TABLE` on this branch is therefore followed by a
+`REVOKE INSERT, UPDATE, DELETE` and an explicit column allowlist. Do the same
+for any new table; forgetting it is silent.
+
+**`GRANT` is additive, and that is a live regression risk.** Migration
+`20260819000000` grants three more columns on `provider_profiles`, and a
+careless re-grant would hand back `platform_fee_rate`.
+`provider_working_hours_and_time_off.test.sql` asserts the fee column is *still*
+blocked after the new grants, specifically to catch that.
+
+**A `CHECK` constraint cannot validate a timezone or a JSON shape.** The IANA
+list lives in a catalog view (`pg_timezone_names`) and a working-hours object
+needs iteration. `trg_validate_provider_schedule` does both in a BEFORE trigger
+instead, so a bad value fails at write time rather than being something every
+reader has to defend against.
+
+**Working hours are wall-clock strings, never instants.** Storing a timestamp
+would bake in a UTC offset and shift every window twice a year at the DST
+boundary. `src/utils/__tests__/schedule.test.ts` asserts both sides of
+2026-03-08 (−300 at 06:30Z, −240 at 07:30Z). The same reasoning is why
+`provider_profiles.timezone` is `NOT NULL` rather than inferred from the
+provider's coordinates.
+
+**Negating a zero timezone offset yields `-0`**, which fails `Object.is` against
+`0` and therefore fails a Jest `toBe(0)`. `zoneOffsetMinutes` normalises it. If
+you write another offset helper, do the same.
 
 **`occupied_range` and `estimated_completion_at` deliberately disagree.** One
 keys off `scheduled_at`, the other off `COALESCE(started_at, scheduled_at)`, and
@@ -353,7 +392,7 @@ shape spec §5 already assumes.
 Edge Functions are unaffected throughout: they connect with
 `SUPABASE_SERVICE_ROLE_KEY`. So does `scripts/seed-e2e.mjs`.
 
-### ⚠️ The same hole is still open on `provider_profiles` — confirmed live
+### The same hole on `provider_profiles` — confirmed live, then closed
 
 `"provider_profiles: write own"` is `FOR ALL USING (auth.uid() = user_id)` with
 **no `WITH CHECK` and no column restriction**, so Postgres reuses the `USING`
