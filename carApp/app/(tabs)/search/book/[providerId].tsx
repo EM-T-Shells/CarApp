@@ -7,7 +7,7 @@
 // PaymentSheet to collect the card. If the payment fails or the customer
 // backs out, the booking row is cancelled so no unpaid booking survives.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -36,6 +36,12 @@ import { DateTimePicker } from '../../../../src/components/booking/DateTimePicke
 import { PriceBreakdown } from '../../../../src/components/booking/PriceBreakdown';
 import { DepositSummary } from '../../../../src/components/booking/DepositSummary';
 import { colors, spacing, borderRadius, type Palette } from '../../../../src/design/tokens';
+import VehicleConditionForm from '../../../../src/components/booking/VehicleConditionForm';
+import {
+  isVehicleSizeClass,
+  type ConditionAnswers,
+  type VehicleSizeClass,
+} from '../../../../src/utils/suggestion';
 import { centsToDisplay } from '../../../../src/utils/money';
 import { getProviderById } from '../../../../src/lib/supabase/queries';
 import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
@@ -157,6 +163,44 @@ export default function BookProviderScreen(): React.ReactElement {
     };
   }, []);
 
+  // ── Vehicle size pre-fill ────────────────────────────────────────
+  //
+  // Spec §3: the size arrives pre-filled from the vehicle and confirmable. The
+  // customer already told us what car they drive, and asking again is the third
+  // time they have typed it.
+  //
+  // Only fills when the draft has no size yet, so a customer who corrects the
+  // pre-fill and then re-taps the same vehicle does not have their correction
+  // reverted. Switching to a DIFFERENT vehicle does re-fill, because the
+  // previous answer described a different car.
+  const prefilledFromVehicleRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!draft.vehicleId) return;
+    const vehicle = vehicles.find((v) => v.id === draft.vehicleId);
+    if (!vehicle) return;
+
+    const alreadyPrefilledThisVehicle =
+      prefilledFromVehicleRef.current === vehicle.id;
+    if (alreadyPrefilledThisVehicle) return;
+
+    prefilledFromVehicleRef.current = vehicle.id;
+    if (isVehicleSizeClass(vehicle.size_class)) {
+      draft.setVehicleSizeClass(vehicle.size_class);
+    }
+  }, [draft.vehicleId, vehicles]);
+
+  // Whether the size showing was put there by the pre-fill rather than chosen.
+  // Only affects the hint copy — the control is editable either way.
+  const sizePrefilled = useMemo(() => {
+    const vehicle = vehicles.find((v) => v.id === draft.vehicleId);
+    return (
+      vehicle != null &&
+      isVehicleSizeClass(vehicle.size_class) &&
+      vehicle.size_class === draft.vehicleSizeClass
+    );
+  }, [vehicles, draft.vehicleId, draft.vehicleSizeClass]);
+
   // ── Navigation ───────────────────────────────────────────────────
 
   const canGoNext = useMemo(() => {
@@ -212,6 +256,13 @@ export default function BookProviderScreen(): React.ReactElement {
       location_lng: draft.locationLng,
       notes: draft.notes || null,
       scheduled_at: draft.scheduledAt!,
+      // Facts, not conclusions. trg_derive_booking_suggestion turns these into
+      // suggested_duration_mins server-side; the client has no privilege on
+      // that column, exactly as it has none on the money ones.
+      vehicle_size_class: draft.vehicleSizeClass,
+      condition_answers: Object.keys(draft.conditionAnswers).length
+        ? draft.conditionAnswers
+        : null,
     });
 
     if (bookingResult.error) {
@@ -382,6 +433,11 @@ export default function BookProviderScreen(): React.ReactElement {
               vehicles={vehicles}
               selectedVehicleId={draft.vehicleId}
               onSelectVehicle={draft.setVehicleId}
+              sizeClass={draft.vehicleSizeClass}
+              onChangeSizeClass={draft.setVehicleSizeClass}
+              sizePrefilled={sizePrefilled}
+              conditionAnswers={draft.conditionAnswers}
+              onChangeConditionAnswer={draft.setConditionAnswer}
               address={draft.serviceAddress}
               onChangeAddress={draft.setServiceAddress}
               scheduledAt={draft.scheduledAt}
@@ -605,6 +661,14 @@ interface StepDetailsProps {
   vehicles: Vehicle[];
   selectedVehicleId: string | null;
   onSelectVehicle: (id: string) => void;
+  sizeClass: VehicleSizeClass | null;
+  onChangeSizeClass: (value: VehicleSizeClass) => void;
+  sizePrefilled: boolean;
+  conditionAnswers: ConditionAnswers;
+  onChangeConditionAnswer: <K extends keyof ConditionAnswers>(
+    question: K,
+    answer: ConditionAnswers[K],
+  ) => void;
   address: string;
   onChangeAddress: (address: string) => void;
   scheduledAt: string | null;
@@ -619,6 +683,11 @@ function StepDetails({
   vehicles,
   selectedVehicleId,
   onSelectVehicle,
+  sizeClass,
+  onChangeSizeClass,
+  sizePrefilled,
+  conditionAnswers,
+  onChangeConditionAnswer,
   address,
   onChangeAddress,
   scheduledAt,
@@ -700,6 +769,23 @@ function StepDetails({
           );
         })
       )}
+
+      <Spacer size="xl" />
+
+      {/* Size + condition. Placed immediately after the vehicle picker so the
+          size pre-fill has something to read, and before address and time,
+          because those are logistics and this is what the job actually is. */}
+      <Text variant="subheading" color="charcoal">
+        About the Job
+      </Text>
+      <Spacer size="sm" />
+      <VehicleConditionForm
+        sizeClass={sizeClass}
+        answers={conditionAnswers}
+        onChangeSizeClass={onChangeSizeClass}
+        onChangeAnswer={onChangeConditionAnswer}
+        sizePrefilled={sizePrefilled}
+      />
 
       <Spacer size="xl" />
 

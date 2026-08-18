@@ -2,7 +2,7 @@
 
 **Status:** design closed, implementation started
 **Branch:** `feature/quote-first-booking` (off `dev`)
-**Last updated:** 2026-08-17
+**Last updated:** 2026-08-18
 
 ---
 
@@ -328,7 +328,7 @@ migration tests. Phase 3 needs a `quote-flow.yaml` alongside `booking-flow.yaml`
 
 ---
 
-## 9. Current state (2026-08-17)
+## 9. Current state (2026-08-18)
 
 ### Phase 0 — complete
 
@@ -386,7 +386,7 @@ why `date.test.ts` asserts times with regexes like `/\d{1,2}:\d{2}\s?(AM|PM)/`
 instead of real values. New date/time tests can assert exact times. The
 existing regex assertions still pass and were left alone.
 
-### Phase 1 — in progress
+### Phase 1 — complete
 
 **Done: the §4 RLS security fix**, which gated Phase 3, *and* its INSERT
 sibling found while reviewing it. See §4 for both designs and the SECURITY
@@ -483,13 +483,125 @@ Three decisions worth not re-litigating:
   day-level picker for a provider who had set times would show their 9–5 Monday
   as unset and offer to overwrite it.
 
-**Next:** the data layer for all of the above — `getProviderDaySchedule`,
-time-off mutations, and wiring `DayTimeline` / `WorkingHoursEditor` into the
-provider screens. **Blocked on `supabase gen types`**, which is blocked on the
-migrations being applied: the client is `createClient<Database>`, so
-`.from('provider_time_off')` and `working_hours` cannot typecheck until the
-generated types know they exist. Everything that does not touch a database type
-is built and green.
+**Done: the data layer and the screens.** All three pending migrations are now
+applied, `gen types` regenerated, and the wiring that was blocked behind it
+landed.
+
+`getProviderDaySchedule(providerId, date)` assembles one day in a single call.
+It reads the profile *first* rather than in parallel, because the day's own
+boundaries are local to the provider's timezone and that timezone is a column
+on the profile — querying bookings first would mean guessing the bounds before
+knowing the zone. Bookings are fetched a day wider on each side than the day
+being drawn: occupancy is not the start time, so a 23:00 job yesterday still
+consumes this morning and a 00:15 job tomorrow with an approach buffer already
+consumes tonight. Time off is filtered on overlap instead, since a week-long
+block started last Monday must still blank out today.
+
+Three schedule helpers back it — `startOfLocalDay` (resolves the offset twice,
+because the offset at midday is not the offset at midnight), `localDayRange`
+(derives its end by landing 36 hours out and snapping back, so a 23- or 25-hour
+day comes out at its real length) and `localDayOffset` (rounds the gap between
+two local midnights, which is what makes it DST-proof).
+
+That last one fixed a real bug in `placeJobs`: it treated any off-day job as
+*yesterday's*, so a job at 00:15 tomorrow whose buffer reached back across
+midnight was placed 24 hours on the wrong side and dropped. It only became
+reachable once the query started returning adjacent-day rows.
+
+`ProviderDayView` puts the day behind `DayTimeline` in the Jobs tab, as the
+list header and in the empty state — an empty queue is exactly when it earns
+its place, being the difference between "nothing booked" and "nothing booked
+because you are on time off all week". More → Manage gained the timezone,
+working hours, buffers, daily cap, time off and duration modifiers.
+
+The day-level `AvailabilityCalendar` is gone from Manage. `working_hours`
+supersedes it, and offering both would let a provider set 9–5 Monday in one
+control and untick Monday in the other. The legacy `availability` column is
+still written, **derived** from the hours on save rather than edited, because
+other readers have not migrated — deriving it is what stops the two columns
+disagreeing about whether someone is open. (`app/(provider)/profile.tsx`, the
+vetting step, still uses the day picker and is unchanged.)
+
+`TimeOffOverlapError` is deliberately separate from `SlotUnavailableError`
+despite both being `23P01`: "that time was just taken" describes a race with a
+customer, which is exactly what has *not* happened when a provider
+double-submits their own vacation.
+
+### Phase 2 — complete
+
+`20260820000000_intake_vehicle_size_and_modifiers.sql`, applied, with
+`__tests__/intake_vehicle_size_and_modifiers.test.sql` (25 checks) green
+against the live project.
+
+The inputs a provider needs in order to quote, gathered before they are asked
+to. §1's complaint was that a booking could not express a variable-length job —
+size and condition are the two facts that make a job variable, and neither was
+recorded anywhere.
+
+| Thing | Where |
+|---|---|
+| `vehicles.size_class` | CHECK-bounded, nullable — NULL means *not declared* |
+| `bookings.vehicle_size_class`, `condition_answers` | snapshot + the three questions |
+| `bookings.suggested_duration_mins` | server-derived, outside both grant lists |
+| `service_duration_modifiers` | per-provider `(factor_type, factor_value, delta_mins, delta_price)` |
+| `booking_photos` `'intake'` | plus a customer INSERT policy, intake-only |
+
+Decisions worth not re-litigating:
+
+- **`vehicle_size_class` is duplicated onto the booking, not joined.** The
+  vehicle can be edited or deleted afterwards (the FK is `ON DELETE SET NULL`)
+  and the job was quoted against the car as described at the time. Reading it
+  back live would rewrite the basis of a finished job — the same reasoning that
+  makes `bookings.services` a snapshot.
+
+- **`suggested_duration_mins` is server-derived**, for the reason prices are:
+  duration is what occupies the provider's day, so a client-stated duration is
+  a client-stated cost. `src/utils/suggestion.ts` mirrors the arithmetic for
+  display the way `money.ts` mirrors `derive_booking_amounts`, and both suites
+  assert the same numbers.
+
+- **`derive_booking_suggestion` depends on trigger ordering.** It must run
+  *after* `trg_derive_booking_amounts`, which rebuilds `NEW.services` from
+  `service_packages`. Postgres fires same-timing triggers alphabetically and
+  `'amounts' < 'suggestion'`, so it does. Renaming either without preserving
+  that would silently compute the suggestion from the client's unvalidated
+  array.
+
+- **An unanswered condition question contributes nothing**, rather than
+  defaulting to a middle value. Defaulting would either bill a customer for a
+  condition they never claimed or under-quote the provider. Unanswered is its
+  own state, in both the SQL and the TypeScript.
+
+- **`delta_price` is stored and applied to nothing.** Wiring a
+  provider-writable table into `derive_booking_amounts` would hand the client
+  an indirect route to the totals `20260817140000` denied it. Phase 3 surfaces
+  it as an itemised surcharge the customer approves, through an Edge Function.
+
+Two holes closed while building it:
+
+- **`booking_photos` had a table-level INSERT grant** from Supabase's defaults,
+  so a column allowlist would have restricted nothing without `REVOKE INSERT`
+  first. The customer route in is intake-only — an `'after'` photo is the
+  evidence a job was done correctly, and it is the provider's record.
+
+- **`enforce_booking_status_transition` only guards `status` and `started_at`**,
+  so any *other* granted column passed straight through for **either**
+  participant. That left a provider able to rewrite the customer's declared
+  size and condition — the stated basis of the quote — silently.
+  `trg_validate_booking_intake` now reserves both columns to the customer and
+  freezes them once the booking is committed, since a later correction is a
+  re-quote.
+
+**Not yet built in Phase 2:** the intake photo *uploader* (the schema and
+policy are in place; no UI writes an `'intake'` row yet), and package
+tiers/ranges (`duration_min_mins`, `duration_max_mins`, `tier`,
+`parent_package_id` from §4), which belong with `PackageSelector` in Phase 3.
+
+**Next: Phase 3.** Rated highest-risk in §8 and unchanged by any of the above:
+quote statuses, `ArrivalWindowPicker`, `QuoteBuilder`, and the payment
+resequencing (SetupIntent at request, deposit at approval). Everything it
+assumes about the client's write surface — that a price or a duration has to go
+through an Edge Function — is now true and tested.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the
