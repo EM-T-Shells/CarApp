@@ -91,7 +91,8 @@ INSERT INTO _results
 SELECT 'backfill: a day absent from availability falls back to the picker default',
        working_hours -> 'wed' = '[{"start":"08:00","end":"18:00"}]'::JSONB
        AND working_hours -> 'sun' = '[]'::JSONB,
-       'wed defaults open, sun defaults closed';
+       'wed defaults open, sun defaults closed'
+  FROM public.provider_profiles WHERE id = 'b1b10000-0000-4000-8000-000000000001';
 
 -- ── 3. Validation ────────────────────────────────────────────────────────
 DO $$
@@ -202,7 +203,15 @@ BEGIN
           TIMESTAMPTZ '2026-10-01 00:00:00+00');
   PERFORM set_config('test.inverted_off', 'ALLOWED', TRUE);
 EXCEPTION
+  -- Refused, but NOT by provider_time_off_ends_after_start. A STORED generated
+  -- column is computed before CHECK constraints are evaluated, so
+  -- tstzrange(starts_at, ends_at) raises 22000 "range lower bound must be less
+  -- than or equal to range upper bound" first and the CHECK never runs. The
+  -- CHECK is kept as documented intent (and as the guard if blocked_range is
+  -- ever dropped), but 22000 is what a client actually sees -- which is why
+  -- insertProviderTimeOff validates the ordering before it ever reaches the DB.
   WHEN check_violation THEN PERFORM set_config('test.inverted_off', 'BLOCKED', TRUE);
+  WHEN data_exception THEN PERFORM set_config('test.inverted_off', 'BLOCKED', TRUE);
   WHEN OTHERS THEN PERFORM set_config('test.inverted_off', 'ERR:' || SQLSTATE, TRUE);
 END $$;
 
@@ -302,7 +311,7 @@ INSERT INTO _results SELECT 'a provider can block time off',
 INSERT INTO _results SELECT 'overlapping time off is refused',
   current_setting('test.overlap_off', TRUE) = 'BLOCKED', 'expect BLOCKED (23P01)';
 INSERT INTO _results SELECT 'time off ending before it starts is refused',
-  current_setting('test.inverted_off', TRUE) = 'BLOCKED', 'expect BLOCKED (23514)';
+  current_setting('test.inverted_off', TRUE) = 'BLOCKED', 'expect BLOCKED (22000 from the generated range, before the CHECK)';
 INSERT INTO _results SELECT 'a provider cannot block another provider''s calendar',
   current_setting('test.other_cal', TRUE) = 'BLOCKED', 'expect BLOCKED';
 INSERT INTO _results SELECT 'created_at cannot be forged',

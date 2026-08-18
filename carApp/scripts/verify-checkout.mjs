@@ -43,6 +43,9 @@
  * NOTE: creates and deletes real booking rows. Test/staging projects only.
  */
 
+// Must come before any network client is constructed. See the file header for
+// why Node's fetch cannot reach IPv4-only hosts on WSL2 without it.
+import './lib/ipv4-dns.mjs'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'

@@ -50,6 +50,8 @@ export type Database = {
         Row: {
           actual_duration_mins: number | null
           approval_expires_at: string | null
+          buffer_after_mins: number | null
+          buffer_before_mins: number | null
           cancellation_fee: number | null
           cancelled_by: string | null
           completed_at: string | null
@@ -66,6 +68,7 @@ export type Database = {
           location_lng: number | null
           no_show_at: string | null
           notes: string | null
+          occupied_range: unknown
           package_id: string | null
           platform_fee: number | null
           provider_id: string | null
@@ -84,6 +87,8 @@ export type Database = {
         Insert: {
           actual_duration_mins?: number | null
           approval_expires_at?: string | null
+          buffer_after_mins?: number | null
+          buffer_before_mins?: number | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
@@ -100,6 +105,7 @@ export type Database = {
           location_lng?: number | null
           no_show_at?: string | null
           notes?: string | null
+          occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
           provider_id?: string | null
@@ -118,6 +124,8 @@ export type Database = {
         Update: {
           actual_duration_mins?: number | null
           approval_expires_at?: string | null
+          buffer_after_mins?: number | null
+          buffer_before_mins?: number | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
@@ -134,6 +142,7 @@ export type Database = {
           location_lng?: number | null
           no_show_at?: string | null
           notes?: string | null
+          occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
           provider_id?: string | null
@@ -652,17 +661,22 @@ export type Database = {
           bio: string | null
           coverage_area: string | null
           created_at: string | null
+          default_buffer_after_mins: number
+          default_buffer_before_mins: number
           founding_provider_expires_at: string | null
           id: string
           is_founding_provider: boolean | null
           kudos_count: number | null
+          max_jobs_per_day: number | null
           mile_radius: number | null
           platform_fee_rate: number | null
           provider_type_id: string | null
           stripe_account_id: string | null
+          timezone: string
           total_jobs: number | null
           user_id: string | null
           verification_status: string
+          working_hours: Json | null
         }
         Insert: {
           approved_at?: string | null
@@ -673,17 +687,22 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          default_buffer_after_mins?: number
+          default_buffer_before_mins?: number
           founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
+          max_jobs_per_day?: number | null
           mile_radius?: number | null
           platform_fee_rate?: number | null
           provider_type_id?: string | null
           stripe_account_id?: string | null
+          timezone?: string
           total_jobs?: number | null
           user_id?: string | null
           verification_status?: string
+          working_hours?: Json | null
         }
         Update: {
           approved_at?: string | null
@@ -694,17 +713,22 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          default_buffer_after_mins?: number
+          default_buffer_before_mins?: number
           founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
+          max_jobs_per_day?: number | null
           mile_radius?: number | null
           platform_fee_rate?: number | null
           provider_type_id?: string | null
           stripe_account_id?: string | null
+          timezone?: string
           total_jobs?: number | null
           user_id?: string | null
           verification_status?: string
+          working_hours?: Json | null
         }
         Relationships: [
           {
@@ -726,6 +750,44 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_time_off: {
+        Row: {
+          blocked_range: unknown
+          created_at: string
+          ends_at: string
+          id: string
+          provider_id: string
+          reason: string | null
+          starts_at: string
+        }
+        Insert: {
+          blocked_range?: unknown
+          created_at?: string
+          ends_at: string
+          id?: string
+          provider_id: string
+          reason?: string | null
+          starts_at: string
+        }
+        Update: {
+          blocked_range?: unknown
+          created_at?: string
+          ends_at?: string
+          id?: string
+          provider_id?: string
+          reason?: string | null
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_time_off_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
         ]
