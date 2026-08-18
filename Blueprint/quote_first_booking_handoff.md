@@ -8,11 +8,11 @@ This is the *operational* handoff: environment, what is proven versus merely
 written, and what to do first. The design and per-phase state live in the spec;
 this does not duplicate them.
 
-> **One-line summary:** Phases 0, 1 and 2 are **applied and green** — six
-> migrations on the live project, all SQL suites passing, Jest 82 suites / 1111
-> tests, `tsc` clean. The previous session's blocker (three unapplied
-> migrations) is gone. **The one live blocker now is a Supabase secret key**;
-> see §2. Next work is Phase 3.
+> **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
+> 3's additive foundation is in — seven migrations on the live project, all SQL
+> suites passing, Jest 82 suites / 1111 tests, `tsc` clean. The previous
+> session's blocker (three unapplied migrations) is gone. **The one live blocker
+> now is a Supabase secret key**; see §2. Next work is the rest of Phase 3.
 
 ---
 
@@ -128,8 +128,8 @@ scripts. Node-side only; React Native has its own networking stack.
 
 ## 3. State of the database
 
-All six migrations applied; `supabase migration list --linked` aligns on every
-row.
+All seven migrations applied; `supabase migration list --linked` aligns on
+every row.
 
 | Migration | SQL test | Checks |
 |---|---|---|
@@ -140,6 +140,7 @@ row.
 | `20260818120000_provider_profiles_column_guard` | ✅ | green |
 | `20260819000000_provider_working_hours_and_time_off` | ✅ | 21/21 |
 | `20260820000000_intake_vehicle_size_and_modifiers` | ✅ | 25/25 |
+| `20260821000000_quote_statuses_and_arrival_windows` | ✅ | 21/21 |
 
 The overlap pre-scan found no existing double-bookings and `btree_gist` resolved
 without intervention. All suites wrap in a transaction and `ROLLBACK`:
@@ -148,7 +149,8 @@ without intervention. All suites wrap in a transaction and `ROLLBACK`:
 cd carApp
 for f in bookings_update_column_guard bookings_server_derived_pricing \
          booking_buffers_and_overlap_guard provider_profiles_column_guard \
-         provider_working_hours_and_time_off intake_vehicle_size_and_modifiers; do
+         provider_working_hours_and_time_off intake_vehicle_size_and_modifiers \
+         quote_statuses_and_arrival_windows; do
   supabase db query --linked -f supabase/migrations/__tests__/$f.test.sql
 done
 # expect every row's pass = t
@@ -164,7 +166,7 @@ mapping.
 ### Proven
 
 - **Jest: 82 suites / 1111 tests.** `npx tsc --noEmit` clean.
-- **All six SQL suites green against the live project.**
+- **All seven SQL suites green against the live project.**
 - The Phase 2 insert path is proven *at the SQL layer*: a customer can state
   size and condition, the suggestion is derived server-side, and a forged
   `suggested_duration_mins` is refused.
@@ -214,11 +216,34 @@ is verified by Jest and `tsc` only.
 
 ---
 
-## 6. Phase 3 — what it inherits
+## 6. Phase 3 — foundation in, flow to build
 
 Rated highest-risk in spec §8, and nothing this session changed that. It
 resequences payments (SetupIntent at request, deposit at approval) on top of the
 pricing trigger.
+
+**The additive half is already applied** (`20260821000000`, 21/21): the two
+quote statuses plus `awaiting_customer_info`, `requested_window_start/end`,
+`quote_line_items` / `quoted_total_amount`, and one new client transition —
+either party cancelling an *unpriced* request. It changes no existing behaviour
+and no row takes a new status until the Edge Function actions exist, which is
+the point: the risky half can now be written and reverted against a schema
+that is already in place and tested.
+
+**What is left, in rough dependency order:**
+
+1. Edge Function actions — `submit_quote`, `accept_quote`,
+   `request_more_photos`, `adjust_job_duration`, `propose_reschedule` /
+   `respond_reschedule` — following the guarded-transition pattern
+   (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses.
+2. **Payment resequencing.** The highest-risk item in the plan. Note
+   `captureBalance` computes `total_amount − deposit_amount`, so a re-quote
+   silently breaks the deposit math (spec §1) — that is the thing to re-read
+   first.
+3. `ArrivalWindowPicker` replacing `DateTimePicker`; `PackageSelector` with
+   tiers and ranges; `QuoteBuilder`; the customer quote-review screen.
+4. The intake photo uploader.
+5. `quote-flow.yaml` alongside `booking-flow.yaml`.
 
 **What is already true and tested, which Phase 3 depends on:**
 
@@ -235,7 +260,7 @@ pricing trigger.
 - `VehicleConditionForm` is presentational and controlled, so the provider's
   re-quote screen can reuse it with different plumbing.
 
-**Still open from Phase 2**, both deferred to Phase 3 deliberately:
+**Carried over from Phase 2**, both deferred to Phase 3 deliberately:
 
 - The **intake photo uploader**. Schema, CHECK and the customer INSERT policy
   are in place and tested; no UI writes an `'intake'` row yet.

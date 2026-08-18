@@ -597,11 +597,62 @@ policy are in place; no UI writes an `'intake'` row yet), and package
 tiers/ranges (`duration_min_mins`, `duration_max_mins`, `tier`,
 `parent_package_id` from §4), which belong with `PackageSelector` in Phase 3.
 
-**Next: Phase 3.** Rated highest-risk in §8 and unchanged by any of the above:
-quote statuses, `ArrivalWindowPicker`, `QuoteBuilder`, and the payment
-resequencing (SetupIntent at request, deposit at approval). Everything it
-assumes about the client's write surface — that a price or a duration has to go
-through an Edge Function — is now true and tested.
+### Phase 3 — foundation applied, flow not built
+
+`20260821000000_quote_statuses_and_arrival_windows.sql`, applied, with
+`__tests__/quote_statuses_and_arrival_windows.test.sql` (21 checks) green.
+
+Deliberately **additive and non-breaking**: it widens the vocabulary and adds
+the columns, and changes no existing behaviour. No row takes a new status until
+the Edge Function actions exist. Splitting it out means the risky half — the
+payment resequencing — can be written and reverted against a schema that is
+already in place and tested, rather than both landing at once.
+
+- **Statuses widened, not replaced.** `pending_provider_quote`,
+  `pending_customer_approval` and `awaiting_customer_info` join the list; §2
+  locked "legacy rows as-is, old statuses stay valid", so the deposit-first flow
+  keeps working throughout. `awaiting_customer_info` is here now because §7's
+  `request_more_photos` parks a request there rather than declining it.
+
+- **`requested_window_start`/`_end` are both-or-neither.** A half-stated window
+  is a missing one, not a narrower ask, and a reader taking the start as gospel
+  would place a job at the earliest edge of a window the customer never closed.
+  `scheduled_at` stays the authoritative instant — `occupied_range`,
+  `estimated_completion_at` and every existing reader key off it. The window is
+  the customer's to state and *is* granted.
+
+- **`quote_line_items` holds integer cents**, unlike every other money column
+  here. Those are `NUMERIC(10,2)` because Postgres sums and compares them; these
+  are opaque to the database, and JSONB has only IEEE doubles, so a stored
+  `30.00` invites a `29.999999999999996` onto the customer's approval screen.
+  Validated by a trigger — a CHECK cannot iterate an array, and a bad shape
+  would surface as a crash on the one screen where someone is being asked to
+  agree to a number.
+
+- **One new client transition:** either party cancelling an *unpriced* request.
+  §2 removed expiry timers and made cancel-from-either-end the release valve,
+  and nothing has been charged in those states. Everything else stays
+  server-side by design — submitting a quote sets a price, approving one charges
+  a deposit, so a client transition into `pending_customer_approval` would be a
+  client-set price by another route.
+
+**Still to build in Phase 3:**
+
+1. Edge Function actions — `submit_quote`, `accept_quote`,
+   `request_more_photos`, `adjust_job_duration`, `propose_reschedule` /
+   `respond_reschedule`, following the guarded-transition pattern
+   (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses.
+2. **Payment resequencing** — SetupIntent at request, `create_deposit_intent`
+   moved to post-approval and charging off-session. The highest-risk item in the
+   whole plan, and the reason `captureBalance`'s `total_amount − deposit_amount`
+   needs re-reading against a re-quote.
+3. `ArrivalWindowPicker` replacing `DateTimePicker`; `PackageSelector` with
+   tiers and ranges; `QuoteBuilder`; the customer quote-review screen.
+4. The intake photo uploader (schema and policy are already in place).
+5. `quote-flow.yaml` alongside `booking-flow.yaml`.
+
+Everything Phase 3 assumes about the client's write surface — that a price or a
+duration has to go through an Edge Function — is now true and tested.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the
