@@ -1,5 +1,11 @@
 ---
-globs: "src/lib/stripe/**/*,supabase/functions/stripe-*/**,app/**/*booking*,app/**/*payment*"
+paths:
+  - carApp/src/lib/stripe/**
+  - carApp/supabase/functions/stripe-*/**
+  - carApp/app/**/bookings/**
+  - carApp/app/**/book/**
+  - carApp/app/**/jobs/**
+  - carApp/app/**/bank.tsx
 ---
 
 # Stripe and Booking Payments
@@ -8,9 +14,10 @@ Read the payment and cancellation sections of `docs/business-rules.md` before
 changing booking or payment behavior.
 
 - Use Stripe PaymentSheet through `presentDepositPaymentSheet()`.
-- Do not add custom card fields or forms.
+- Do not add custom card fields or forms. Never add a Stripe `CardField` or
+  `CardForm`.
 - Prices are integer cents and must be formatted through
-  `src/utils/money.ts`.
+  `carApp/src/utils/money.ts`.
 - The booking row is created before collecting the deposit because
   `create_deposit_intent` requires a `booking_id`.
 - Cancel the unpaid booking when intent creation fails, the card is declined,

@@ -1,10 +1,15 @@
 ---
-globs: "app/**/*.tsx,src/components/**/*.tsx,src/design/**/*"
+paths:
+  - carApp/app/*.tsx
+  - carApp/app/**/*.tsx
+  - carApp/src/components/**/*.tsx
+  - carApp/src/design/**
 ---
 
 # Mobile UI Rules
 
-- Use tokens from `src/design/tokens.ts` for colors, typography, and spacing.
+- Use tokens from `carApp/src/design/tokens.ts` for colors, typography, and
+  spacing.
 - Use Inter for body text, Space Grotesk for brand/display text, and
   JetBrains Mono for prices and identifiers.
 - Support dark mode through dynamic color tokens.
@@ -20,4 +25,5 @@ globs: "app/**/*.tsx,src/components/**/*.tsx,src/design/**/*"
   sheets, and alerts.
 - Do not combine customer and provider actions in one persona-specific screen.
 
-Routes and route parameters must use the types in `src/types/navigation.ts`.
+Routes and route parameters must use the types in
+`carApp/src/types/navigation.ts`.
