@@ -1,13 +1,22 @@
 # Quote-First Booking — Session Handoff
 
 **Updated:** 2026-08-18 (second session) · **Branch:** `feature/quote-first-booking`
-**Head:** `d227500` — **pushed; working tree clean, nothing local-only.**
+**Head:** `8b6f0e0` — **pushed; working tree clean, nothing local-only.**
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
 This is the *operational* handoff: environment, what is proven versus merely
 written, and what to do first. The design and per-phase state live in the spec;
 this does not duplicate them.
+
+> `dev` was merged into this branch at `8b6f0e0`, after the Phase 2/3 work. It
+> touched **documentation and Claude config only** — `.claude/rules/`,
+> `CLAUDE.md`, `CONTRIBUTING.md`, `docs/business-rules.md`,
+> `docs/troubleshooting.md`, `.gitignore`, `.claudeignore`. No source, no
+> migrations, no tests. Verified green after the merge: 82 suites / 1111 tests,
+> `tsc` clean. Note `Claude.md` was replaced by `CLAUDE.md`, and `.claude/rules/`
+> now carries path-scoped rules that only activate via the native Read tool —
+> not Bash `cat`/`head`/`sed`.
 
 > **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
 > 3's additive foundation is in — seven migrations on the live project, all SQL
@@ -251,7 +260,7 @@ is verified by Jest and `tsc` only.
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect d227500 or later
+   cd CarApp && git log --oneline -1        # expect 8b6f0e0 or later
    git status --short                       # expect empty
    cd carApp && npx tsc --noEmit && npm test # expect 82 suites / 1111 tests
    npm run verify:checkout                  # expect 30/30 against the live project
