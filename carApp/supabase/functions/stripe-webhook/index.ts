@@ -24,6 +24,11 @@
 //          amount (deposit kept, no refund), booking moves to no_show.
 //        • accept_booking — provider accepts within the 2h window; the booking
 //          moves pending_provider_approval → confirmed (Blocker #4).
+//        • submit_quote — provider prices an unpriced request: sets the start
+//          inside the customer's arrival window, commits a duration, records
+//          the itemised surcharges, and moves the booking to
+//          pending_customer_approval. Charges nothing (§2: nothing is charged
+//          until the customer approves the final price).
 //        • decline_booking — provider declines; the booking is cancelled and
 //          the deposit refunded to the customer.
 //        • expire_pending_approvals — pg_cron sweep that auto-cancels and
@@ -38,6 +43,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import Stripe from 'https://esm.sh/stripe@13.6.0?target=deno&no-check=true';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { prepareQuote, QUOTABLE_STATUSES } from '../_shared/quote.ts';
 
 // ── Clients ───────────────────────────────────────────────────────────
 
@@ -150,6 +156,11 @@ async function handleAppAction(req: Request): Promise<Response> {
     amount?: number;
     provider_id?: string;
     reason?: string;
+    // submit_quote. Validated in ../_shared/quote.ts, never trusted as typed:
+    // this endpoint is reachable with any authenticated user's JWT.
+    estimated_duration_mins?: unknown;
+    scheduled_at?: unknown;
+    quote_line_items?: unknown;
   };
 
   switch (body.action) {
@@ -169,6 +180,10 @@ async function handleAppAction(req: Request): Promise<Response> {
       return await acceptBooking(body as { action: string; booking_id: string });
     case 'decline_booking':
       return await declineBooking(body as { action: string; booking_id: string; reason?: string });
+    case 'submit_quote':
+      // Passed the request, not just the body: submit_quote is the first action
+      // here that has to know *who* is calling. See submitQuote.
+      return await submitQuote(req, body);
     case 'expire_pending_approvals':
       return await expirePendingApprovals();
     case 'connect_onboarding':
@@ -743,6 +758,181 @@ async function declineBooking(body: {
 
   await fireNotify('notify-booking-declined', { booking_id });
   return jsonResponse({ ok: true, status: 'cancelled', refund }, 200);
+}
+
+// ── Provider quote (Phase 3 / spec §3, §5) ────────────────────────────
+//
+// The provider prices an unpriced request. Everything this writes —
+// estimated_duration_mins, quote_line_items, quoted_total_amount — is outside
+// the client's grant list by design (§4), which is precisely why it is an
+// action here rather than an app write.
+//
+// Charges nothing. §2 locked "nothing charged until the customer approves the
+// final price", so the deposit moves to accept_quote and this call is free to
+// be retried, re-quoted, or abandoned with no money to reason about.
+
+// Resolve the calling user from the bearer token. verify_jwt: true has already
+// rejected anyone without a valid JWT before this function runs, but it does
+// not say *which* user called, and every action in this file is reachable with
+// any authenticated user's token. Mirrors update-provider-location.
+async function requireCaller(
+  req: Request,
+): Promise<{ ok: true; userId: string } | { ok: false; response: Response }> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!token) {
+    return { ok: false, response: jsonResponse({ error: 'Missing authorization' }, 401) };
+  }
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    return { ok: false, response: jsonResponse({ error: 'Invalid session' }, 401) };
+  }
+
+  return { ok: true, userId: data.user.id };
+}
+
+async function submitQuote(
+  req: Request,
+  body: {
+    booking_id?: string;
+    estimated_duration_mins?: unknown;
+    scheduled_at?: unknown;
+    quote_line_items?: unknown;
+  },
+): Promise<Response> {
+  const { booking_id } = body;
+
+  if (!booking_id) {
+    return jsonResponse({ error: 'booking_id is required' }, 400);
+  }
+
+  const caller = await requireCaller(req);
+  if (!caller.ok) return caller.response;
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(
+      'id, provider_id, status, total_amount, requested_window_start, requested_window_end',
+    )
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  // Only the assigned provider may price this job. Without this check any
+  // authenticated user could set a price on any booking — the one thing §4's
+  // whole two-layer guard exists to prevent, reintroduced through the service
+  // role's own back door.
+  if (!booking.provider_id) {
+    return jsonResponse({ error: 'Booking has no provider to quote it' }, 409);
+  }
+
+  const { data: profile, error: profileErr } = await supabase
+    .from('provider_profiles')
+    .select('id, user_id')
+    .eq('id', booking.provider_id)
+    .maybeSingle();
+
+  if (profileErr) return jsonResponse({ error: profileErr.message }, 500);
+  if (!profile || profile.user_id !== caller.userId) {
+    return jsonResponse({ error: 'Not authorized to quote this booking' }, 403);
+  }
+
+  // Status is re-checked in the UPDATE below; this read is for the error
+  // message, which is the difference between "you already quoted this" and a
+  // bare 409.
+  const quotableStatuses: string[] = [...QUOTABLE_STATUSES];
+
+  if (!quotableStatuses.includes(booking.status)) {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} cannot be quoted` },
+      409,
+    );
+  }
+
+  // total_amount is the base derived at insert by trg_derive_booking_amounts
+  // from the provider's published prices — subtotal plus the 2% service fee.
+  // The surcharges add to it without the fee applying again, so the line items
+  // the customer approves sum exactly to what they are charged.
+  const prepared = prepareQuote(body, {
+    baseTotalCents: Math.round(Number(booking.total_amount ?? 0) * 100),
+    window: {
+      start: booking.requested_window_start,
+      end: booking.requested_window_end,
+    },
+    nowMs: Date.now(),
+  });
+
+  if (!prepared.ok) {
+    return jsonResponse({ error: prepared.error }, 400);
+  }
+
+  const { scheduledAt, durationMins, lineItems, quotedTotalCents } = prepared.value;
+
+  // Guarded transition, same shape as acceptBooking: if the customer cancelled
+  // the request (or another tab already quoted it) between the read above and
+  // here, this matches nothing and the provider is told to refetch.
+  //
+  // quoted_total_amount is deliberately the ONLY money column written.
+  // total_amount and deposit_amount stay as they are: a quote is a proposal,
+  // and captureBalance computes total_amount − deposit_amount, so moving either
+  // one before the customer has agreed would silently rewrite the balance owed
+  // on a job that was never re-agreed. Both belong to accept_quote, together.
+  const { data: quoted, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'pending_customer_approval',
+      scheduled_at: scheduledAt,
+      estimated_duration_mins: durationMins,
+      quote_line_items: lineItems,
+      quoted_total_amount: quotedTotalCents / 100, // DB stores dollars
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .in('status', quotableStatuses)
+    .select('id');
+
+  if (updateErr) {
+    // 23P01 is not expected here — bookings_no_provider_overlap only covers
+    // confirmed/en_route/in_progress, and a quote lands in
+    // pending_customer_approval, so a request still does not reserve time and
+    // the first accept wins (§7). Mapped anyway so that if the constraint's
+    // WHERE clause ever widens, the provider gets the real reason instead of a
+    // 500.
+    if (updateErr.code === '23P01') {
+      return jsonResponse(
+        {
+          error:
+            'That time overlaps a job you have already confirmed. Pick another start inside the window.',
+          code: 'slot_conflict',
+        },
+        409,
+      );
+    }
+    return jsonResponse({ error: updateErr.message }, 500);
+  }
+
+  if (!quoted || quoted.length === 0) {
+    return jsonResponse({ error: 'This request is no longer awaiting a quote' }, 409);
+  }
+
+  // TODO(Phase 3): notify-quote-ready does not exist yet — spec §5 lists it
+  // alongside notify-eta-changed. fireNotify swallows the failure, so this is
+  // an inert warning rather than a broken quote until that function lands.
+  await fireNotify('notify-quote-ready', { booking_id });
+
+  return jsonResponse(
+    {
+      ok: true,
+      status: 'pending_customer_approval',
+      scheduled_at: scheduledAt,
+      estimated_duration_mins: durationMins,
+      quoted_total_cents: quotedTotalCents,
+      quote_line_items: lineItems,
+    },
+    200,
+  );
 }
 
 // Auto-cancel sweep, invoked by pg_cron every minute (see migration

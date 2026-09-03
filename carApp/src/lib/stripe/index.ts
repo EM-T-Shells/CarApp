@@ -486,3 +486,79 @@ export async function declineBooking(
     };
   }
 }
+
+// ── Provider quote (Phase 3 / Blueprint/quote_first_booking.md §3) ─────
+//
+// The provider prices an unpriced request: an exact start inside the window the
+// customer asked for, a duration they commit to, and optional itemised
+// surcharges. Nothing is charged — §2 locked "nothing charged until the
+// customer approves the final price" — so this only moves the booking to
+// pending_customer_approval.
+//
+// It runs server-side because it has to: a price and a duration are both
+// outside the client's write surface on bookings, deliberately (§4).
+
+export interface QuoteLineItem {
+  label: string;
+  /** Integer cents. JSONB has no exact decimal — see migration 20260821000000. */
+  amount_cents: number;
+}
+
+export interface SubmitQuoteInput {
+  bookingId: string;
+  /** Exact start, inside the customer's arrival window when they gave one. */
+  scheduledAt: string;
+  estimatedDurationMins: number;
+  lineItems?: QuoteLineItem[];
+}
+
+export interface SubmitQuoteResponse {
+  ok: boolean;
+  status?: string;
+  scheduled_at?: string;
+  estimated_duration_mins?: number;
+  /** The server's total, in cents. Never computed on the client. */
+  quoted_total_cents?: number;
+  quote_line_items?: QuoteLineItem[];
+}
+
+/**
+ * Provider submits a quote for a request awaiting one. The quoted total comes
+ * back from the server rather than being computed here: the client states the
+ * surcharges as intent, and the base it adds to is the row's derived
+ * total_amount, which the client has never been able to see or set.
+ */
+export async function submitQuote(
+  input: SubmitQuoteInput,
+): Promise<StripeResult<SubmitQuoteResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: {
+        action: 'submit_quote',
+        booking_id: input.bookingId,
+        scheduled_at: input.scheduledAt,
+        estimated_duration_mins: input.estimatedDurationMins,
+        quote_line_items: input.lineItems ?? [],
+      },
+    });
+
+    if (error) {
+      // Several distinct failures land here and the provider needs to tell them
+      // apart — a start outside the window, a duration out of range, a request
+      // the customer already cancelled. Only the Edge Function knows which, and
+      // invoke() would otherwise flatten all of them to "non-2xx status code".
+      return { data: null, error: await readFunctionError(error, 'Could not send the quote') };
+    }
+
+    const response = data as SubmitQuoteResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('This request is no longer awaiting a quote') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}

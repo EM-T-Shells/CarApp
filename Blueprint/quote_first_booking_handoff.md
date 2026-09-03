@@ -1,7 +1,7 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-08-18 (second session) · **Branch:** `feature/quote-first-booking`
-**Head:** `a39febc` — **pushed; working tree clean, nothing local-only.**
+**Updated:** 2026-08-20 (third session) · **Branch:** `feature/quote-first-booking`
+**Head:** `080634d` — **`submit_quote` is uncommitted in the working tree.**
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -20,12 +20,37 @@ this does not duplicate them.
 
 > **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
 > 3's additive foundation is in — seven migrations on the live project, all SQL
-> suites passing, `verify:checkout` 30/30, Jest 82 suites / 1111 tests, `tsc`
-> clean. Nothing is blocked except Stripe, which needs a Mac (§4).
+> suites passing, `verify:checkout` 30/30, Jest 83 suites / 1165 tests, `tsc`
+> clean. The first Phase 3 action, `submit_quote`, is written and tested but
+> **not deployed** (§4.5). Nothing is blocked except Stripe, which needs a
+> Mac (§4).
 >
-> **To resume: run §5 step 0 to confirm the state, then start on §6 item 1 —
-> the `submit_quote` Edge Function action.** That is the smallest next piece
-> that moves Phase 3, and everything it needs is already in place.
+> **To resume: run §5 step 0 to confirm the state, then deploy (§4.5) and
+> continue §6.** `submit_quote` is written and tested but neither deployed nor
+> compiled. `accept_quote` is the natural next action, and it is where the
+> deposit resequencing and the `total_amount − deposit_amount` trap land.
+
+### Where the whole plan stands
+
+Spec §8 lists five phases. The overall position, because it is easy to read a
+green test count as "nearly done" and it is not:
+
+| Phase | Scope | State |
+|---|---|---|
+| **0** | Duration columns, backfill, ready-by display | ✅ complete |
+| **1** | Buffers, working hours, timezone, time-off, `EXCLUDE` constraint, RLS tightening | ✅ complete |
+| **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete, minus two pieces deliberately moved to Phase 3 |
+| **3** | Quote flow, payment resequencing, quote UI | 🟡 schema foundation applied; **1 of ~6 Edge Function actions written, not deployed** |
+| **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ⬜ not started |
+
+**Phase 3 is roughly a fifth done, and the hard part is not the part that is
+done.** The payment resequencing (§6 item 2) is rated the highest-risk item in
+the entire plan and is untouched; the quote UI does not exist at all. Phase 4
+has not been begun.
+
+Independently of all of it: **Stripe has still never run end to end** — see
+§4, "NOT proven". The payment path Phase 3 is about to rewrite has never been
+observed working in the first place.
 
 ---
 
@@ -35,7 +60,7 @@ this does not duplicate them.
 git clone git@github.com:EM-T-Shells/CarApp.git
 cd CarApp && git checkout feature/quote-first-booking
 cd carApp && npm ci
-npx tsc --noEmit && npm test          # expect 82 suites / 1111 tests, all green
+npx tsc --noEmit && npm test          # expect 83 suites / 1165 tests, all green
 ```
 
 If that is green, the JavaScript half of the project is fully restored.
@@ -205,7 +230,7 @@ Worth knowing before reading the numbers below, because the obvious reading of
 
 | System | Scope | How to run |
 |---|---|---|
-| **Jest** — 82 suites / 1111 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **Jest** — 83 suites / 1165 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
 | **`.test.sql`** — 7 files | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
 | **`verify-checkout.mjs`** — 30 checks | The real client payload against the real grants | `npm run verify:checkout` |
 | **Maestro** — `booking-flow.yaml` | The app in a simulator | needs macOS + simulator |
@@ -218,7 +243,7 @@ why adding checks there does not move the Jest count.
 
 ### Proven
 
-- **Jest: 82 suites / 1111 tests.** `npx tsc --noEmit` clean.
+- **Jest: 83 suites / 1165 tests.** `npx tsc --noEmit` clean.
 - **All seven SQL suites green against the live project.**
 - **`npm run verify:checkout` — 30/30 against the live project.** Signs in as
   the seeded customer with the **anon** key and fires the exact payload
@@ -252,6 +277,44 @@ simulator run.
 **4. Nothing in the UI has been seen running.** Every screen change this session
 is verified by Jest and `tsc` only.
 
+**5. `submit_quote` has never executed.** Two distinct gaps, and the second is
+the easy one to miss:
+
+- **It is not deployed.** The live function still has no `submit_quote` action.
+  The deploy *was* approved and attempted at the end of the third session and
+  was **blocked by Claude Code's auto-mode permission classifier**, not by
+  Supabase and not by anything wrong with the code. Nothing was sent to the
+  project. Re-run it by hand, or grant a Bash permission rule for
+  `supabase functions deploy` and let the session do it:
+
+  ```bash
+  supabase functions deploy stripe-webhook --workdir /path/to/CarApp/carApp
+  ```
+
+  **Never add `--no-verify-jwt`** — this function must keep JWT verification
+  (`.claude/rules/stripe-payments.md`). `supabase/config.toml` has no
+  `[functions.stripe-webhook]` block, so the default of `true` is what applies;
+  verified in that session.
+
+  This box has no Docker. If the CLI tries to bundle locally and fails on that,
+  add `--use-api` to bundle server-side instead.
+- **Its Edge Function half is not type-checked by anything on the WSL2 box.**
+  `tsconfig.json` excludes `supabase/functions/*/index.ts` (the remote imports
+  would not resolve) and Deno is not installed, so `npx tsc --noEmit` says
+  nothing about the action body. `_shared/quote.ts` *is* covered — it is
+  outside the exclude list precisely because it carries no remote imports, and
+  its 54 tests exercise the shipping code rather than a re-implementation. The
+  uncovered part is the Supabase plumbing: the selects, the guarded update, the
+  ownership check. **The deploy is the first thing that compiles it**, so treat
+  a deploy failure as the expected first signal, not a surprise.
+
+  The line to watch in the deploy output is the new
+  `import { prepareQuote, QUOTABLE_STATUSES } from '../_shared/quote.ts';`. If
+  that path fails to resolve, the function does not boot and **every** payment
+  action goes down with it — not just the new one. Ten other functions already
+  import from `../_shared/` the same way, so it should resolve; check
+  `accept_booking` still works after the deploy regardless.
+
 ---
 
 ## 5. Do this first, in this order
@@ -260,19 +323,45 @@ is verified by Jest and `tsc` only.
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect a39febc or later
-   git status --short                       # expect empty
-   cd carApp && npx tsc --noEmit && npm test # expect 82 suites / 1111 tests
+   cd CarApp && git log --oneline -1        # expect 080634d or later
+   git status --short                       # NOT empty — see below
+   cd carApp && npx tsc --noEmit && npm test # expect 83 suites / 1165 tests
    npm run verify:checkout                  # expect 30/30 against the live project
-   supabase migration list --linked --workdir "$PWD"   # expect seven aligned rows
+   supabase migration list --linked --workdir "$PWD"   # expect 15 aligned rows
    ```
 
    `verify:checkout` is the one worth running every time: it is the only check
    that exercises the real client payload against the real grants, so it catches
    a booking-screen change that no Jest test can (they all mock Supabase).
 
-1. **Phase 3.** See §6. Everything below the Stripe line is unblocked.
-2. **On a Mac:** `brew install maestro`, boot a simulator,
+   ⚠️ **`submit_quote` was left uncommitted.** The third session ended with the
+   work in the working tree and nothing committed, because commits are not made
+   here unless asked for. Expect exactly these nine paths, and **do not run
+   `git checkout .`, `git stash` or a branch switch before committing them** —
+   two of them are untracked and a clean would delete the module outright:
+
+   ```
+   ?? carApp/supabase/functions/_shared/quote.ts            # new — the quote grammar
+   ?? carApp/supabase/functions/_shared/__tests__/quote.test.ts  # new — 54 tests
+    M carApp/supabase/functions/stripe-webhook/index.ts     # the submit_quote action
+    M carApp/src/lib/stripe/index.ts                        # submitQuote() wrapper
+    M carApp/src/lib/stripe/__tests__/index.test.ts
+    M .claude/rules/edge-functions.md
+    M ARCHITECTURE.md
+    M Blueprint/quote_first_booking.md
+    M Blueprint/quote_first_booking_handoff.md
+   ```
+
+   If `git status` is clean *and* `_shared/quote.ts` is missing, the work was
+   lost rather than finished — spec §9 documents every decision in it, so it is
+   rebuildable, but check before assuming it landed.
+
+1. **Deploy `stripe-webhook`** (§4.5). It is the only thing that compiles the
+   `submit_quote` action, and everything else in Phase 3 builds on top of it.
+2. **Then `accept_quote`.** See §6. It is the natural next action and the one
+   that carries the `total_amount − deposit_amount` trap; nothing below the
+   Stripe line is blocked.
+3. **On a Mac:** `brew install maestro`, boot a simulator,
    `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two seed failure modes are
    intended: an inactive/unapproved package now fails the booking at insert, and
    seeded bookings occupy real ranges with buffers, so two committed jobs close
@@ -294,12 +383,20 @@ and no row takes a new status until the Edge Function actions exist, which is
 the point: the risky half can now be written and reverted against a schema
 that is already in place and tested.
 
+**`submit_quote` is done** — `stripe-webhook` action, grammar and totals in
+`_shared/quote.ts`, client wrapper `submitQuote()`. No migration was needed.
+Spec §9 has the four decisions behind it; the two that will bite elsewhere are
+that it verifies caller ownership (**the older actions in that file still do
+not**) and that it writes `quoted_total_amount` only, leaving `total_amount`
+and `deposit_amount` to `accept_quote`.
+
 **What is left, in rough dependency order:**
 
-1. Edge Function actions — `submit_quote`, `accept_quote`,
+1. The remaining Edge Function actions — `accept_quote`,
    `request_more_photos`, `adjust_job_duration`, `propose_reschedule` /
    `respond_reschedule` — following the guarded-transition pattern
    (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses.
+   `notify-quote-ready` is also unbuilt and `submit_quote` already calls it.
 2. **Payment resequencing.** The highest-risk item in the plan. Note
    `captureBalance` computes `total_amount − deposit_amount`, so a re-quote
    silently breaks the deposit math (spec §1) — that is the thing to re-read
@@ -315,10 +412,15 @@ that is already in place and tested.
   Anything Phase 3 adds — quote submission, price approval, duration adjustment
   — must go through an Edge Function or be added deliberately to **both** the
   column allowlist and the trigger layer. That friction is the point.
-- `service_duration_modifiers.delta_price` is stored and applied to nothing.
-  Phase 3 is where it becomes the itemised surcharge, **through an Edge
-  Function** — not by wiring it into `derive_booking_amounts`, which would hand
-  the client an indirect route to the totals it was denied.
+- `service_duration_modifiers.delta_price` is stored and **still applied to
+  nothing** — `submit_quote` did not change this, and it is easy to assume it
+  did. That action takes `quote_line_items` exactly as the provider states them
+  and validates the grammar; nothing reads `delta_price` to build them. Wiring
+  it up belongs to `QuoteBuilder` (item 3), which should pre-fill the surcharges
+  from the modifiers and let the provider edit them before sending. It must
+  stay that way round — pre-filled on the client, validated and totalled on the
+  server — because wiring a provider-writable table into `derive_booking_amounts`
+  would hand the client an indirect route to the totals it was denied.
 - `DayTimeline` already takes a `proposed` slot and flags collisions, so
   `QuoteBuilder` needs the mapping, not the geometry.
 - `VehicleConditionForm` is presentational and controlled, so the provider's
@@ -330,7 +432,9 @@ that is already in place and tested.
   are in place and tested; no UI writes an `'intake'` row yet.
 - **Package tiers and ranges** — `duration_min_mins`, `duration_max_mins`,
   `tier`, `parent_package_id` (spec §4). These belong with `PackageSelector`,
-  which is Phase 3's.
+  which is Phase 3's. **This is the only remaining Phase 3 item that needs a
+  migration** — everything else in §6 writes columns that already exist, which
+  is why `submit_quote` needed no DDL and no approval to build.
 
 ⚠️ Reconcile before building the add-on model: migration `20260725200513`
 retired the `'addon'` category from `service_catalog`, but

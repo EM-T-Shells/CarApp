@@ -30,6 +30,18 @@ Canonical responsibilities:
     `pending_provider_approval` becomes `confirmed`
   - `decline_booking`: provider declines; the booking is cancelled and the
     deposit refunded
+  - `submit_quote`: the assigned provider prices an unpriced request — sets the
+    start inside the customer's arrival window, commits
+    `estimated_duration_mins`, records `quote_line_items` and the derived
+    `quoted_total_amount`, and moves the booking to
+    `pending_customer_approval`. Charges nothing. It resolves the caller from
+    the bearer token and refuses anyone who does not own the booking's provider
+    profile; `verify_jwt` alone proves only that *some* authenticated user
+    called. The quote grammar and totals live in `_shared/quote.ts`, which
+    carries no remote imports so Jest can test the shipping code directly.
+    `total_amount` and `deposit_amount` are never written here — a quote is a
+    proposal, and `capture_balance` computes `total_amount - deposit_amount`,
+    so both belong to `accept_quote` together
   - `expire_pending_approvals`: pg_cron sweep that auto-cancels and refunds
     approvals still pending past their two-hour deadline
   - `connect_onboarding`: creates or reuses the provider Express account and

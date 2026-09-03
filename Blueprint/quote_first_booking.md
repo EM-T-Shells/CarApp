@@ -636,12 +636,51 @@ already in place and tested, rather than both landing at once.
   a deposit, so a client transition into `pending_customer_approval` would be a
   client-set price by another route.
 
+**`submit_quote` — done.** The first of the Phase 3 actions, in
+`stripe-webhook` with its grammar and arithmetic in `_shared/quote.ts` and the
+client wrapper in `src/lib/stripe/index.ts`. No migration: every column it
+writes already existed.
+
+Four decisions in it worth not re-litigating:
+
+- **It resolves the caller and checks ownership.** `verify_jwt: true` proves
+  only that *some* authenticated user called — every other action in that file
+  is reachable with any user's token. That is survivable for `accept_booking`;
+  it is not for an action that sets a price, which is the single thing §4's
+  two-layer guard exists to prevent. `auth.getUser(token)` plus a
+  `provider_profiles.user_id` check closes it, the same way
+  `update-provider-location` does. **The older actions still have this gap.**
+- **The 2% service fee is not re-applied to surcharges.**
+  `quoted_total = total_amount + Σ line_items`, so a customer approving a line
+  item reading "+$30.00" is charged exactly $30.00 more. The alternative makes
+  the fee scale with job size but breaks the itemisation's ability to sum to
+  its own total — the exact failure `20260821000000` argues against when it
+  stores these as integer cents.
+- **`total_amount` and `deposit_amount` are untouched.** A quote is a proposal.
+  Since `captureBalance` computes `total_amount − deposit_amount` (§1), moving
+  either before the customer agrees would silently rewrite the balance owed on
+  a job that was never re-agreed. Both belong to `accept_quote`, written
+  together.
+- **Line items are rebuilt, not passed through.** `validate_booking_quote`
+  cannot reject unknown JSON keys, so without rebuilding each item to
+  `{label, amount_cents}` a provider could stash arbitrary JSON on the row that
+  renders on the customer's approval screen.
+
+It quotes from `awaiting_customer_info` as well as `pending_provider_quote`:
+§7 parks a rescued request there and nothing yet moves it back, so the
+narrower list would strand every request the provider saved that way.
+
+⚠️ It fires `notify-quote-ready`, which **does not exist yet** (§5 lists it).
+`fireNotify` swallows the failure, so today that is an inert log warning rather
+than a broken quote — but the customer is not told their quote arrived.
+
 **Still to build in Phase 3:**
 
-1. Edge Function actions — `submit_quote`, `accept_quote`,
+1. The remaining Edge Function actions — `accept_quote`,
    `request_more_photos`, `adjust_job_duration`, `propose_reschedule` /
    `respond_reschedule`, following the guarded-transition pattern
-   (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses.
+   (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses, and the
+   caller-ownership check `submit_quote` established.
 2. **Payment resequencing** — SetupIntent at request, `create_deposit_intent`
    moved to post-approval and charging off-session. The highest-risk item in the
    whole plan, and the reason `captureBalance`'s `total_amount − deposit_amount`
