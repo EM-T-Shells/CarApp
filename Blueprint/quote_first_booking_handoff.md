@@ -1,7 +1,8 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-08-20 (third session) · **Branch:** `feature/quote-first-booking`
-**Head:** `080634d` — **`submit_quote` is uncommitted in the working tree.**
+**Updated:** 2026-09-02 (fourth session) · **Branch:** `feature/quote-first-booking`
+**Head:** `d0768db` — working tree clean. `submit_quote` is **committed, not
+deployed** (§4.5).
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -26,9 +27,14 @@ this does not duplicate them.
 > Mac (§4).
 >
 > **To resume: run §5 step 0 to confirm the state, then deploy (§4.5) and
-> continue §6.** `submit_quote` is written and tested but neither deployed nor
-> compiled. `accept_quote` is the natural next action, and it is where the
-> deposit resequencing and the `total_amount − deposit_amount` trap land.
+> continue §6.** `submit_quote` is committed and unit-tested but neither
+> deployed nor compiled. `accept_quote` is the natural next action, and it is
+> where the deposit resequencing and the `total_amount − deposit_amount` trap
+> land.
+>
+> **On a new machine, do §1 before §5.** The clone gives you the code and none
+> of the access — five gitignored credentials have to be recreated by hand, and
+> the CLI access token expires 2026-09-16.
 
 ### Where the whole plan stands
 
@@ -75,7 +81,15 @@ If that is green, the JavaScript half of the project is fully restored.
 | 4 | `SUPABASE_ACCESS_TOKEN` | every CLI command that talks to the API | `supabase projects list` |
 | 5 | `SUPABASE_DB_PASSWORD` | applying migrations | `supabase db push` |
 
-**Nothing in that table is in git.** All five are gitignored.
+**Nothing in that table is in git.** All five are gitignored, so a fresh clone
+gets you the code and none of the access. Recreating them is the whole cost of
+a machine switch — budget for it before assuming something is broken.
+
+⚠️ **`SUPABASE_ACCESS_TOKEN` (`claude-cli-token`) expires 2026-09-16.** If the
+new box is set up after that, every `supabase` CLI command fails on arrival and
+the failure looks like a project-ref problem, not an expiry. Mint a fresh token
+(Dashboard → Account → Access Tokens) rather than copying the old one across.
+Generating a new token does **not** revoke the old one; they coexist.
 
 ```
 carApp/.env.local     EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_KEY (publishable),
@@ -98,13 +112,49 @@ runs `--read-only`.
 
 ### Machines this has run on
 
-| | WSL2 box (this session) | macOS box |
+Sessions 1–4 ran on the WSL2 box. Both rows are history, not a description of
+wherever you are now:
+
+| | WSL2 box (sessions 1–4) | macOS box |
 |---|---|---|
 | Node | v20.20.0 | v24.15.0 |
 | Supabase CLI | 2.90.0, **logged in** | 2.107.0, not logged in |
 | Docker / `psql` | neither | neither |
 | Maestro + simulator | unavailable | not installed |
 | DB access | ✅ `db push` works | ✗ IPv6-only route |
+
+### Establish these five facts on the new box before trusting anything below
+
+Each one changes what a command does, and each is cheap to check. Fill in a
+column above once you know them.
+
+```bash
+node -v && supabase --version && supabase projects list   # logged in?
+docker info >/dev/null 2>&1 && echo docker || echo "no docker → deploy needs --use-api"
+cd carApp && supabase migration list --linked --workdir "$PWD"   # DB route works?
+command -v maestro || echo "no maestro → §5 step 3 stays blocked"
+```
+
+1. **Supabase CLI logged in?** `supabase login` if not. Separate from
+   `SUPABASE_ACCESS_TOKEN`, and both matter.
+2. **Docker present?** Without it the CLI cannot bundle an Edge Function
+   locally — add `--use-api` to `functions deploy` to bundle server-side. The
+   WSL2 box had no Docker and this is how the deploy was expected to run.
+3. **Is there a working route to the database?** The macOS box failed here on
+   an IPv6-only route, which is why `db push` never ran from it. If
+   `migration list --linked` aligns, the route is fine.
+4. **macOS + booted simulator + Maestro?** All three together are what §4's
+   "NOT proven" list has been waiting on since the beginning — Stripe end to
+   end, the 409 → provider UI path, and `Intl` under Hermes. If the new box has
+   them, that backlog opens up and is worth doing before more of Phase 3 is
+   written on top of an unobserved payment path.
+5. **Node major version.** Sessions 1–4 were on Node 20. Nothing is known to
+   need it; if the new box is on 22/24 and something odd appears in Jest, this
+   is the variable that changed.
+
+The IPv4 DNS pin (`scripts/lib/ipv4-dns.mjs`, §2) is committed and imported by
+both Node scripts. It is a no-op on machines without the WSL2 resolver
+behaviour, so leave it in place regardless of where you land.
 
 ---
 
@@ -323,8 +373,8 @@ the easy one to miss:
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect 080634d or later
-   git status --short                       # NOT empty — see below
+   cd CarApp && git log --oneline -1        # expect d0768db or later
+   git status --short                       # expect empty
    cd carApp && npx tsc --noEmit && npm test # expect 83 suites / 1165 tests
    npm run verify:checkout                  # expect 30/30 against the live project
    supabase migration list --linked --workdir "$PWD"   # expect 15 aligned rows
@@ -334,27 +384,27 @@ the easy one to miss:
    that exercises the real client payload against the real grants, so it catches
    a booking-screen change that no Jest test can (they all mock Supabase).
 
-   ⚠️ **`submit_quote` was left uncommitted.** The third session ended with the
-   work in the working tree and nothing committed, because commits are not made
-   here unless asked for. Expect exactly these nine paths, and **do not run
-   `git checkout .`, `git stash` or a branch switch before committing them** —
-   two of them are untracked and a clean would delete the module outright:
+   **`submit_quote` is committed.** The third session left it in the working
+   tree; `d0768db` carries all nine of those paths, so a clean `git status` is
+   now the healthy state rather than a warning sign:
 
    ```
-   ?? carApp/supabase/functions/_shared/quote.ts            # new — the quote grammar
-   ?? carApp/supabase/functions/_shared/__tests__/quote.test.ts  # new — 54 tests
-    M carApp/supabase/functions/stripe-webhook/index.ts     # the submit_quote action
-    M carApp/src/lib/stripe/index.ts                        # submitQuote() wrapper
-    M carApp/src/lib/stripe/__tests__/index.test.ts
-    M .claude/rules/edge-functions.md
-    M ARCHITECTURE.md
-    M Blueprint/quote_first_booking.md
-    M Blueprint/quote_first_booking_handoff.md
+   carApp/supabase/functions/_shared/quote.ts                # the quote grammar
+   carApp/supabase/functions/_shared/__tests__/quote.test.ts  # 54 tests
+   carApp/supabase/functions/stripe-webhook/index.ts          # the submit_quote action
+   carApp/src/lib/stripe/index.ts                             # submitQuote() wrapper
+   carApp/src/lib/stripe/__tests__/index.test.ts
+   .claude/rules/edge-functions.md
+   ARCHITECTURE.md
+   Blueprint/quote_first_booking.md
+   Blueprint/quote_first_booking_handoff.md
    ```
 
-   If `git status` is clean *and* `_shared/quote.ts` is missing, the work was
-   lost rather than finished — spec §9 documents every decision in it, so it is
-   rebuildable, but check before assuming it landed.
+   **Committed is not deployed.** The live function still has no `submit_quote`
+   action — re-verified this session against project `apbubklogxgqkokbctwz`:
+   `stripe-webhook` is at version 20, its action switch ends at `connect_status`,
+   and it does not import `../_shared/quote.ts`. `verify_jwt` is still `true`.
+   `git show --stat d0768db` if a fresh clone looks wrong.
 
 1. **Deploy `stripe-webhook`** (§4.5). It is the only thing that compiles the
    `submit_quote` action, and everything else in Phase 3 builds on top of it.
