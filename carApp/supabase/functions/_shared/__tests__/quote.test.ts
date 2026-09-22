@@ -4,12 +4,15 @@
 // this module has no remote imports, so these exercise the shipping code.
 
 import {
+  DEFAULT_PLATFORM_FEE_RATE,
+  DEPOSIT_FRACTION,
   MAX_LINE_ITEM_LABEL_LENGTH,
   MAX_QUOTE_DURATION_MINS,
   MAX_QUOTE_LINE_ITEMS,
   MAX_QUOTED_TOTAL_CENTS,
   MIN_QUOTE_DURATION_MINS,
   QUOTABLE_STATUSES,
+  computeAcceptedAmounts,
   computeQuotedTotalCents,
   normalizeQuoteLineItems,
   prepareQuote,
@@ -373,5 +376,142 @@ describe('prepareQuote', () => {
 
   it('rejects an empty request outright', () => {
     expect(prepareQuote({}, context).ok).toBe(false);
+  });
+});
+
+// ── computeAcceptedAmounts (accept_quote) ─────────────────────────────
+//
+// The arithmetic the customer's approval commits to. Every failure here is a
+// wrong number that still looks like a number, which is why these assert exact
+// cents rather than shapes.
+
+describe('computeAcceptedAmounts', () => {
+  // A $200 job: subtotal 20000, 2% fee 400, quoted total 20400.
+  const BASE = {
+    quotedTotalCents: 20400,
+    serviceFeeCents: 400,
+    platformFeeRate: DEFAULT_PLATFORM_FEE_RATE,
+    chargedDepositCents: null,
+  };
+
+  const unwrap = (result: ReturnType<typeof computeAcceptedAmounts>) => {
+    if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+    return result.value;
+  };
+
+  it('derives the first deposit as 15% of the quoted total, floored', () => {
+    const value = unwrap(computeAcceptedAmounts(BASE));
+    expect(value.totalCents).toBe(20400);
+    expect(value.depositCents).toBe(Math.floor(20400 * DEPOSIT_FRACTION));
+    expect(value.depositCents).toBe(3060);
+  });
+
+  it('pays the provider the subtotal less the platform rate', () => {
+    const value = unwrap(computeAcceptedAmounts(BASE));
+    // subtotal 20000, 3% platform = 600, payout 19400
+    expect(value.platformFeeCents).toBe(600);
+    expect(value.providerPayoutCents).toBe(19400);
+    expect(value.platformFeeCents + value.providerPayoutCents).toBe(20000);
+  });
+
+  // The surcharge is provider work. Leaving the payout at its insert-time value
+  // would pay the pre-quote figure while charging the quoted total, and the
+  // platform would silently keep the difference.
+  it('grows the provider payout when surcharges raise the total', () => {
+    const withSurcharge = unwrap(
+      computeAcceptedAmounts({ ...BASE, quotedTotalCents: 20400 + 3000 }),
+    );
+    const without = unwrap(computeAcceptedAmounts(BASE));
+    expect(withSurcharge.providerPayoutCents).toBeGreaterThan(
+      without.providerPayoutCents,
+    );
+    // subtotal 23000, 3% = 690, payout 22310
+    expect(withSurcharge.platformFeeCents).toBe(690);
+    expect(withSurcharge.providerPayoutCents).toBe(22310);
+  });
+
+  // The service fee is NOT recomputed from the new total: computeQuotedTotalCents
+  // deliberately leaves the 2% off the surcharges so the itemisation sums to its
+  // own total, and re-deriving it here would put that discrepancy back.
+  it('subtracts the stored service fee rather than re-deriving it', () => {
+    const value = unwrap(
+      computeAcceptedAmounts({ ...BASE, quotedTotalCents: 23400 }),
+    );
+    // subtotal is 23400 - 400 (the stored fee), not 23400 - 2% of 23400
+    expect(value.platformFeeCents + value.providerPayoutCents).toBe(23000);
+  });
+
+  // The re-quote trap. captureBalance computes total - deposit, so a recomputed
+  // deposit collects 0.15A + 0.85B on a re-quote from A to B.
+  it('keeps an already-charged deposit instead of recomputing it', () => {
+    const value = unwrap(
+      computeAcceptedAmounts({
+        ...BASE,
+        quotedTotalCents: 30000, // re-quoted upward
+        chargedDepositCents: 3060, // but 15% of the ORIGINAL 20400 was taken
+      }),
+    );
+    expect(value.depositCents).toBe(3060);
+    expect(value.depositCents).not.toBe(Math.floor(30000 * DEPOSIT_FRACTION));
+  });
+
+  it('leaves the balance exactly equal to the total less what was charged', () => {
+    const value = unwrap(
+      computeAcceptedAmounts({
+        ...BASE,
+        quotedTotalCents: 30000,
+        chargedDepositCents: 3060,
+      }),
+    );
+    // What captureBalance will charge, and what the customer already paid,
+    // must sum to the total they approved.
+    const balance = value.totalCents - value.depositCents;
+    expect(balance + 3060).toBe(30000);
+  });
+
+  it('refuses a re-quote that lands below the deposit already charged', () => {
+    const result = computeAcceptedAmounts({
+      ...BASE,
+      quotedTotalCents: 2000,
+      chargedDepositCents: 3060,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/below the deposit/i);
+  });
+
+  it('honours a zero platform rate for Founding Providers', () => {
+    const value = unwrap(computeAcceptedAmounts({ ...BASE, platformFeeRate: 0 }));
+    expect(value.platformFeeCents).toBe(0);
+    expect(value.providerPayoutCents).toBe(20000);
+  });
+
+  it('never returns a negative payout when the fee exceeds the total', () => {
+    const value = unwrap(
+      computeAcceptedAmounts({ ...BASE, quotedTotalCents: 100, serviceFeeCents: 400 }),
+    );
+    expect(value.providerPayoutCents).toBe(0);
+    expect(value.platformFeeCents).toBe(0);
+  });
+
+  it('rejects a booking with nothing quoted', () => {
+    for (const quotedTotalCents of [0, -1, Number.NaN]) {
+      const result = computeAcceptedAmounts({ ...BASE, quotedTotalCents });
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  it('rejects a total larger than the column can record', () => {
+    const result = computeAcceptedAmounts({
+      ...BASE,
+      quotedTotalCents: MAX_QUOTED_TOTAL_CENTS + 1,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects an unusable platform fee rate', () => {
+    for (const platformFeeRate of [-0.1, 1.5, Number.NaN]) {
+      const result = computeAcceptedAmounts({ ...BASE, platformFeeRate });
+      expect(result.ok).toBe(false);
+    }
   });
 });

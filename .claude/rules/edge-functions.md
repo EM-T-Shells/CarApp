@@ -42,6 +42,18 @@ Canonical responsibilities:
     `total_amount` and `deposit_amount` are never written here — a quote is a
     proposal, and `capture_balance` computes `total_amount - deposit_amount`,
     so both belong to `accept_quote` together
+  - `accept_quote`: the customer approves the quoted price — writes
+    `total_amount`, `deposit_amount`, `platform_fee` and `provider_payout`
+    together and returns the booking to `pending`, meaning it exists and
+    nothing has been charged. Resolves the caller and refuses anyone who is not
+    the booking's customer. Charges nothing itself: it returns
+    `next: 'requires_deposit'` and the client runs the existing
+    `create_deposit_intent` + PaymentSheet flow. An already-succeeded deposit is
+    kept as recorded rather than recomputed at 15% — `capture_balance` computes
+    `total_amount - deposit_amount`, so recomputing on a re-quote collects
+    `0.15A + 0.85B` instead of `B`. Surcharges are provider revenue, so the
+    payout is re-derived from the quoted total less the stored `service_fee`.
+    Arithmetic lives in `_shared/quote.ts` (`computeAcceptedAmounts`)
   - `expire_pending_approvals`: pg_cron sweep that auto-cancels and refunds
     approvals still pending past their two-hour deadline
   - `connect_onboarding`: creates or reuses the provider Express account and
@@ -62,6 +74,9 @@ One notification function per event:
 - `notify-booking-requested`: deposit paid, booking enters
   `pending_provider_approval`; pushes the provider the two-hour approval
   request and confirms "request sent" to the customer
+- `notify-quote-ready`: the provider priced a request and it moved to
+  `pending_customer_approval`; pushes the customer the quoted total. Customer
+  only — the provider just sent it
 - `notify-booking-confirmed`: booking becomes `confirmed`; pushes customer and
   provider
 - `notify-booking-declined`: booking declined or expired; pushes the customer

@@ -43,7 +43,12 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import Stripe from 'https://esm.sh/stripe@13.6.0?target=deno&no-check=true';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { prepareQuote, QUOTABLE_STATUSES } from '../_shared/quote.ts';
+import {
+  computeAcceptedAmounts,
+  DEFAULT_PLATFORM_FEE_RATE,
+  prepareQuote,
+  QUOTABLE_STATUSES,
+} from '../_shared/quote.ts';
 
 // ── Clients ───────────────────────────────────────────────────────────
 
@@ -184,6 +189,10 @@ async function handleAppAction(req: Request): Promise<Response> {
       // Passed the request, not just the body: submit_quote is the first action
       // here that has to know *who* is calling. See submitQuote.
       return await submitQuote(req, body);
+    case 'accept_quote':
+      // Same reason as submit_quote, with the opposite party: only the customer
+      // named on the booking may approve its price. See acceptQuote.
+      return await acceptQuote(req, body);
     case 'expire_pending_approvals':
       return await expirePendingApprovals();
     case 'connect_onboarding':
@@ -930,6 +939,160 @@ async function submitQuote(
       estimated_duration_mins: durationMins,
       quoted_total_cents: quotedTotalCents,
       quote_line_items: lineItems,
+    },
+    200,
+  );
+}
+
+// ── Customer approves the quote (Phase 3 / spec §3, §5) ───────────────
+//
+// The counterpart to submit_quote, and the point where a proposal becomes the
+// money owed. It writes the four columns submit_quote deliberately left alone —
+// total_amount, deposit_amount, platform_fee, provider_payout — and moves the
+// booking to 'pending'.
+//
+// Why 'pending' and not straight to 'confirmed': the deposit has not been
+// collected yet. 'pending' means exactly "the booking exists, nothing has been
+// charged", which is the state createDepositIntent requires, so the customer's
+// client opens PaymentSheet immediately afterwards through the existing path.
+//
+// The deposit is charged here rather than by the client in the resequenced
+// design (§5: SetupIntent at request, off-session charge at approval, one tap).
+// That change is deliberately NOT in this action yet — it is the highest-risk
+// item in the plan and lands on a payment path that has never been observed
+// end to end, so it is staged separately. When it does land, the charge slots
+// in after the guarded update below and this action stops returning
+// 'requires_deposit'.
+//
+// ⚠️ Pairs with a change in stripe-events: on deposit success a booking whose
+// quoted_total_amount is non-null must be promoted to 'confirmed', not to
+// 'pending_provider_approval' — the provider already committed by quoting, and
+// asking them to approve again would strand the job. That column is NULL for
+// every pre-quote booking, so the legacy promotion is untouched by construction.
+async function acceptQuote(
+  req: Request,
+  body: { booking_id?: string },
+): Promise<Response> {
+  const { booking_id } = body;
+
+  if (!booking_id) {
+    return jsonResponse({ error: 'booking_id is required' }, 400);
+  }
+
+  const caller = await requireCaller(req);
+  if (!caller.ok) return caller.response;
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(
+      'id, customer_id, provider_id, status, service_fee, quoted_total_amount',
+    )
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  // Only the customer on the booking may approve its price. bookings.customer_id
+  // is a users.id, which is the auth uid, so this compares directly — unlike
+  // submit_quote, which has to hop through provider_profiles.user_id.
+  if (booking.customer_id !== caller.userId) {
+    return jsonResponse({ error: 'Not authorized to approve this quote' }, 403);
+  }
+
+  if (booking.status !== 'pending_customer_approval') {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} has no quote to approve` },
+      409,
+    );
+  }
+
+  // What the provider actually charges against. A booking sitting in
+  // pending_customer_approval without one would be a submit_quote bug, but
+  // approving it would confirm a job for nothing, so it is refused here too.
+  const quotedTotalCents = Math.round(Number(booking.quoted_total_amount ?? 0) * 100);
+
+  // Anything already collected is authoritative over a recomputed percentage.
+  // See computeAcceptedAmounts: recomputing on a re-quote silently collects
+  // 0.15A + 0.85B instead of B.
+  const { data: paidDeposit, error: depositErr } = await supabase
+    .from('payments')
+    .select('id, amount')
+    .eq('booking_id', booking_id)
+    .eq('payment_type', 'deposit')
+    .eq('status', 'succeeded')
+    .maybeSingle();
+
+  if (depositErr) return jsonResponse({ error: depositErr.message }, 500);
+
+  const { data: profile, error: profileErr } = await supabase
+    .from('provider_profiles')
+    .select('platform_fee_rate')
+    .eq('id', booking.provider_id)
+    .maybeSingle();
+
+  if (profileErr) return jsonResponse({ error: profileErr.message }, 500);
+  if (!profile) return jsonResponse({ error: 'Provider not found for booking' }, 409);
+
+  const amounts = computeAcceptedAmounts({
+    quotedTotalCents,
+    serviceFeeCents: Math.round(Number(booking.service_fee ?? 0) * 100),
+    // COALESCE, matching derive_booking_amounts: a null rate is the default,
+    // not a free job. The Founding Provider trigger writes a real 0 for the
+    // first 100 approved providers and that must survive as zero.
+    platformFeeRate: Number(profile.platform_fee_rate ?? DEFAULT_PLATFORM_FEE_RATE),
+    chargedDepositCents: paidDeposit
+      ? Math.round(Number(paidDeposit.amount) * 100)
+      : null,
+  });
+
+  if (!amounts.ok) {
+    return jsonResponse({ error: amounts.error }, 409);
+  }
+
+  const { totalCents, depositCents, platformFeeCents, providerPayoutCents } =
+    amounts.value;
+
+  // Guarded on the approval state, same shape as acceptBooking: if the provider
+  // re-quoted or either party cancelled between the read above and here, this
+  // matches nothing and the customer is told to refetch rather than approving a
+  // price that has since moved.
+  const { data: approved, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'pending',
+      total_amount: totalCents / 100, // DB stores dollars
+      deposit_amount: depositCents / 100,
+      platform_fee: platformFeeCents / 100,
+      provider_payout: providerPayoutCents / 100,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_customer_approval')
+    .select('id');
+
+  if (updateErr) {
+    return jsonResponse({ error: updateErr.message }, 500);
+  }
+
+  if (!approved || approved.length === 0) {
+    return jsonResponse(
+      { error: 'This quote is no longer awaiting your approval' },
+      409,
+    );
+  }
+
+  return jsonResponse(
+    {
+      ok: true,
+      status: 'pending',
+      // The client's next step, named rather than inferred: it must open
+      // PaymentSheet through createDepositIntent. Per the payment rules the
+      // client never asserts that a payment succeeded, so this says what is
+      // owed, not that anything has been collected.
+      next: 'requires_deposit',
+      total_cents: totalCents,
+      deposit_cents: depositCents,
     },
     200,
   );

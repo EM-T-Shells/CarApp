@@ -259,6 +259,110 @@ export function validateQuoteStart(
   return { ok: true, value: new Date(startMs).toISOString() };
 }
 
+// The deposit fraction, mirroring FLOOR(total_cents * 0.15) in
+// derive_booking_amounts(). That trigger is BEFORE INSERT only, so on the
+// accept_quote UPDATE nothing recomputes these columns and the arithmetic has
+// to be restated here rather than delegated.
+export const DEPOSIT_FRACTION = 0.15;
+
+// Fallback provider platform fee when the profile carries none, matching
+// COALESCE(pp.platform_fee_rate, 0.03) in derive_booking_amounts().
+export const DEFAULT_PLATFORM_FEE_RATE = 0.03;
+
+export interface AcceptedAmounts {
+  totalCents: number;
+  depositCents: number;
+  platformFeeCents: number;
+  providerPayoutCents: number;
+}
+
+/**
+ * The money a quote becomes when the customer approves it.
+ *
+ * Two traps live in here, both of which silently produce a *plausible* wrong
+ * number rather than an error:
+ *
+ * 1. **The deposit must record what was charged, not a fresh percentage.**
+ *    captureBalance computes `total_amount − deposit_amount`, so on a re-quote
+ *    (approve A, provider re-quotes to B, approve again) recomputing the
+ *    deposit as 15% of B while only 15% of A was ever taken collects
+ *    `0.15A + 0.85B`, which equals B only when A = B. `chargedDepositCents`
+ *    is therefore authoritative whenever a deposit has already succeeded, and
+ *    the 15% is used only for the first approval, where nothing is charged yet.
+ *
+ * 2. **The provider must be paid for the surcharges.** total_amount becomes
+ *    the quoted total, so leaving platform_fee and provider_payout at their
+ *    insert-time values would pay the provider the pre-quote payout while the
+ *    customer pays the quoted total — the platform pocketing the difference.
+ *    The surcharge is provider work, and docs/business-rules.md states the
+ *    provider platform fee flatly with no carve-out, so it is treated as
+ *    ordinary provider revenue subject to the same rate.
+ *
+ * The customer's 2% service fee is deliberately NOT recomputed: it is already
+ * inside the quoted total via baseTotalCents, and computeQuotedTotalCents
+ * declines to apply it to surcharges so the itemisation sums to its own total.
+ * Re-deriving it here would reintroduce exactly that discrepancy, so the stored
+ * service_fee is subtracted as-is to recover the subtotal the payout keys off.
+ */
+export function computeAcceptedAmounts(input: {
+  quotedTotalCents: number;
+  serviceFeeCents: number;
+  platformFeeRate: number;
+  chargedDepositCents: number | null;
+}): QuoteValidation<AcceptedAmounts> {
+  const { quotedTotalCents, serviceFeeCents, platformFeeRate, chargedDepositCents } = input;
+
+  if (!Number.isFinite(quotedTotalCents) || quotedTotalCents <= 0) {
+    return { ok: false, error: 'This booking has no quoted total to approve' };
+  }
+  if (quotedTotalCents > MAX_QUOTED_TOTAL_CENTS) {
+    return { ok: false, error: 'Quoted total is larger than a booking can record' };
+  }
+  if (!Number.isFinite(serviceFeeCents) || serviceFeeCents < 0) {
+    return { ok: false, error: 'Booking has no recorded service fee' };
+  }
+  if (!Number.isFinite(platformFeeRate) || platformFeeRate < 0 || platformFeeRate > 1) {
+    return { ok: false, error: 'Provider has an unusable platform fee rate' };
+  }
+
+  const totalCents = Math.round(quotedTotalCents);
+
+  // Clamped at zero: a service fee larger than the quoted total means the
+  // provider discounted the job below its own fee, and a negative subtotal
+  // would flip the payout's sign.
+  const subtotalCents = Math.max(totalCents - Math.round(serviceFeeCents), 0);
+  const platformFeeCents = Math.floor(subtotalCents * platformFeeRate);
+  const providerPayoutCents = subtotalCents - platformFeeCents;
+
+  let depositCents: number;
+  if (chargedDepositCents === null) {
+    depositCents = Math.floor(totalCents * DEPOSIT_FRACTION);
+  } else {
+    if (!Number.isFinite(chargedDepositCents) || chargedDepositCents < 0) {
+      return { ok: false, error: 'Recorded deposit is not a usable amount' };
+    }
+    depositCents = Math.round(chargedDepositCents);
+  }
+
+  // A deposit above the total would make captureBalance's max(total − deposit,
+  // 0) silently complete the job for free. Reachable only by re-quoting below
+  // an already-charged deposit, which is legitimate — the customer is owed a
+  // refund — but that is a refund decision, not a balance one, so refuse here
+  // rather than let the balance path absorb it.
+  if (depositCents > totalCents) {
+    return {
+      ok: false,
+      error:
+        'The approved total is below the deposit already charged. Refund the difference before re-quoting this low.',
+    };
+  }
+
+  return {
+    ok: true,
+    value: { totalCents, depositCents, platformFeeCents, providerPayoutCents },
+  };
+}
+
 export interface QuoteRequest {
   estimated_duration_mins?: unknown;
   scheduled_at?: unknown;

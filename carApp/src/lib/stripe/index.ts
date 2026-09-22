@@ -562,3 +562,74 @@ export async function submitQuote(
     };
   }
 }
+
+// ── Customer approves the quote (Phase 3 / spec §3, §5) ───────────────
+//
+// The counterpart to submitQuote. Approving turns the provider's proposal into
+// the amount owed: the server writes total_amount, deposit_amount, platform_fee
+// and provider_payout, and the booking returns to 'pending' — meaning it exists
+// and nothing has been charged.
+//
+// Approval alone collects no money. The response says what is owed via
+// `next: 'requires_deposit'`, and the caller must then run the existing deposit
+// flow (createDepositPaymentIntent → presentDepositPaymentSheet). Per the
+// payment rules the client never asserts that a payment succeeded; only the
+// signed Stripe event handler moves a paid booking onward.
+
+export interface AcceptQuoteResponse {
+  ok: boolean;
+  status?: string;
+  /** 'requires_deposit' — open PaymentSheet next. Named, never inferred. */
+  next?: string;
+  /** The approved total, in cents. Server-derived. */
+  total_cents?: number;
+  /** What the deposit will be, in cents. Not a receipt — nothing is charged yet. */
+  deposit_cents?: number;
+}
+
+/**
+ * Customer approves the quote on a booking in pending_customer_approval.
+ *
+ * The amounts come back from the server rather than being computed here for the
+ * same reason submitQuote's do: total_amount and deposit_amount are outside the
+ * client's write surface on bookings (§4), and the deposit in particular is not
+ * simply 15% of the total on a re-quote — an already-charged deposit is kept as
+ * it stands so the balance still sums to what the customer agreed to.
+ */
+export async function acceptQuote(
+  bookingId: string,
+): Promise<StripeResult<AcceptQuoteResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: {
+        action: 'accept_quote',
+        booking_id: bookingId,
+      },
+    });
+
+    if (error) {
+      // The 409s here are ones the customer must be able to tell apart: the
+      // provider re-quoted while the screen was open, the request was cancelled,
+      // or the re-quote landed below a deposit already taken. invoke() would
+      // flatten all of them to "non-2xx status code".
+      return {
+        data: null,
+        error: await readFunctionError(error, 'Could not approve this quote'),
+      };
+    }
+
+    const response = data as AcceptQuoteResponse;
+    if (!response?.ok) {
+      return {
+        data: null,
+        error: new Error('This quote is no longer awaiting your approval'),
+      };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
