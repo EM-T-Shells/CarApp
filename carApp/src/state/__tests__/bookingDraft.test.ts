@@ -55,7 +55,7 @@ describe('useBookingDraftStore', () => {
     expect(state.selectedServices).toEqual([]);
     expect(state.vehicleId).toBeNull();
     expect(state.serviceAddress).toBe('');
-    expect(state.scheduledAt).toBeNull();
+    expect(state.arrivalWindow).toBeNull();
     expect(state.notes).toBe('');
   });
 
@@ -112,10 +112,15 @@ describe('useBookingDraftStore', () => {
     expect(state.locationLng).toBe(-77.0365);
   });
 
-  it('setScheduledAt updates the scheduled time', () => {
-    const iso = '2026-05-01T14:00:00Z';
-    useBookingDraftStore.getState().setScheduledAt(iso);
-    expect(useBookingDraftStore.getState().scheduledAt).toBe(iso);
+  it('setArrivalWindow stores both ends of the window', () => {
+    // Both ends move together: bookings_requested_window_check rejects one
+    // without the other, so the store never holds a half-set window.
+    const window = {
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    };
+    useBookingDraftStore.getState().setArrivalWindow(window);
+    expect(useBookingDraftStore.getState().arrivalWindow).toEqual(window);
   });
 
   it('setNotes updates notes', () => {
@@ -128,7 +133,10 @@ describe('useBookingDraftStore', () => {
     useBookingDraftStore.getState().toggleService(pkg1);
     useBookingDraftStore.getState().setVehicleId('veh-1');
     useBookingDraftStore.getState().setServiceAddress('123 Main');
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     useBookingDraftStore.getState().setNotes('Test');
 
     useBookingDraftStore.getState().reset();
@@ -137,7 +145,7 @@ describe('useBookingDraftStore', () => {
     expect(state.selectedServices).toEqual([]);
     expect(state.vehicleId).toBeNull();
     expect(state.serviceAddress).toBe('');
-    expect(state.scheduledAt).toBeNull();
+    expect(state.arrivalWindow).toBeNull();
     expect(state.notes).toBe('');
   });
 });
@@ -199,7 +207,10 @@ describe('selectors', () => {
     useBookingDraftStore.getState().setServiceAddress('123 Main St');
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(false);
 
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(true);
   });
 
@@ -208,7 +219,10 @@ describe('selectors', () => {
     useBookingDraftStore.getState().toggleService(pkg1);
     useBookingDraftStore.getState().setVehicleId('veh-1');
     useBookingDraftStore.getState().setServiceAddress('   ');
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(false);
   });
 });

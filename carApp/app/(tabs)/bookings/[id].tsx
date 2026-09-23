@@ -497,6 +497,49 @@ export default function BookingDetailScreen(): React.ReactElement {
 
           <Spacer size="lg" />
 
+          {/* The quote is waiting on the customer — this is the only place the
+              approval screen is reachable from, and nothing moves until they
+              act, so it sits above the status timeline rather than below it. */}
+          {status === 'pending_customer_approval' && (
+            <>
+              <Card>
+                <Text variant="label" color="charcoal">
+                  Your price is ready
+                </Text>
+                <Spacer size="sm" />
+                <Text variant="body" color="midGray">
+                  {booking.provider_profiles?.users?.full_name ?? 'Your provider'}{' '}
+                  has quoted this job. Nothing is charged until you approve it.
+                </Text>
+                <Spacer size="md" />
+                <Button
+                  label="Review Quote"
+                  variant="primary"
+                  onPress={() => router.push(`/bookings/quote/${booking.id}`)}
+                />
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {/* An unpriced request: nothing to approve yet, and no charge has
+              been made, so say so rather than showing an empty price. */}
+          {status === 'pending_provider_quote' && (
+            <>
+              <Card>
+                <Text variant="label" color="charcoal">
+                  Waiting for your price
+                </Text>
+                <Spacer size="sm" />
+                <Text variant="body" color="midGray">
+                  {booking.provider_profiles?.users?.full_name ?? 'Your provider'}{' '}
+                  is reviewing your request. You have not been charged.
+                </Text>
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
           {/* Status timeline */}
           <Card variant="outlined">
             <Text variant="label" color="charcoal">

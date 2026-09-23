@@ -25,6 +25,7 @@ export default function ProviderJobsLayout(): React.ReactElement {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="past" options={{ title: 'Past Jobs' }} />
       <Stack.Screen name="[bookingId]" options={{ title: 'Job' }} />
+      <Stack.Screen name="quote/[bookingId]" options={{ title: 'Send a Quote' }} />
     </Stack>
   );
 }

@@ -375,6 +375,23 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# The two Stripe functions need opposite auth models, and both are stated here
+# rather than left to the CLI default so a redeploy cannot silently flip either.
+# Previously neither was declared and stripe-events relied on --no-verify-jwt
+# being remembered at the command line; forgetting it re-gates the endpoint and
+# 401s every live Stripe delivery before the handler runs.
+
+# App-invoked only. Performs service-role writes with no in-code caller auth of
+# its own, so it must never be public.
+[functions.stripe-webhook]
+verify_jwt = true
+
+# Stripe webhook receiver. Stripe cannot attach a Supabase JWT, so JWT
+# verification must stay off; the handler authenticates by verifying
+# Stripe-Signature against STRIPE_WEBHOOK_SECRET and refuses unsigned requests.
+[functions.stripe-events]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

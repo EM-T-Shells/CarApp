@@ -25,6 +25,7 @@ export default function BookingsLayout(): React.ReactElement {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="past" options={{ title: 'Past Bookings' }} />
       <Stack.Screen name="[id]" options={{ title: '' }} />
+      <Stack.Screen name="quote/[bookingId]" options={{ title: 'Your Quote' }} />
       <Stack.Screen
         name="tracking/[bookingId]"
         options={{ title: 'Live Tracking', headerShown: false }}

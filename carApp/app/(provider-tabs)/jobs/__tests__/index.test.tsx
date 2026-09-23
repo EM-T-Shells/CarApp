@@ -8,12 +8,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockGetUpcomingProvider = jest.fn();
+const mockGetQuoteRequests = jest.fn();
 const mockGetProviderByUserId = jest.fn();
 const mockGetProviderDaySchedule = jest.fn();
 
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getUpcomingBookingsForProvider: (...args: unknown[]) =>
     mockGetUpcomingProvider(...args),
+  // The quote queue loads alongside the jobs list.
+  getQuoteRequestsForProvider: (...args: unknown[]) =>
+    mockGetQuoteRequests(...args),
   getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
   // The day view mounts inside this screen once the provider id resolves.
   getProviderDaySchedule: (...args: unknown[]) =>
@@ -119,6 +123,7 @@ beforeEach(() => {
     error: null,
   });
   mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
+  mockGetQuoteRequests.mockResolvedValue({ data: [], error: null });
   mockGetProviderDaySchedule.mockResolvedValue({
     data: {
       range: {
@@ -218,5 +223,76 @@ describe('ProviderJobsScreen', () => {
     });
     render(<ProviderJobsScreen />);
     expect(await screen.findByText('Something went wrong')).toBeTruthy();
+  });
+});
+
+// ── Quote queue ──────────────────────────────────────────────────────────────
+// Unpriced requests are the only thing on this screen with nobody else acting
+// on them, so they get their own section above the day view.
+
+const UNPRICED_REQUEST = {
+  id: 'req-1',
+  status: 'pending_provider_quote',
+  scheduled_at: '2026-10-14T12:00:00.000Z',
+  vehicles: { id: 'veh-1', year: '2021', make: 'Honda', model: 'Civic' },
+};
+
+const AWAITING_CUSTOMER = {
+  ...UNPRICED_REQUEST,
+  id: 'req-2',
+  status: 'pending_customer_approval',
+};
+
+describe('ProviderJobsScreen — quote queue', () => {
+  it('shows requests waiting for a price', async () => {
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [UNPRICED_REQUEST],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('Requests (1)')).toBeTruthy();
+    expect(screen.getByText('Needs a quote')).toBeTruthy();
+  });
+
+  it('routes an unpriced request to the quote screen', async () => {
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [UNPRICED_REQUEST],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByTestId('quote-request-req-1'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/quote/req-1');
+  });
+
+  it('does not offer to re-quote one already waiting on the customer', async () => {
+    // submit_quote refuses a booking in pending_customer_approval, so sending
+    // the provider to the builder would only produce a 409.
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [AWAITING_CUSTOMER],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByTestId('quote-request-req-2'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/req-2');
+    expect(screen.getByText('Waiting on the customer to approve')).toBeTruthy();
+  });
+
+  it('hides the section when there are no requests', async () => {
+    mockGetQuoteRequests.mockResolvedValue({ data: [], error: null });
+    render(<ProviderJobsScreen />);
+    await screen.findByText('Jobs');
+    expect(screen.queryByText(/^Requests \(/)).toBeNull();
+  });
+
+  it('keeps the jobs list when the request fetch fails', async () => {
+    // The scheduled work is the more important half of this screen; a failed
+    // queue fetch must not blank it.
+    mockGetQuoteRequests.mockResolvedValue({
+      data: null,
+      error: new Error('network'),
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+    expect(screen.queryByText('Something went wrong')).toBeNull();
   });
 });

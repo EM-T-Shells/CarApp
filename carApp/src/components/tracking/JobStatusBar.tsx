@@ -27,6 +27,12 @@ interface StatusConfig {
 const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
   pending: { label: 'Pending', colorKey: 'midGray', Icon: MapPin },
   pending_provider_approval: { label: 'Awaiting Provider', colorKey: 'midGray', Icon: MapPin },
+  // The quote states. Labels say who is holding the job, because that is the
+  // only thing the customer can act on: "Awaiting Quote" is on the provider,
+  // "Quote Ready" is on them.
+  pending_provider_quote: { label: 'Awaiting Quote', colorKey: 'midGray', Icon: MapPin },
+  pending_customer_approval: { label: 'Quote Ready', colorKey: 'gearGold', Icon: MapPin },
+  awaiting_customer_info: { label: 'Info Needed', colorKey: 'gearGold', Icon: MapPin },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue', Icon: Check },
   en_route: { label: 'En Route', colorKey: 'gearGold', Icon: Navigation },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen', Icon: Wrench },

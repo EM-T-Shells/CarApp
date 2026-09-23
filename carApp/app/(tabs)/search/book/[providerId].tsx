@@ -1,11 +1,18 @@
-// Booking flow — multi-step screen where a customer books a provider.
-// Steps: 1. Select services → 2. Vehicle + Address + Schedule → 3. Review & Pay
+// Booking flow — multi-step screen where a customer requests a provider.
+// Steps: 1. Select services → 2. Vehicle + Address + Arrival window → 3. Review
+//
+// Quote-first (spec §3): this screen COLLECTS NO PAYMENT. It creates a
+// 'pending_provider_quote' row via mutations.ts and stops. The provider prices
+// it through the submit_quote Edge Function, and the customer pays only after
+// approving that quote, on the approval screen. Nothing here touches Stripe,
+// so there is no PaymentSheet to dismiss and no unpaid row to unwind.
+//
+// The prices shown on Review are the provider's ADVERTISED rates, an estimate.
+// quoted_total_amount is what the customer actually approves, and it stays
+// NULL until the provider quotes — which is also how stripe-events tells the
+// quote-first and legacy deposit-first flows apart.
 //
 // Uses the bookingDraft Zustand store to accumulate state across steps.
-// On confirmation, creates a booking row via mutations.ts, asks the Stripe
-// Edge Function for a 15% deposit PaymentIntent, then opens Stripe's
-// PaymentSheet to collect the card. If the payment fails or the customer
-// backs out, the booking row is cancelled so no unpaid booking survives.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -32,9 +39,8 @@ import { Card } from '../../../../src/components/ui/Card';
 import { Spacer } from '../../../../src/components/ui/Spacer';
 import { TextField } from '../../../../src/components/ui/TextField';
 import { AddressPicker } from '../../../../src/components/booking/AddressPicker';
-import { DateTimePicker } from '../../../../src/components/booking/DateTimePicker';
+import { ArrivalWindowPicker } from '../../../../src/components/booking/ArrivalWindowPicker';
 import { PriceBreakdown } from '../../../../src/components/booking/PriceBreakdown';
-import { DepositSummary } from '../../../../src/components/booking/DepositSummary';
 import { colors, spacing, borderRadius, type Palette } from '../../../../src/design/tokens';
 import VehicleConditionForm from '../../../../src/components/booking/VehicleConditionForm';
 import {
@@ -48,27 +54,24 @@ import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
 import {
   insertBooking,
   isSlotUnavailableError,
-  updateBooking,
 } from '../../../../src/lib/supabase/mutations';
-import {
-  createDepositPaymentIntent,
-  presentDepositPaymentSheet,
-} from '../../../../src/lib/stripe';
 import { useAuthStore } from '../../../../src/state/auth';
 import {
   useBookingDraftStore,
   selectServiceFeeCents,
   selectTotalCents,
-  selectDepositCents,
-  selectBalanceCents,
   selectEstimatedDuration,
   selectIsReadyToBook,
   selectHasServices,
 } from '../../../../src/state/bookingDraft';
 import type { ProviderDetail } from '../../../../src/lib/supabase/queries';
-import type { ServicePackage, Vehicle } from '../../../../src/types/models';
+import type {
+  ArrivalWindow,
+  ServicePackage,
+  Vehicle,
+} from '../../../../src/types/models';
 import type { BookProviderParams } from '../../../../src/types/navigation';
-import { formatDateTime } from '../../../../src/utils/date';
+import { formatDate, formatTime } from '../../../../src/utils/date';
 import { formatDuration } from '../../../../src/utils/duration';
 
 // ── Step Enum ────────────────────────────────────────────────────────
@@ -91,8 +94,6 @@ export default function BookProviderScreen(): React.ReactElement {
   const draft = useBookingDraftStore();
   const serviceFee = useBookingDraftStore(selectServiceFeeCents);
   const total = useBookingDraftStore(selectTotalCents);
-  const deposit = useBookingDraftStore(selectDepositCents);
-  const balance = useBookingDraftStore(selectBalanceCents);
   const duration = useBookingDraftStore(selectEstimatedDuration);
   const isReady = useBookingDraftStore(selectIsReadyToBook);
   const hasServices = useBookingDraftStore(selectHasServices);
@@ -209,11 +210,11 @@ export default function BookProviderScreen(): React.ReactElement {
       return (
         draft.vehicleId !== null &&
         draft.serviceAddress.trim().length > 0 &&
-        draft.scheduledAt !== null
+        draft.arrivalWindow !== null
       );
     }
     return isReady;
-  }, [currentStep, hasServices, draft.vehicleId, draft.serviceAddress, draft.scheduledAt, isReady]);
+  }, [currentStep, hasServices, draft.vehicleId, draft.serviceAddress, draft.arrivalWindow, isReady]);
 
   const goNext = useCallback(() => {
     if (stepIndex < STEPS.length - 1) {
@@ -236,26 +237,39 @@ export default function BookProviderScreen(): React.ReactElement {
 
     setIsSubmitting(true);
 
-    // 1. Create booking row.
+    // Create the unpriced request.
+    //
+    // Quote-first: this collects nothing. The row goes in as
+    // 'pending_provider_quote' and waits for the provider to price it via the
+    // submit_quote Edge Function; the customer pays only after approving that
+    // quote, through acceptQuote() + the existing deposit flow on the approval
+    // screen. Nothing here touches Stripe.
     //
     // The client states intent — which provider, which packages — and never a
-    // price. trg_derive_booking_amounts recomputes every money column from
-    // service_packages, rebuilds this snapshot from the same rows, and sets
-    // estimated_duration_mins; the client has no INSERT privilege on those
-    // columns at all. The totals on the review screen come from the same
-    // formula (src/utils/money.ts), so what the customer approved is what
-    // comes back on the row.
+    // price. trg_derive_booking_amounts still recomputes every money column
+    // from service_packages and sets estimated_duration_mins; the client has no
+    // INSERT privilege on those columns at all. Those derived amounts are the
+    // *advertised* price, which the quote may exceed — quoted_total_amount is
+    // what the customer ends up approving, and it stays NULL until the provider
+    // quotes. That NULL is also how stripe-events tells the two flows apart.
     const bookingResult = await insertBooking({
       customer_id: user.id,
       provider_id: provider.id,
       vehicle_id: draft.vehicleId,
       services: draft.selectedServices.map((svc) => ({ id: svc.id })),
-      status: 'pending',
+      status: 'pending_provider_quote',
       service_address: draft.serviceAddress,
       location_lat: draft.locationLat,
       location_lng: draft.locationLng,
       notes: draft.notes || null,
-      scheduled_at: draft.scheduledAt!,
+      // scheduled_at is NOT NULL, but the real start is not known until the
+      // provider places it inside the window. The window's start stands in
+      // until submit_quote overwrites it. This costs nothing: the overlap
+      // constraint only covers confirmed/en_route/in_progress, so an unpriced
+      // request holds no slot and two customers may request the same window.
+      scheduled_at: draft.arrivalWindow!.start,
+      requested_window_start: draft.arrivalWindow!.start,
+      requested_window_end: draft.arrivalWindow!.end,
       // Facts, not conclusions. trg_derive_booking_suggestion turns these into
       // suggested_duration_mins server-side; the client has no privilege on
       // that column, exactly as it has none on the money ones.
@@ -267,71 +281,34 @@ export default function BookProviderScreen(): React.ReactElement {
 
     if (bookingResult.error) {
       setIsSubmitting(false);
-      // 23P01 from bookings_no_provider_overlap: the provider committed that
-      // slot to someone else. Nothing is wrong with the request, so the ask is
-      // a different time rather than a retry — send them back to the step that
-      // holds the picker instead of leaving them on a review screen they cannot
-      // submit.
+      // The overlap constraint cannot fire here any more — it only covers
+      // confirmed/en_route/in_progress, and this row is
+      // 'pending_provider_quote'. The check stays because insertBooking is
+      // shared and the mapping is cheap; a slot conflict now surfaces later,
+      // when the provider places the start (submit_quote) or when the deposit
+      // lands (stripe-events falls back to the approval window on 23P01).
       if (isSlotUnavailableError(bookingResult.error)) {
         Alert.alert('Time No Longer Available', bookingResult.error.message, [
           {
-            text: 'Pick Another Time',
+            text: 'Pick Another Window',
             onPress: () => setStepIndex(STEPS.indexOf('Details')),
           },
         ]);
         return;
       }
-      Alert.alert('Booking Failed', bookingResult.error.message);
+      Alert.alert('Request Failed', bookingResult.error.message);
       return;
     }
 
     const booking = bookingResult.data;
 
-    // The booking row exists before the deposit is collected because the Edge
-    // Function needs a booking_id to attach the PaymentIntent to. If the
-    // payment then falls through, unwind it so an unpaid booking never shows
-    // up in the customer's Bookings tab. The webhook is what promotes a paid
-    // booking to pending_provider_approval.
-    const abandonBooking = async () => {
-      await updateBooking(booking.id, { status: 'cancelled' });
-    };
-
-    // 2. Create deposit payment intent. The amount is whatever the server
-    // priced on the row above — the Edge Function re-reads it and ignores any
-    // figure sent from here, so this is the honest source to pass.
-    const intentResult = await createDepositPaymentIntent(
-      booking.id,
-      Math.round(Number(booking.deposit_amount ?? 0) * 100),
-    );
-
-    if (intentResult.error) {
-      await abandonBooking();
-      setIsSubmitting(false);
-      Alert.alert('Payment Setup Failed', intentResult.error.message);
-      return;
-    }
-
-    // 3. Collect the card and confirm the deposit in Stripe's PaymentSheet
-    const payResult = await presentDepositPaymentSheet(intentResult.data);
-
-    if (payResult.error) {
-      await abandonBooking();
-      setIsSubmitting(false);
-      Alert.alert('Payment Failed', payResult.error.message);
-      return;
-    }
-
-    // Customer dismissed the sheet — drop the booking and stay on the screen
-    // so they can try again without a stray booking left behind.
-    if (payResult.data.canceled) {
-      await abandonBooking();
-      setIsSubmitting(false);
-      return;
-    }
-
     setIsSubmitting(false);
 
-    // Success — navigate to the booking detail screen
+    // No payment, nothing to unwind. The request simply exists and waits for a
+    // price — which is why there is no abandonBooking() here and no
+    // PaymentSheet to dismiss. Both parties can cancel an unpriced request
+    // (enforce_booking_status_transition allows it), so an ignored request is
+    // not a stranded one.
     draft.reset();
     router.replace(`/bookings/${booking.id}`);
   }, [user, provider, isReady, draft, router]);
@@ -440,8 +417,8 @@ export default function BookProviderScreen(): React.ReactElement {
               onChangeConditionAnswer={draft.setConditionAnswer}
               address={draft.serviceAddress}
               onChangeAddress={draft.setServiceAddress}
-              scheduledAt={draft.scheduledAt}
-              onChangeSchedule={draft.setScheduledAt}
+              arrivalWindow={draft.arrivalWindow}
+              onChangeArrivalWindow={draft.setArrivalWindow}
               notes={draft.notes}
               onChangeNotes={draft.setNotes}
               palette={palette}
@@ -455,10 +432,8 @@ export default function BookProviderScreen(): React.ReactElement {
               services={draft.selectedServices}
               serviceFeeCents={serviceFee}
               totalCents={total}
-              depositCents={deposit}
-              balanceCents={balance}
               durationMins={duration}
-              scheduledAt={draft.scheduledAt}
+              arrivalWindow={draft.arrivalWindow}
               address={draft.serviceAddress}
               vehicleName={
                 vehicles.find((v) => v.id === draft.vehicleId)
@@ -504,7 +479,10 @@ export default function BookProviderScreen(): React.ReactElement {
 
               {currentStep === 'Review' ? (
                 <Button
-                  label={`Pay ${centsToDisplay(deposit)} Deposit`}
+                  // Not "Pay" — this button charges nothing. It sends the
+                  // request for pricing; the deposit is collected on the
+                  // approval screen, after the customer sees the real total.
+                  label="Send Request"
                   variant="primary"
                   size="lg"
                   onPress={handleConfirm}
@@ -671,8 +649,8 @@ interface StepDetailsProps {
   ) => void;
   address: string;
   onChangeAddress: (address: string) => void;
-  scheduledAt: string | null;
-  onChangeSchedule: (iso: string) => void;
+  arrivalWindow: ArrivalWindow | null;
+  onChangeArrivalWindow: (window: ArrivalWindow) => void;
   notes: string;
   onChangeNotes: (notes: string) => void;
   palette: Palette;
@@ -690,8 +668,8 @@ function StepDetails({
   onChangeConditionAnswer,
   address,
   onChangeAddress,
-  scheduledAt,
-  onChangeSchedule,
+  arrivalWindow,
+  onChangeArrivalWindow,
   notes,
   onChangeNotes,
   palette,
@@ -797,10 +775,11 @@ function StepDetails({
 
       <Spacer size="xl" />
 
-      {/* Date/time */}
-      <DateTimePicker
-        value={scheduledAt}
-        onChange={onChangeSchedule}
+      {/* Day + arrival window. The provider picks the exact start when they
+          quote, so this is a preference rather than an appointment. */}
+      <ArrivalWindowPicker
+        value={arrivalWindow}
+        onChange={onChangeArrivalWindow}
       />
 
       <Spacer size="xl" />
@@ -824,10 +803,8 @@ interface StepReviewProps {
   services: { id: string; name: string; base_price: number; duration_mins: number | null; description: string | null; category: string }[];
   serviceFeeCents: number;
   totalCents: number;
-  depositCents: number;
-  balanceCents: number;
   durationMins: number;
-  scheduledAt: string | null;
+  arrivalWindow: ArrivalWindow | null;
   address: string;
   vehicleName: string;
 }
@@ -837,10 +814,8 @@ function StepReview({
   services,
   serviceFeeCents,
   totalCents,
-  depositCents,
-  balanceCents,
   durationMins,
-  scheduledAt,
+  arrivalWindow,
   address,
   vehicleName,
 }: StepReviewProps): React.ReactElement {
@@ -872,11 +847,12 @@ function StepReview({
             {address}
           </Text>
         </View>
-        {scheduledAt && (
+        {arrivalWindow && (
           <View style={styles.reviewLine}>
-            <Text variant="body" color="midGray">When</Text>
-            <Text variant="body" color="charcoal">
-              {formatDateTime(scheduledAt)}
+            <Text variant="body" color="midGray">Arrival window</Text>
+            <Text variant="body" color="charcoal" style={styles.reviewValue}>
+              {formatDate(arrivalWindow.start)},{' '}
+              {formatTime(arrivalWindow.start)}–{formatTime(arrivalWindow.end)}
             </Text>
           </View>
         )}
@@ -892,7 +868,10 @@ function StepReview({
 
       <Spacer size="lg" />
 
-      {/* Price breakdown */}
+      {/* Advertised prices, shown as an estimate. The quote is what the
+          customer actually approves, and it may differ — that is the point of
+          quoting. Labelled rather than hidden, so the number here is never
+          mistaken for the final price. */}
       <PriceBreakdown
         services={services}
         serviceFeeCents={serviceFeeCents}
@@ -901,12 +880,21 @@ function StepReview({
 
       <Spacer size="lg" />
 
-      {/* Deposit summary */}
-      <DepositSummary
-        totalCents={totalCents}
-        depositCents={depositCents}
-        balanceCents={balanceCents}
-      />
+      {/* No DepositSummary here: quote-first collects nothing at request time.
+          Showing a deposit would promise a charge that does not happen until
+          the customer approves the quote on the approval screen. */}
+      <Card>
+        <Text variant="label" color="charcoal">
+          You won&apos;t be charged yet
+        </Text>
+        <Spacer size="sm" />
+        <Text variant="body" color="midGray">
+          This is an estimate from {providerName}&apos;s listed prices. They
+          will review your request and send you a final price, including any
+          surcharges for your vehicle&apos;s size or condition. Nothing is
+          charged until you approve it.
+        </Text>
+      </Card>
     </View>
   );
 }

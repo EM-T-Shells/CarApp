@@ -60,6 +60,11 @@ export type ProviderJobParams = {
   bookingId: string;
 };
 
+/** (provider-tabs)/jobs/quote/[bookingId].tsx — provider prices a request */
+export type ProviderQuoteParams = {
+  bookingId: string;
+};
+
 // ── Inbox ─────────────────────────────────────────────────────────────
 
 /** (tabs)/inbox/[threadId].tsx */

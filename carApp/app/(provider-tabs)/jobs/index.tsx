@@ -25,9 +25,15 @@ import { Text } from '../../../src/components/ui/Text';
 import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
-import { colors, spacing, type Palette } from '../../../src/design/tokens';
+import {
+  colors,
+  spacing,
+  borderRadius,
+  type Palette,
+} from '../../../src/design/tokens';
 import { useAuthStore } from '../../../src/state/auth';
 import {
+  getQuoteRequestsForProvider,
   getUpcomingBookingsForProvider,
   getProviderByUserId,
   type BookingSummary,
@@ -180,6 +186,11 @@ export default function ProviderJobsScreen(): React.ReactElement {
   const user = useAuthStore((s) => s.user);
 
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
+  // Unpriced requests waiting on the provider. Kept separate from bookings
+  // because they are not scheduled work: they hold no slot, their scheduled_at
+  // is a placeholder until the quote lands, and they must not appear on the
+  // day timeline as if they were committed jobs.
+  const [requests, setRequests] = useState<BookingSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -210,11 +221,17 @@ export default function ProviderJobsScreen(): React.ReactElement {
         providerIdRef.current = profile.id;
         setProviderId(profile.id);
       }
-      const { data, error: err } = await getUpcomingBookingsForProvider(
-        providerIdRef.current,
-      );
-      if (err) setError(err);
-      else setBookings(data ?? []);
+      const [jobsRes, requestsRes] = await Promise.all([
+        getUpcomingBookingsForProvider(providerIdRef.current),
+        getQuoteRequestsForProvider(providerIdRef.current),
+      ]);
+
+      if (jobsRes.error) setError(jobsRes.error);
+      else setBookings(jobsRes.data ?? []);
+
+      // A failed request fetch does not blank the jobs list — the scheduled
+      // work is the more important half of this screen.
+      if (!requestsRes.error) setRequests(requestsRes.data ?? []);
 
       setIsLoading(false);
     },
@@ -234,6 +251,13 @@ export default function ProviderJobsScreen(): React.ReactElement {
   const handleJobPress = useCallback(
     (bookingId: string) => {
       router.push(`/(provider-tabs)/jobs/${bookingId}`);
+    },
+    [router],
+  );
+
+  const handleQuotePress = useCallback(
+    (bookingId: string) => {
+      router.push(`/(provider-tabs)/jobs/quote/${bookingId}`);
     },
     [router],
   );
@@ -260,6 +284,67 @@ export default function ProviderJobsScreen(): React.ReactElement {
       refreshToken={refreshToken}
     />
   ) : null;
+
+  // Requests sit above the day view: an unpriced request is the only thing on
+  // this screen with nobody else acting on it, so it is the thing most at risk
+  // of being forgotten. Oldest first, matching the query.
+  const requestsSection =
+    requests.length > 0 ? (
+      <View style={styles.requestsSection}>
+        <Text variant="subheading" color="charcoal">
+          Requests ({requests.length})
+        </Text>
+        <Text variant="caption" color="midGray">
+          Waiting for your price.
+        </Text>
+        {requests.map((request) => {
+          const awaitingProvider = request.status === 'pending_provider_quote';
+          const vehicle = request.vehicles;
+          return (
+            <Pressable
+              key={request.id}
+              onPress={() =>
+                awaitingProvider
+                  ? handleQuotePress(request.id)
+                  : handleJobPress(request.id)
+              }
+              accessibilityRole="button"
+              accessibilityLabel={
+                awaitingProvider
+                  ? `Send a quote for ${vehicle?.make ?? 'this request'}`
+                  : `View request for ${vehicle?.make ?? 'this booking'}`
+              }
+              testID={`quote-request-${request.id}`}
+              style={({ pressed }) => [
+                styles.requestCard,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(255,255,255,0.06)'
+                    : palette.offWhite,
+                  borderColor: awaitingProvider
+                    ? palette.electricBlue
+                    : isDark
+                      ? 'rgba(160,160,160,0.25)'
+                      : 'rgba(119,119,119,0.2)',
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Text variant="label" color="charcoal">
+                {vehicle
+                  ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
+                  : 'Vehicle'}
+              </Text>
+              <Text variant="caption" color="midGray">
+                {awaitingProvider
+                  ? 'Needs a quote'
+                  : 'Waiting on the customer to approve'}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    ) : null;
 
   const header = (
     <View
@@ -350,6 +435,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
           {/* An empty queue is exactly when the day view is most worth seeing:
               it is the difference between "nothing booked" and "nothing booked
               because you are on time off all week". */}
+          {requestsSection}
           {dayView}
           <View style={styles.emptyMessage}>
             <Briefcase size={48} color={palette.midGray} strokeWidth={1.5} />
@@ -378,7 +464,12 @@ export default function ProviderJobsScreen(): React.ReactElement {
         data={bookings}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        ListHeaderComponent={dayView}
+        ListHeaderComponent={
+          <>
+            {requestsSection}
+            {dayView}
+          </>
+        }
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <Spacer size="md" />}
         showsVerticalScrollIndicator={false}
@@ -397,6 +488,18 @@ export default function ProviderJobsScreen(): React.ReactElement {
 // ── Styles ─────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  requestsSection: {
+    paddingHorizontal: spacing.base,
+    paddingTop: spacing.base,
+    gap: spacing.sm,
+  },
+  requestCard: {
+    borderWidth: 1.5,
+    borderRadius: borderRadius.card,
+    padding: spacing.md,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
   },

@@ -1,8 +1,10 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-09-02 (fourth session) · **Branch:** `feature/quote-first-booking`
-**Head:** `d0768db` — working tree clean. `submit_quote` is **committed, not
-deployed** (§4.5).
+**Updated:** 2026-09-23 (sixth session) · **Branch:** `feature/quote-first-booking`
+**Head:** `49ea09d` — working tree carries the sixth session's `config.toml`
+change (§4.5). `submit_quote`, `accept_quote`, `notify-quote-ready` and the
+`stripe-events` quote-first promotion are now **all deployed and compiled**.
+Every server-side piece of the quote flow is live; the UI is what is missing.
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -20,21 +22,22 @@ this does not duplicate them.
 > not Bash `cat`/`head`/`sed`.
 
 > **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
-> 3's additive foundation is in — seven migrations on the live project, all SQL
-> suites passing, `verify:checkout` 30/30, Jest 83 suites / 1165 tests, `tsc`
-> clean. The first Phase 3 action, `submit_quote`, is written and tested but
-> **not deployed** (§4.5). Nothing is blocked except Stripe, which needs a
-> Mac (§4).
+> 3's *server* side is now **deployed** — eight migrations on the live project,
+> all SQL suites passing, Jest 83 suites / 1184 tests, `tsc` clean, and all
+> four quote-flow pieces live and compiled (§4.5). The quote UI still does not
+> exist, so nothing in the app can start a quote-first booking yet.
 >
-> **To resume: run §5 step 0 to confirm the state, then deploy (§4.5) and
-> continue §6.** `submit_quote` is committed and unit-tested but neither
-> deployed nor compiled. `accept_quote` is the natural next action, and it is
-> where the deposit resequencing and the `total_amount − deposit_amount` trap
-> land.
+> **To resume: run §5 step 0 to confirm the state, then go straight to the UI
+> (§6 item 3).** The deploy that dominated the last two sessions is done. The
+> **UI is now the whole critical path**; the remaining Edge Function actions
+> are smaller than they look.
 >
 > **On a new machine, do §1 before §5.** The clone gives you the code and none
-> of the access — five gitignored credentials have to be recreated by hand, and
-> the CLI access token expires 2026-09-16.
+> of the access — five gitignored credentials have to be recreated by hand.
+> The `SUPABASE_ACCESS_TOKEN` that expired 2026-09-16 was replaced on
+> 2026-09-23, and the **database password was reset the same day** because the
+> stored one had gone stale (`28P01`). Both are in `~/.bashrc` on the WSL2 box;
+> on any other machine they must be minted fresh.
 
 ### Where the whole plan stands
 
@@ -46,7 +49,7 @@ green test count as "nearly done" and it is not:
 | **0** | Duration columns, backfill, ready-by display | ✅ complete |
 | **1** | Buffers, working hours, timezone, time-off, `EXCLUDE` constraint, RLS tightening | ✅ complete |
 | **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete, minus two pieces deliberately moved to Phase 3 |
-| **3** | Quote flow, payment resequencing, quote UI | 🟡 schema foundation applied; **1 of ~6 Edge Function actions written, not deployed** |
+| **3** | Quote flow, payment resequencing, quote UI | 🟡 schema applied; **2 of ~6 Edge Function actions + the resequencing deployed and live**; UI not started |
 | **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ⬜ not started |
 
 **Phase 3 is roughly a fifth done, and the hard part is not the part that is
@@ -66,7 +69,7 @@ observed working in the first place.
 git clone git@github.com:EM-T-Shells/CarApp.git
 cd CarApp && git checkout feature/quote-first-booking
 cd carApp && npm ci
-npx tsc --noEmit && npm test          # expect 83 suites / 1165 tests, all green
+npx tsc --noEmit && npm test          # expect 83 suites / 1184 tests, all green
 ```
 
 If that is green, the JavaScript half of the project is fully restored.
@@ -85,11 +88,34 @@ If that is green, the JavaScript half of the project is fully restored.
 gets you the code and none of the access. Recreating them is the whole cost of
 a machine switch — budget for it before assuming something is broken.
 
-⚠️ **`SUPABASE_ACCESS_TOKEN` (`claude-cli-token`) expires 2026-09-16.** If the
-new box is set up after that, every `supabase` CLI command fails on arrival and
-the failure looks like a project-ref problem, not an expiry. Mint a fresh token
-(Dashboard → Account → Access Tokens) rather than copying the old one across.
-Generating a new token does **not** revoke the old one; they coexist.
+✅ **Both credentials were replaced on 2026-09-23 and the WSL2 box is working.**
+The token that expired 2026-09-16 (`claude-cli-token`) was replaced, and the
+**database password was reset the same day** — the stored one had gone stale
+and every `--linked` command failed `SASL auth (SQLSTATE 28P01)`. Both now live
+in `~/.bashrc` (one export line each; there were previously two conflicting
+`SUPABASE_ACCESS_TOKEN` lines, and the second silently won).
+
+If you need to redo this on another machine: mint at Dashboard → Account →
+Access Tokens and revoke the old row while you are there — generating a new
+token does **not** revoke the old one; they coexist. Then update `.mcp.json`
+too: the Supabase MCP entry carries its own copy of the credential and fails
+independently of the CLI.
+
+Two failure modes worth recognising, because neither says what it means:
+
+- A **dead token** surfaces as `Unauthorized` from the API and, in some CLI
+  paths, as a misleading `Cannot find project ref`. That same "cannot find
+  project ref" line also appears harmlessly when you run from the repo root
+  instead of `carApp/` — the link state lives in `carApp/supabase/.temp/`.
+- A **stale DB password** surfaces as `failed SASL auth (SQLSTATE 28P01)` and
+  blocks `migration list`, `db query` and `db push` while leaving every
+  API-based command (including `functions deploy`) working perfectly. The two
+  credentials fail independently.
+
+⚠️ **Never check a credential with `${VAR:-fallback}`** — that prints the value
+when the variable is set, which is how §2's exposure happened and how it
+happened *twice more* on 2026-09-23. Use `${VAR:+set}`, which answers the same
+question without echoing anything.
 
 ```
 carApp/.env.local     EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_KEY (publishable),
@@ -112,16 +138,21 @@ runs `--read-only`.
 
 ### Machines this has run on
 
-Sessions 1–4 ran on the WSL2 box. Both rows are history, not a description of
-wherever you are now:
+Sessions 1–5 have all run on the same Windows/WSL2 box, re-measured there on
+2026-09-22. The macOS column is from a machine that has not been used since:
 
-| | WSL2 box (sessions 1–4) | macOS box |
+| | Windows/WSL2 box (sessions 1–5) | macOS box |
 |---|---|---|
-| Node | v20.20.0 | v24.15.0 |
-| Supabase CLI | 2.90.0, **logged in** | 2.107.0, not logged in |
+| Node | v20.20.0 (npm 11.12.0) | v24.15.0 |
+| Supabase CLI | 2.90.0 — **token expired**, see above | 2.107.0, not logged in |
 | Docker / `psql` | neither | neither |
 | Maestro + simulator | unavailable | not installed |
-| DB access | ✅ `db push` works | ✗ IPv6-only route |
+| DB access | ✅ `db push` worked until the token died | ✗ IPv6-only route |
+
+**Everything gated on macOS is still gated** (§4, "NOT proven"): Stripe end to
+end, the real-409 path, and `Intl` under Hermes. No session has yet run on a
+machine with macOS *and* a booted simulator *and* Maestro at the same time, and
+CLI 2.117.0 is now current if you are installing fresh.
 
 ### Establish these five facts on the new box before trusting anything below
 
@@ -148,7 +179,7 @@ command -v maestro || echo "no maestro → §5 step 3 stays blocked"
    end, the 409 → provider UI path, and `Intl` under Hermes. If the new box has
    them, that backlog opens up and is worth doing before more of Phase 3 is
    written on top of an unobserved payment path.
-5. **Node major version.** Sessions 1–4 were on Node 20. Nothing is known to
+5. **Node major version.** Sessions 1–5 were on Node 20. Nothing is known to
    need it; if the new box is on 22/24 and something odd appears in Jest, this
    is the variable that changed.
 
@@ -190,8 +221,20 @@ when the variable is set, so `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD`
 were both echoed into that session's transcript. (`${VAR:+set}` gives the same
 yes/no answer without echoing anything — use that.)
 
-**Decision: not rotated, on evidence.** Do not re-open this without new
-information:
+It then happened **twice more on 2026-09-23**, in the same way, for the same
+reason — `${VAR:-UNSET}` and `${VAR:-NO}` used as presence checks. The trap is
+easy to fall into precisely because the command *looks* like it only reports
+yes/no. It does not. **Use `${VAR:+set}` and nothing else.**
+
+**Status: both exposed values are now dead**, and neither was retired because
+of the exposure:
+
+- The token expired 2026-09-16 and was replaced 2026-09-23.
+- The database password was reset 2026-09-23 because it had gone stale and was
+  failing `28P01` — the leak and the fix coincided by luck, not by plan.
+
+The original "not rotated, on evidence" reasoning, kept because it governs any
+future exposure:
 
 - The transcript is `~/.claude/projects/-home-getaskale-CarApp/<uuid>.jsonl`,
   mode `-rw-------`, on the WSL2 VM's own ext4 disk — **not** a `/mnt/c`
@@ -201,7 +244,6 @@ information:
   filesystem with the same ownership, which holds the service role, Stripe and
   Firebase keys. The transcript duplicates an existing local secret rather than
   widening the blast radius.
-- The token (`claude-cli-token`) expires 2026-09-16 regardless.
 
 **Rotate if any of these become true:** a transcript is pasted into an issue,
 bug report or support ticket; backup/sync starts reaching the WSL filesystem;
@@ -238,8 +280,9 @@ scripts. Node-side only; React Native has its own networking stack.
 
 ## 3. State of the database
 
-All seven migrations applied; `supabase migration list --linked` aligns on
-every row.
+All eight Phase 0–3 migrations applied; `supabase migration list --linked`
+aligns on every row (15 rows in total, including the four that predate this
+work). Seven of the eight carry a `.test.sql` suite.
 
 | Migration | SQL test | Checks |
 |---|---|---|
@@ -280,7 +323,7 @@ Worth knowing before reading the numbers below, because the obvious reading of
 
 | System | Scope | How to run |
 |---|---|---|
-| **Jest** — 83 suites / 1165 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **Jest** — 83 suites / 1184 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
 | **`.test.sql`** — 7 files | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
 | **`verify-checkout.mjs`** — 30 checks | The real client payload against the real grants | `npm run verify:checkout` |
 | **Maestro** — `booking-flow.yaml` | The app in a simulator | needs macOS + simulator |
@@ -293,7 +336,7 @@ why adding checks there does not move the Jest count.
 
 ### Proven
 
-- **Jest: 83 suites / 1165 tests.** `npx tsc --noEmit` clean.
+- **Jest: 83 suites / 1184 tests.** `npx tsc --noEmit` clean.
 - **All seven SQL suites green against the live project.**
 - **`npm run verify:checkout` — 30/30 against the live project.** Signs in as
   the seeded customer with the **anon** key and fires the exact payload
@@ -310,8 +353,12 @@ why adding checks there does not move the Jest count.
 ### ⚠️ NOT proven
 
 **1. Stripe, still — the oldest untested path.** No `create_deposit_intent`, no
-PaymentSheet, no `stripe-events` promotion. Needs macOS + a booted simulator +
-Maestro; no machine so far has had all three.
+PaymentSheet, no `stripe-events` promotion has ever been observed running.
+Needs macOS + a booted simulator + Maestro; no machine so far has had all
+three. **The fifth session made this worse, not better:** the quote-first
+promotion it added to `stripe-events` rewrites that same unobserved path, so
+there is now a new branch inside it that has also never run. Do this on the
+first machine that can.
 
 **2. The 409 → provider UI path.** `acceptBooking` reads the error body off the
 `FunctionsHttpError` `context` Response. Unit-tested against a synthetic
@@ -327,43 +374,74 @@ simulator run.
 **4. Nothing in the UI has been seen running.** Every screen change this session
 is verified by Jest and `tsc` only.
 
-**5. `submit_quote` has never executed.** Two distinct gaps, and the second is
-the easy one to miss:
+**5. The quote flow is deployed, but has still never been *exercised*.** All
+four pieces compiled and are live as of 2026-09-23. Verified by downloading each
+live bundle and diffing it against the working tree — not by trusting the
+dashboard:
 
-- **It is not deployed.** The live function still has no `submit_quote` action.
-  The deploy *was* approved and attempted at the end of the third session and
-  was **blocked by Claude Code's auto-mode permission classifier**, not by
-  Supabase and not by anything wrong with the code. Nothing was sent to the
-  project. Re-run it by hand, or grant a Bash permission rule for
-  `supabase functions deploy` and let the session do it:
+| Piece | Where | Live version | Source matches HEAD |
+|---|---|---|---|
+| `submit_quote` | `stripe-webhook` action | 25 | ✅ byte-identical |
+| `accept_quote` | `stripe-webhook` action | 25 | ✅ byte-identical |
+| `notify-quote-ready` | new Edge Function | 1 | ✅ byte-identical |
+| quote-first deposit promotion | `stripe-events` | 9 | ✅ byte-identical |
 
-  ```bash
-  supabase functions deploy stripe-webhook --workdir /path/to/CarApp/carApp
-  ```
+**Compiled is not exercised.** No request has ever reached any of them: no
+screen calls `submitQuote()` or `acceptQuote()`, and no row has taken either
+new status. The first real call will be the first test of the Supabase plumbing
+— the selects, the guarded updates, the ownership checks.
 
-  **Never add `--no-verify-jwt`** — this function must keep JWT verification
-  (`.claude/rules/stripe-payments.md`). `supabase/config.toml` has no
-  `[functions.stripe-webhook]` block, so the default of `true` is what applies;
-  verified in that session.
+> ⚠️ **The fifth-session handoff said none of this was deployed, and that was
+> wrong.** `stripe-webhook` was already at v25 carrying both actions and
+> `_shared/quote.ts`. Two sessions were planned around a deploy that had
+> partly happened. **Verify live state by downloading and diffing the bundle**
+> — `supabase functions list` timestamps are unreliable (v25 reported
+> `2026-09-03` while containing code committed `2026-09-22`):
+>
+> ```bash
+> mkdir -p /tmp/fncheck/supabase
+> printf 'project_id = "apbubklogxgqkokbctwz"\n' > /tmp/fncheck/supabase/config.toml
+> supabase functions download stripe-webhook --project-ref apbubklogxgqkokbctwz \
+>   --use-api --workdir /tmp/fncheck
+> diff /tmp/fncheck/supabase/functions/stripe-webhook/index.ts \
+>      carApp/supabase/functions/stripe-webhook/index.ts
+> ```
+>
+> Download into a scratch workdir, never the repo — `functions download` writes
+> straight into `supabase/functions/` and will overwrite local source.
 
-  This box has no Docker. If the CLI tries to bundle locally and fails on that,
-  add `--use-api` to bundle server-side instead.
-- **Its Edge Function half is not type-checked by anything on the WSL2 box.**
-  `tsconfig.json` excludes `supabase/functions/*/index.ts` (the remote imports
-  would not resolve) and Deno is not installed, so `npx tsc --noEmit` says
-  nothing about the action body. `_shared/quote.ts` *is* covered — it is
-  outside the exclude list precisely because it carries no remote imports, and
-  its 54 tests exercise the shipping code rather than a re-implementation. The
-  uncovered part is the Supabase plumbing: the selects, the guarded update, the
-  ownership check. **The deploy is the first thing that compiles it**, so treat
-  a deploy failure as the expected first signal, not a surprise.
+The import to watch resolved: `stripe-webhook`'s `../_shared/quote.ts` bundles
+correctly, so the "every payment action goes down with it" risk is retired.
 
-  The line to watch in the deploy output is the new
-  `import { prepareQuote, QUOTABLE_STATUSES } from '../_shared/quote.ts';`. If
-  that path fails to resolve, the function does not boot and **every** payment
-  action goes down with it — not just the new one. Ten other functions already
-  import from `../_shared/` the same way, so it should resolve; check
-  `accept_booking` still works after the deploy regardless.
+**`verify_jwt` is now declared in `config.toml`, and must stay that way.**
+Previously neither Stripe function was declared, and `stripe-events` relied on
+`--no-verify-jwt` being remembered at the command line. Forgetting it re-gates
+the endpoint and 401s every live Stripe delivery before the handler runs —
+which is exactly the bug `Blueprint/fixes.md` records as already fixed once.
+Both are now pinned:
+
+```toml
+[functions.stripe-webhook]
+verify_jwt = true
+[functions.stripe-events]
+verify_jwt = false
+```
+
+Confirmed after deploying: `stripe-events` v9 still reports `verify_jwt: false`.
+Check it via `mcp__supabase__list_edge_functions`, which returns the flag;
+`supabase functions list` does not show it.
+
+This box has no Docker, so every deploy needs `--use-api` to bundle
+server-side.
+
+- **The Edge Function halves are type-checked by nothing.** `tsconfig.json`
+  excludes `supabase/functions/*/index.ts` (the remote imports would not
+  resolve) and Deno is not installed, so `npx tsc --noEmit` says nothing about
+  any action body. `_shared/quote.ts` *is* covered — it sits outside the
+  exclude list precisely because it carries no remote imports, and its tests
+  exercise the shipping code rather than a re-implementation, including
+  `computeAcceptedAmounts`. The uncovered part is the Supabase plumbing, and
+  the deploy has now compiled it; what remains untested is its behaviour.
 
 ---
 
@@ -373,9 +451,9 @@ the easy one to miss:
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect d0768db or later
+   cd CarApp && git log --oneline -1        # expect 49ea09d or later
    git status --short                       # expect empty
-   cd carApp && npx tsc --noEmit && npm test # expect 83 suites / 1165 tests
+   cd carApp && npx tsc --noEmit && npm test # expect 83 suites / 1184 tests
    npm run verify:checkout                  # expect 30/30 against the live project
    supabase migration list --linked --workdir "$PWD"   # expect 15 aligned rows
    ```
@@ -384,34 +462,28 @@ the easy one to miss:
    that exercises the real client payload against the real grants, so it catches
    a booking-screen change that no Jest test can (they all mock Supabase).
 
-   **`submit_quote` is committed.** The third session left it in the working
-   tree; `d0768db` carries all nine of those paths, so a clean `git status` is
-   now the healthy state rather than a warning sign:
+   **Everything is committed, so a clean tree is the healthy state.** The quote
+   flow spans two commits: `d0768db` (`submit_quote`, `_shared/quote.ts`, the
+   `submitQuote()` wrapper) and `49ea09d` (`accept_quote`,
+   `computeAcceptedAmounts`, `notify-quote-ready`, the `stripe-events`
+   quote-first promotion, `acceptQuote()`). Run `git show --stat 49ea09d` if a
+   fresh clone looks wrong.
 
-   ```
-   carApp/supabase/functions/_shared/quote.ts                # the quote grammar
-   carApp/supabase/functions/_shared/__tests__/quote.test.ts  # 54 tests
-   carApp/supabase/functions/stripe-webhook/index.ts          # the submit_quote action
-   carApp/src/lib/stripe/index.ts                             # submitQuote() wrapper
-   carApp/src/lib/stripe/__tests__/index.test.ts
-   .claude/rules/edge-functions.md
-   ARCHITECTURE.md
-   Blueprint/quote_first_booking.md
-   Blueprint/quote_first_booking_handoff.md
-   ```
+   **Committed is not deployed, and that gap is the whole of step 1** (§4.5).
+   `.claude/rules/edge-functions.md` is the canonical description of what each
+   action does; prefer it over this file wherever the two disagree, because it
+   is updated alongside the code and this one is not.
 
-   **Committed is not deployed.** The live function still has no `submit_quote`
-   action — re-verified this session against project `apbubklogxgqkokbctwz`:
-   `stripe-webhook` is at version 20, its action switch ends at `connect_status`,
-   and it does not import `../_shared/quote.ts`. `verify_jwt` is still `true`.
-   `git show --stat d0768db` if a fresh clone looks wrong.
-
-1. **Deploy `stripe-webhook`** (§4.5). It is the only thing that compiles the
-   `submit_quote` action, and everything else in Phase 3 builds on top of it.
-2. **Then `accept_quote`.** See §6. It is the natural next action and the one
-   that carries the `total_amount − deposit_amount` trap; nothing below the
-   Stripe line is blocked.
-3. **On a Mac:** `brew install maestro`, boot a simulator,
+1. ~~Deploy~~ **Done 2026-09-23** (§4.5). All four pieces are live and
+   byte-verified against HEAD. Nothing to deploy unless you change a function.
+2. **The UI — this is now the critical path, and it is the whole job.**
+   *Nothing in the app can start a quote-first booking* (§6 item 3). Every
+   server piece below it is live and waiting for a caller.
+3. **The remaining Edge Function actions** — `request_more_photos`,
+   `adjust_job_duration`, `propose_reschedule` / `respond_reschedule` (§6).
+   Smaller than they look; they follow a pattern that now has two worked
+   examples in the same file. These can follow the UI rather than precede it.
+4. **On a Mac:** `brew install maestro`, boot a simulator,
    `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two seed failure modes are
    intended: an inactive/unapproved package now fails the booking at insert, and
    seeded bookings occupy real ranges with buffers, so two committed jobs close
@@ -419,40 +491,72 @@ the easy one to miss:
 
 ---
 
-## 6. Phase 3 — foundation in, flow to build
+## 6. Phase 3 — server side nearly done, UI not started
 
-Rated highest-risk in spec §8, and nothing this session changed that. It
-resequences payments (SetupIntent at request, deposit at approval) on top of the
-pricing trigger.
+Rated highest-risk in spec §8. It resequences payments on top of the pricing
+trigger, and the fifth session wrote the server half of that resequencing —
+still entirely unrun, like everything else here.
 
 **The additive half is already applied** (`20260821000000`, 21/21): the two
 quote statuses plus `awaiting_customer_info`, `requested_window_start/end`,
 `quote_line_items` / `quoted_total_amount`, and one new client transition —
-either party cancelling an *unpriced* request. It changes no existing behaviour
-and no row takes a new status until the Edge Function actions exist, which is
-the point: the risky half can now be written and reverted against a schema
-that is already in place and tested.
+either party cancelling an *unpriced* request. It changes no existing behaviour,
+and **no row has yet taken any of the new statuses** — the actions that would
+write them are not deployed, and no screen calls them. That was the point of
+splitting it this way: the risky half gets written and reverted against a
+schema already in place and tested.
 
-**`submit_quote` is done** — `stripe-webhook` action, grammar and totals in
-`_shared/quote.ts`, client wrapper `submitQuote()`. No migration was needed.
-Spec §9 has the four decisions behind it; the two that will bite elsewhere are
-that it verifies caller ownership (**the older actions in that file still do
-not**) and that it writes `quoted_total_amount` only, leaving `total_amount`
-and `deposit_amount` to `accept_quote`.
+**What is written and now deployed** — live as of 2026-09-23, but never yet
+called by anything. `.claude/rules/edge-functions.md` carries the canonical
+per-action description; this is the shape of it:
+
+- **`submit_quote`** — the assigned provider prices an unpriced request. Writes
+  `quote_line_items` and `quoted_total_amount` and moves the booking to
+  `pending_customer_approval`. Charges nothing. Writes **neither**
+  `total_amount` nor `deposit_amount`; a quote is a proposal.
+- **`accept_quote`** — the customer approves. Writes `total_amount`,
+  `deposit_amount`, `platform_fee` and `provider_payout` **together**, returns
+  the booking to `pending`, and returns `next: 'requires_deposit'` so the
+  client runs the existing `create_deposit_intent` + PaymentSheet flow. It
+  charges nothing itself.
+- **`notify-quote-ready`** — pushes the customer the quoted total. Customer
+  only; the provider just sent it.
+- **The `stripe-events` quote-first promotion** — a quote-first booking now
+  confirms *outright* on deposit success rather than entering the 2h provider
+  approval window, because the provider already committed by quoting and the
+  customer approved the price. Detected by `quoted_total_amount` being
+  non-null, which is NULL on every deposit-first booking ever made, so the
+  legacy path is untouched by construction. On `23P01` (the provider's slot
+  filled between quoting and payment) it falls back to the approval window
+  rather than stranding a paid booking in `pending`.
+
+Both new actions resolve the caller from the bearer token and verify ownership
+— `verify_jwt` alone proves only that *some* authenticated user called. **The
+older actions in that file still do not do this.**
+
+> The `total_amount − deposit_amount` trap is **handled, deliberately**, and
+> worth understanding before touching any of it: `accept_quote` keeps an
+> already-succeeded deposit as recorded instead of recomputing it at 15%,
+> because `capture_balance` charges `total_amount − deposit_amount`, so
+> recomputing on a re-quote would collect `0.15A + 0.85B` instead of `B`.
+> Surcharges are provider revenue, so the payout is re-derived from the quoted
+> total less the stored `service_fee`. The arithmetic lives in
+> `computeAcceptedAmounts` (`_shared/quote.ts`) and is Jest-tested.
 
 **What is left, in rough dependency order:**
 
-1. The remaining Edge Function actions — `accept_quote`,
-   `request_more_photos`, `adjust_job_duration`, `propose_reschedule` /
-   `respond_reschedule` — following the guarded-transition pattern
-   (`.eq('status', …)` + 409 on mismatch) `acceptBooking` already uses.
-   `notify-quote-ready` is also unbuilt and `submit_quote` already calls it.
-2. **Payment resequencing.** The highest-risk item in the plan. Note
-   `captureBalance` computes `total_amount − deposit_amount`, so a re-quote
-   silently breaks the deposit math (spec §1) — that is the thing to re-read
-   first.
-3. `ArrivalWindowPicker` replacing `DateTimePicker`; `PackageSelector` with
-   tiers and ranges; `QuoteBuilder`; the customer quote-review screen.
+1. ~~Deploy all of the above~~ — **done 2026-09-23** (§4.5). Compiled and live;
+   still never called.
+2. The remaining Edge Function actions — `request_more_photos`,
+   `adjust_job_duration`, `propose_reschedule` / `respond_reschedule` —
+   following the guarded-transition pattern (`.eq('status', …)` + 409 on
+   mismatch) that `acceptBooking`, `submit_quote` and `accept_quote` all now
+   use.
+3. **The UI — the critical path, and untouched.** `ArrivalWindowPicker`
+   replacing `DateTimePicker`; `PackageSelector` with tiers and ranges;
+   `QuoteBuilder`; the customer quote-review screen calling `acceptQuote()`.
+   No screen can create an unpriced request today, so the entire server flow
+   above is currently unreachable from the app.
 4. The intake photo uploader.
 5. `quote-flow.yaml` alongside `booking-flow.yaml`.
 
@@ -463,8 +567,9 @@ and `deposit_amount` to `accept_quote`.
   — must go through an Edge Function or be added deliberately to **both** the
   column allowlist and the trigger layer. That friction is the point.
 - `service_duration_modifiers.delta_price` is stored and **still applied to
-  nothing** — `submit_quote` did not change this, and it is easy to assume it
-  did. That action takes `quote_line_items` exactly as the provider states them
+  nothing** — neither `submit_quote` nor `accept_quote` changed this, and it is
+  easy to assume one of them did. `submit_quote` takes `quote_line_items`
+  exactly as the provider states them
   and validates the grammar; nothing reads `delta_price` to build them. Wiring
   it up belongs to `QuoteBuilder` (item 3), which should pre-fill the surcharges
   from the modifiers and let the provider edit them before sending. It must
@@ -493,6 +598,22 @@ retired the `'addon'` category from `service_catalog`, but
 ---
 
 ## 7. Traps already paid for — don't rediscover these
+
+**`verify_jwt` lived only in a command-line flag, and now lives in
+`config.toml`.** `stripe-events` must stay `verify_jwt: false` or every live
+Stripe delivery 401s before the handler runs. Until 2026-09-23 nothing in the
+repo recorded that — it depended on whoever deployed remembering
+`--no-verify-jwt`. Both Stripe functions are now declared in
+`supabase/config.toml`; do not remove those blocks, and do not trust
+`supabase functions list` to tell you the flag (it does not show it —
+`mcp__supabase__list_edge_functions` does).
+
+**`supabase functions download` writes into `supabase/functions/` and will
+overwrite your local source.** Always download into a scratch workdir with its
+own throwaway `config.toml`, never the repo. It is the only reliable way to
+learn what is actually deployed, and the dashboard's `UPDATED_AT` is not — a
+bundle containing code committed 2026-09-22 reported an update time of
+2026-09-03.
 
 **Supabase grants ALL on every new public table by default**, at *table* level.
 A table-level grant covers every column, so adding a column-level `GRANT` on top

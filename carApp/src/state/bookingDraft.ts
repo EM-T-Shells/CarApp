@@ -6,7 +6,7 @@
 // booking screen and is cleared on successful submission or abandonment.
 
 import { create } from 'zustand';
-import type { ServicePackage } from '../types/models';
+import type { ArrivalWindow, ServicePackage } from '../types/models';
 import {
   calculateDeposit,
   calculateServiceFee,
@@ -42,8 +42,16 @@ export interface BookingDraftState {
   locationLat: number | null;
   /** Longitude of the service location. */
   locationLng: number | null;
-  /** Scheduled date/time as ISO string. */
-  scheduledAt: string | null;
+  /**
+   * The arrival window the customer says they are available in, as two ISO
+   * strings. Replaces the exact `scheduledAt` the deposit-first flow used: in
+   * the quote flow the provider chooses the exact start inside this window when
+   * they quote, because nobody knows the job's duration until it is priced.
+   *
+   * The booking row still needs a `scheduled_at` (it is NOT NULL), so the
+   * window's start goes in as a placeholder and `submit_quote` overwrites it.
+   */
+  arrivalWindow: ArrivalWindow | null;
   /** Free-text notes from the customer. */
   notes: string;
   /**
@@ -63,7 +71,7 @@ export interface BookingDraftState {
   setVehicleId: (vehicleId: string) => void;
   setServiceAddress: (address: string) => void;
   setLocation: (lat: number, lng: number) => void;
-  setScheduledAt: (iso: string) => void;
+  setArrivalWindow: (window: ArrivalWindow) => void;
   setNotes: (notes: string) => void;
   setVehicleSizeClass: (sizeClass: VehicleSizeClass | null) => void;
   setConditionAnswer: <K extends keyof ConditionAnswers>(
@@ -96,7 +104,7 @@ const INITIAL_STATE = {
   serviceAddress: '',
   locationLat: null,
   locationLng: null,
-  scheduledAt: null,
+  arrivalWindow: null,
   notes: '',
   vehicleSizeClass: null,
   conditionAnswers: {} as ConditionAnswers,
@@ -132,7 +140,7 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
   setLocation: (lat, lng) =>
     set({ locationLat: lat, locationLng: lng }),
 
-  setScheduledAt: (scheduledAt) => set({ scheduledAt }),
+  setArrivalWindow: (arrivalWindow) => set({ arrivalWindow }),
 
   setNotes: (notes) => set({ notes }),
 
@@ -194,7 +202,7 @@ export function selectIsReadyToBook(s: BookingDraftState): boolean {
     s.selectedServices.length > 0 &&
     s.vehicleId !== null &&
     s.serviceAddress.trim().length > 0 &&
-    s.scheduledAt !== null
+    s.arrivalWindow !== null
   );
 }
 

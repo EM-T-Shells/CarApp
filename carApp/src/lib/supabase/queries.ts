@@ -445,6 +445,34 @@ export function getUpcomingBookingsForProvider(
   )
 }
 
+// The provider's request queue: rows waiting on somebody, ordered oldest
+// first because the oldest request is the one most at risk of being abandoned.
+// These statuses are deliberately absent from ACTIVE_BOOKING_STATUSES — an
+// unpriced request is not a scheduled job, holds no slot (the overlap
+// constraint covers only confirmed/en_route/in_progress) and has no meaningful
+// scheduled_at yet, so it must not appear on the day timeline as work.
+//
+// Matches idx_bookings_provider_quote_queue from migration 20260821000000.
+const QUOTE_QUEUE_STATUSES = [
+  'pending_provider_quote',
+  'pending_customer_approval',
+  'awaiting_customer_info',
+] as const
+
+export function getQuoteRequestsForProvider(
+  providerId: string,
+): Promise<QueryResult<BookingSummary[]>> {
+  return runList<BookingSummary>(
+    supabase
+      .from('bookings')
+      .select(BOOKING_SUMMARY_SELECT)
+      .eq('provider_id', providerId)
+      .in('status', [...QUOTE_QUEUE_STATUSES])
+      .order('created_at', { ascending: true })
+      .returns<BookingSummary[]>(),
+  )
+}
+
 export function getPastBookingsForProvider(
   providerId: string,
 ): Promise<QueryResult<BookingSummary[]>> {

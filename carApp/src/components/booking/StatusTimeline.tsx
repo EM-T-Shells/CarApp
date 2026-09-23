@@ -12,9 +12,15 @@ import { colors, spacing } from '../../design/tokens';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Mirrors the status CHECK on public.bookings. The three quote states were
+// added by migration 20260821000000 and are all pre-confirmation, so the
+// timeline treats them as "Requested" — see STEP_INDEX.
 export type BookingStatus =
   | 'pending'
   | 'pending_provider_approval'
+  | 'pending_provider_quote'
+  | 'pending_customer_approval'
+  | 'awaiting_customer_info'
   | 'confirmed'
   | 'en_route'
   | 'in_progress'
@@ -37,8 +43,17 @@ const STEPS: { key: BookingStatus; label: string }[] = [
 // pending_provider_approval is the deposit-paid, awaiting-accept state; it sits
 // on the first ("Requested") step of the 5-node bar — the provider hasn't
 // confirmed yet (Blocker #4).
+//
+// The three quote states sit there too. All of them are "the job exists and
+// nobody has committed to it": unpriced, priced and awaiting approval, or
+// waiting on more information from the customer. None has taken a payment, and
+// a quote-first booking jumps straight to 'confirmed' on deposit success
+// rather than passing through pending_provider_approval.
 const STEP_INDEX: Partial<Record<BookingStatus, number>> = {
   pending_provider_approval: 0,
+  pending_provider_quote: 0,
+  pending_customer_approval: 0,
+  awaiting_customer_info: 0,
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
