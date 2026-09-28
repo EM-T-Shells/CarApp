@@ -1,17 +1,18 @@
 // quote-first-request.test.tsx — what the booking screen does when the
 // customer taps the final button.
 //
-// The screen had no coverage at all while it was a deposit-first flow, which
-// is why removing its entire PaymentSheet block broke no test. These cover the
-// properties that flow depended on and this one inverts: the row goes in
-// unpriced, both ends of the arrival window travel with it, and NOTHING
-// touches Stripe.
+// The row goes in unpriced, both ends of the arrival window travel with it,
+// and the customer's card is SAVED (SetupIntent) but nothing is CHARGED: no
+// PaymentIntent of any kind is created at request time (spec §2, §5). A card
+// that is not saved cancels the request, and photos go up before the provider
+// is told the request exists.
 //
 // Supabase is mocked, like every Jest suite here — these assert the payload the
 // screen builds, not that Postgres accepts it. verify-checkout.mjs is what
 // proves the payload against the real grants.
 
 import React from 'react';
+import { Alert } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -45,10 +46,32 @@ jest.mock('lucide-react-native', () => {
   );
 });
 
+// One ordered log across every collaborator, so the tests can assert the
+// sequence (insert → save card → photos → confirm), not just that each ran.
+const calls: string[] = [];
+
 const mockInsertBooking = jest.fn();
+const mockUpdateBooking = jest.fn();
 jest.mock('../../../../../src/lib/supabase/mutations', () => ({
-  insertBooking: (...args: unknown[]) => mockInsertBooking(...args),
+  insertBooking: (...args: unknown[]) => {
+    calls.push('insertBooking');
+    return mockInsertBooking(...args);
+  },
+  updateBooking: (...args: unknown[]) => {
+    calls.push('updateBooking');
+    return mockUpdateBooking(...args);
+  },
   isSlotUnavailableError: () => false,
+}));
+
+const mockUploadIntakePhoto = jest.fn();
+jest.mock('../../../../../src/components/booking/IntakePhotoUploader', () => ({
+  __esModule: true,
+  default: () => null,
+  uploadIntakePhoto: (...args: unknown[]) => {
+    calls.push('uploadIntakePhoto');
+    return mockUploadIntakePhoto(...args);
+  },
 }));
 
 jest.mock('../../../../../src/lib/supabase/queries', () => ({
@@ -73,23 +96,38 @@ jest.mock('../../../../../src/lib/supabase/queries', () => ({
     ],
     error: null,
   })),
+  getServiceDurationModifiers: jest.fn(async () => ({ data: [], error: null })),
 }));
 
-// The whole Stripe module is a spy. Any call from this screen is a failure —
-// quote-first collects nothing at request time.
-const stripeCalls: string[] = [];
+// Every Stripe export is a spy. The three card-saving calls are configurable;
+// anything that could charge a card is recorded so the tests can assert it
+// never ran.
+const mockCreateSetupIntent = jest.fn();
+const mockPresentCardSetupSheet = jest.fn();
+const mockConfirmSetupIntent = jest.fn();
 jest.mock('../../../../../src/lib/stripe', () => {
   const record = (name: string) => (...args: unknown[]) => {
-    stripeCalls.push(name);
+    calls.push(name);
     return Promise.resolve({ data: null, error: null, args });
   };
+  // The mocks are read at call time: this factory is hoisted above their
+  // declarations, so capturing them here would capture undefined.
+  const spy = (name: string, fn: () => jest.Mock) => (...args: unknown[]) => {
+    calls.push(name);
+    return fn()(...args);
+  };
   return {
+    createSetupIntent: spy('createSetupIntent', () => mockCreateSetupIntent),
+    presentCardSetupSheet: spy('presentCardSetupSheet', () => mockPresentCardSetupSheet),
+    confirmSetupIntent: spy('confirmSetupIntent', () => mockConfirmSetupIntent),
     createDepositPaymentIntent: record('createDepositPaymentIntent'),
     presentDepositPaymentSheet: record('presentDepositPaymentSheet'),
     submitQuote: record('submitQuote'),
     acceptQuote: record('acceptQuote'),
   };
 });
+
+const mockAlert = jest.fn();
 
 jest.mock('../../../../../src/state/auth', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
@@ -145,14 +183,25 @@ async function renderAndSubmit() {
   return view;
 }
 
+const PHOTO = { key: 'p1', uri: 'file:///p1.jpg', mimeType: 'image/jpeg', fileSize: 1000 };
+
 beforeEach(() => {
   jest.clearAllMocks();
-  stripeCalls.length = 0;
+  jest.spyOn(Alert, 'alert').mockImplementation(mockAlert);
+  calls.length = 0;
   useBookingDraftStore.getState().reset();
   mockInsertBooking.mockResolvedValue({
     data: { id: 'book-1', deposit_amount: 20 },
     error: null,
   });
+  mockUpdateBooking.mockResolvedValue({ data: { id: 'book-1' }, error: null });
+  mockCreateSetupIntent.mockResolvedValue({
+    data: { clientSecret: 'seti_secret', setupIntentId: 'seti_1' },
+    error: null,
+  });
+  mockPresentCardSetupSheet.mockResolvedValue({ data: { canceled: false }, error: null });
+  mockConfirmSetupIntent.mockResolvedValue({ data: { ok: true, card_saved: true }, error: null });
+  mockUploadIntakePhoto.mockResolvedValue({ data: { id: 'photo-1' }, error: null });
 });
 
 describe('booking screen — quote-first request', () => {
@@ -210,24 +259,94 @@ describe('booking screen — quote-first request', () => {
     }
   });
 
-  it('charges nothing — no Stripe call of any kind', async () => {
+  // Spec §2: the card is saved at request time, and nothing is charged until
+  // the customer approves the final price.
+  it('saves a card for the new request and charges nothing', async () => {
     await renderAndSubmit();
 
-    await waitFor(() => expect(mockInsertBooking).toHaveBeenCalled());
-    expect(stripeCalls).toEqual([]);
+    await waitFor(() => expect(mockConfirmSetupIntent).toHaveBeenCalledWith('book-1'));
+    expect(mockCreateSetupIntent).toHaveBeenCalledWith('book-1');
+    expect(mockPresentCardSetupSheet).toHaveBeenCalledWith(
+      expect.objectContaining({ clientSecret: 'seti_secret' }),
+    );
+    for (const charge of ['createDepositPaymentIntent', 'presentDepositPaymentSheet', 'acceptQuote']) {
+      expect(calls).not.toContain(charge);
+    }
   });
 
-  it('navigates to the booking once the request is in', async () => {
+  it('navigates to the booking once the card is saved', async () => {
     await renderAndSubmit();
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1'));
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
-  it('does not cancel the row when the insert succeeds', async () => {
-    // The deposit-first flow cancelled the booking whenever payment fell
-    // through. There is no payment here, so there is nothing to unwind — and
-    // no updateBooking import left to do it with.
-    const mutations = require('../../../../../src/lib/supabase/mutations');
-    expect(mutations.updateBooking).toBeUndefined();
+  // The provider is only told about a request once the card is confirmed, so an
+  // abandoned one never reaches them — and it must not linger either.
+  it('cancels the request when the card sheet is dismissed', async () => {
+    mockPresentCardSetupSheet.mockResolvedValue({ data: { canceled: true }, error: null });
+
+    await renderAndSubmit();
+
+    await waitFor(() =>
+      expect(mockUpdateBooking).toHaveBeenCalledWith('book-1', { status: 'cancelled' }),
+    );
+    expect(mockConfirmSetupIntent).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    // Dismissing is a normal outcome, not a failure to shout about.
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  it('cancels the request and explains when the card cannot be saved', async () => {
+    mockPresentCardSetupSheet.mockResolvedValue({ data: null, error: new Error('Card declined') });
+
+    await renderAndSubmit();
+
+    await waitFor(() =>
+      expect(mockUpdateBooking).toHaveBeenCalledWith('book-1', { status: 'cancelled' }),
+    );
+    expect(mockAlert).toHaveBeenCalledWith('Card not saved', 'Card declined');
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('cancels the request when card setup cannot start', async () => {
+    mockCreateSetupIntent.mockResolvedValue({ data: null, error: new Error('Stripe down') });
+
+    await renderAndSubmit();
+
+    await waitFor(() =>
+      expect(mockUpdateBooking).toHaveBeenCalledWith('book-1', { status: 'cancelled' }),
+    );
+    expect(mockPresentCardSetupSheet).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith('Could not save your card', 'Stripe down');
+  });
+
+  it('uploads the photos before the provider is told the request exists', async () => {
+    await act(async () => {
+      useBookingDraftStore.getState().addIntakePhoto(PHOTO);
+    });
+
+    await renderAndSubmit();
+
+    await waitFor(() => expect(mockConfirmSetupIntent).toHaveBeenCalled());
+    expect(mockUploadIntakePhoto).toHaveBeenCalledWith('book-1', PHOTO);
+    expect(calls.indexOf('uploadIntakePhoto')).toBeGreaterThan(calls.indexOf('presentCardSetupSheet'));
+    expect(calls.indexOf('uploadIntakePhoto')).toBeLessThan(calls.indexOf('confirmSetupIntent'));
+  });
+
+  it('keeps the request when a photo fails, and says so', async () => {
+    mockUploadIntakePhoto.mockResolvedValue({ data: null, error: new Error('timeout') });
+    await act(async () => {
+      useBookingDraftStore.getState().addIntakePhoto(PHOTO);
+    });
+
+    await renderAndSubmit();
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1'));
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith(
+      'Some photos did not upload',
+      expect.stringContaining('1 photo could not be added'),
+    );
   });
 });

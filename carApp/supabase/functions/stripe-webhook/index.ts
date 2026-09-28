@@ -31,6 +31,20 @@
 //          until the customer approves the final price).
 //        • decline_booking — provider declines; the booking is cancelled and
 //          the deposit refunded to the customer.
+//        • accept_quote — customer approves the quoted price; the deposit is
+//          charged off-session to the card saved at request time, or the
+//          client falls back to PaymentSheet when there is none.
+//        • create_setup_intent / confirm_setup_intent — save the customer's
+//          card when they send a request (no hold, no charge), then verify it
+//          with Stripe and tell the provider the request is waiting.
+//        • request_more_photos / provide_customer_info — the provider sends an
+//          unpriced request back for more information; the customer returns it.
+//        • adjust_job_duration / withdraw_adjustment / respond_adjustment — the
+//          provider proposes a longer or dearer job on a confirmed booking and
+//          the customer approves it, or declines and the booking is cancelled
+//          with a full refund.
+//        • propose_reschedule / respond_reschedule — either party proposes a new
+//          start for a confirmed booking; only the other party can accept it.
 //        • expire_pending_approvals — pg_cron sweep that auto-cancels and
 //          refunds approvals still pending past their 2h deadline.
 //        • connect_onboarding — creates/reuses a provider's Express account and
@@ -44,11 +58,23 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import Stripe from 'https://esm.sh/stripe@13.6.0?target=deno&no-check=true';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
+  appendLineItems,
   computeAcceptedAmounts,
   DEFAULT_PLATFORM_FEE_RATE,
+  prepareAdjustment,
   prepareQuote,
   QUOTABLE_STATUSES,
+  rescheduleResponseAllowed,
+  validateInfoRequestNote,
+  validateRescheduleStart,
+  type BookingParty,
 } from '../_shared/quote.ts';
+import {
+  CANCELLABLE_STATUSES,
+  cancellationFeeApplies,
+  describeOffSessionFailure,
+  planDepositCollection,
+} from '../_shared/bookingPolicy.ts';
 
 // ── Clients ───────────────────────────────────────────────────────────
 
@@ -161,11 +187,16 @@ async function handleAppAction(req: Request): Promise<Response> {
     amount?: number;
     provider_id?: string;
     reason?: string;
-    // submit_quote. Validated in ../_shared/quote.ts, never trusted as typed:
-    // this endpoint is reachable with any authenticated user's JWT.
+    // submit_quote / adjust_job_duration / propose_reschedule. Validated in
+    // ../_shared/quote.ts, never trusted as typed: this endpoint is reachable
+    // with any authenticated user's JWT.
     estimated_duration_mins?: unknown;
     scheduled_at?: unknown;
     quote_line_items?: unknown;
+    adjustment_line_items?: unknown;
+    note?: unknown;
+    approve?: unknown;
+    accept?: unknown;
   };
 
   switch (body.action) {
@@ -176,9 +207,12 @@ async function handleAppAction(req: Request): Promise<Response> {
     case 'refund_deposit':
       return await refundDeposit(body as { action: string; booking_id: string });
     case 'cancel_booking':
-      return await cancelBooking(body as { action: string; booking_id: string });
+      // Passed the request so the caller can be checked against the booking:
+      // these two now also cancel unpriced requests and pending adjustments,
+      // and a cancel reachable with anyone's token is a cancel of anyone's job.
+      return await cancelBooking(req, body as { action: string; booking_id: string });
     case 'provider_cancel_booking':
-      return await providerCancelBooking(body as { action: string; booking_id: string; reason?: string });
+      return await providerCancelBooking(req, body as { action: string; booking_id: string; reason?: string });
     case 'mark_no_show':
       return await markNoShow(body as { action: string; booking_id: string });
     case 'accept_booking':
@@ -193,6 +227,26 @@ async function handleAppAction(req: Request): Promise<Response> {
       // Same reason as submit_quote, with the opposite party: only the customer
       // named on the booking may approve its price. See acceptQuote.
       return await acceptQuote(req, body);
+    // Every action below resolves the caller and checks which side of the
+    // booking they are on before writing anything. See requireParty.
+    case 'create_setup_intent':
+      return await createSetupIntent(req, body);
+    case 'confirm_setup_intent':
+      return await confirmSetupIntent(req, body);
+    case 'request_more_photos':
+      return await requestMorePhotos(req, body);
+    case 'provide_customer_info':
+      return await provideCustomerInfo(req, body);
+    case 'adjust_job_duration':
+      return await adjustJobDuration(req, body);
+    case 'withdraw_adjustment':
+      return await withdrawAdjustment(req, body);
+    case 'respond_adjustment':
+      return await respondAdjustment(req, body);
+    case 'propose_reschedule':
+      return await proposeReschedule(req, body);
+    case 'respond_reschedule':
+      return await respondReschedule(req, body);
     case 'expire_pending_approvals':
       return await expirePendingApprovals();
     case 'connect_onboarding':
@@ -250,41 +304,10 @@ async function createDepositIntent(body: {
     });
   }
 
-  // Fetch customer to get or create their Stripe customer ID.
-  const { data: user, error: userError } = await supabase
-    .from('users')
-    .select('id, email, full_name, stripe_customer_id')
-    .eq('id', booking.customer_id)
-    .single();
-
-  if (userError || !user) {
-    return new Response(JSON.stringify({ error: 'Customer not found' }), {
-      status: 404,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  let stripeCustomerId: string = user.stripe_customer_id;
-
-  // Create a Stripe customer on first payment.
-  if (!stripeCustomerId) {
-    try {
-      const customer = await stripe.customers.create({
-        email: user.email ?? undefined,
-        name: user.full_name ?? undefined,
-        metadata: { supabase_user_id: user.id },
-      });
-
-      stripeCustomerId = customer.id;
-    } catch (err) {
-      return stripeError('Could not create the Stripe customer', err);
-    }
-
-    await supabase
-      .from('users')
-      .update({ stripe_customer_id: stripeCustomerId })
-      .eq('id', user.id);
-  }
+  // Get or create the customer's Stripe customer ID.
+  const stripeCustomer = await getOrCreateStripeCustomer(booking.customer_id);
+  if (!stripeCustomer.ok) return stripeCustomer.response;
+  const stripeCustomerId = stripeCustomer.customerId;
 
   // Ephemeral key — scopes the client SDK to this customer for the life of
   // the sheet so PaymentSheet can list and save their payment methods.
@@ -357,6 +380,47 @@ async function createDepositIntent(body: {
     }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   );
+}
+
+// Looks up the customer's Stripe customer id, creating one on first use.
+// Shared by the deposit PaymentIntent and the request-time SetupIntent, which
+// must land on the same Stripe customer: the balance and the quote-first
+// deposit are both charged off-session against a card saved to it.
+async function getOrCreateStripeCustomer(
+  userId: string,
+): Promise<{ ok: true; customerId: string } | { ok: false; response: Response }> {
+  const { data: user, error: userError } = await supabase
+    .from('users')
+    .select('id, email, full_name, stripe_customer_id')
+    .eq('id', userId)
+    .single();
+
+  if (userError || !user) {
+    return { ok: false, response: jsonResponse({ error: 'Customer not found' }, 404) };
+  }
+
+  if (user.stripe_customer_id) {
+    return { ok: true, customerId: user.stripe_customer_id };
+  }
+
+  let customerId: string;
+  try {
+    const customer = await stripe.customers.create({
+      email: user.email ?? undefined,
+      name: user.full_name ?? undefined,
+      metadata: { supabase_user_id: user.id },
+    });
+    customerId = customer.id;
+  } catch (err) {
+    return { ok: false, response: stripeError('Could not create the Stripe customer', err) };
+  }
+
+  await supabase
+    .from('users')
+    .update({ stripe_customer_id: customerId })
+    .eq('id', user.id);
+
+  return { ok: true, customerId };
 }
 
 // ── Refund (Flow 2.12) ────────────────────────────────────────────────
@@ -478,16 +542,24 @@ async function refundDeposit(body: {
 // current status so a retried call is a safe no-op rather than a double
 // transition or a double refund.
 //
-// Cancellable statuses for a customer/provider cancel: a booking that is
-// pending payment, awaiting approval, confirmed, or en route. Once the job is
-// in_progress/completed it can no longer be cancelled (the customer no-show
-// path covers a confirmed job the customer never showed up for).
-const CANCELLABLE_STATUSES = [
-  'pending',
-  'pending_provider_approval',
-  'confirmed',
-  'en_route',
-];
+// Which statuses can be cancelled, and which of those carry the 24h fee or
+// penalty, live in ../_shared/bookingPolicy.ts so Jest tests the shipping
+// lists. In short: anything before the job starts can be cancelled; only a
+// committed booking (awaiting approval, confirmed, en route) pays for it.
+const cancellableStatuses: string[] = [...CANCELLABLE_STATUSES];
+
+// Cleared on every cancellation. bookings_adjustment_state_check requires the
+// adjustment columns to be empty on any status but pending_adjustment_approval,
+// so a cancel that left them set would fail outright; a leftover reschedule
+// proposal would render as a live question on a cancelled booking.
+const CLEARED_PROPOSALS = {
+  adjustment_duration_mins: null,
+  adjustment_line_items: null,
+  adjustment_total_amount: null,
+  adjustment_reason: null,
+  proposed_scheduled_at: null,
+  reschedule_proposed_by: null,
+};
 
 // Whether the appointment is within the 24h late-cancel window.
 function isWithinLateCancelWindow(scheduledAtIso: string | null): boolean {
@@ -499,26 +571,37 @@ function isWithinLateCancelWindow(scheduledAtIso: string | null): boolean {
 }
 
 // Customer-initiated cancellation. Outside 24h → full deposit refund. Within
-// 24h → retain the $15 flat fee and refund the remainder of the deposit.
-async function cancelBooking(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
+// 24h → retain the $15 flat fee and refund the remainder of the deposit. No fee
+// at all before the booking is committed, or while the provider's adjustment is
+// waiting on the customer (see cancellationFeeApplies).
+async function cancelBooking(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+  },
+): Promise<Response> {
   const { booking_id } = body;
 
   const { data: booking, error: fetchErr } = await supabase
     .from('bookings')
-    .select('id, status, scheduled_at, deposit_amount')
+    .select('id, customer_id, provider_id, status, scheduled_at, deposit_amount')
     .eq('id', booking_id)
     .maybeSingle();
 
   if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
   if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
-  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  if (!cancellableStatuses.includes(booking.status)) {
     return jsonResponse({ error: `Cannot cancel a booking in status ${booking.status}` }, 409);
   }
 
-  const late = isWithinLateCancelWindow(booking.scheduled_at);
+  const late =
+    cancellationFeeApplies(booking.status) &&
+    isWithinLateCancelWindow(booking.scheduled_at);
   const depositCents = Math.round(Number(booking.deposit_amount ?? 0) * 100);
   const feeCents = late ? Math.min(depositCents, CUSTOMER_LATE_CANCEL_FEE_CENTS) : 0;
   const refundCents = late ? Math.max(depositCents - feeCents, 0) : depositCents;
@@ -532,10 +615,11 @@ async function cancelBooking(body: {
       cancellation_fee: late ? feeCents / 100 : null,
       deposit_forfeited: late, // a fee was retained from the deposit
       approval_expires_at: null,
+      ...CLEARED_PROPOSALS,
       updated_at: new Date().toISOString(),
     })
     .eq('id', booking_id)
-    .in('status', CANCELLABLE_STATUSES)
+    .in('status', cancellableStatuses)
     .select('id');
 
   if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
@@ -567,31 +651,44 @@ async function cancelBooking(body: {
   );
 }
 
-// Provider-initiated cancellation of a booking they had accepted. The customer
-// is made whole (full deposit refund) and the $25 penalty is recorded on the
-// booking for ops to deduct from a future payout (no live charge in MVP).
-async function providerCancelBooking(body: {
-  action: string;
-  booking_id: string;
-  reason?: string;
-}): Promise<Response> {
+// Provider-initiated cancellation — of a booking they had accepted, or of an
+// unpriced request they are declining. The customer is made whole (full
+// deposit refund, a no-op when nothing was charged) and the $25 penalty is
+// recorded on the booking for ops to deduct from a future payout (no live
+// charge in MVP).
+async function providerCancelBooking(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+    reason?: string;
+  },
+): Promise<Response> {
   const { booking_id, reason } = body;
 
   const { data: booking, error: fetchErr } = await supabase
     .from('bookings')
-    .select('id, status, scheduled_at')
+    .select('id, customer_id, provider_id, status, scheduled_at')
     .eq('id', booking_id)
     .maybeSingle();
 
   if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
   if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
-  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
+  if (!cancellableStatuses.includes(booking.status)) {
     return jsonResponse({ error: `Cannot cancel a booking in status ${booking.status}` }, 409);
   }
 
   // Penalty only applies inside the 24h window (PRD: "Provider cancels within
-  // 24h → $25 penalty"). Earlier than that, no penalty.
-  const late = isWithinLateCancelWindow(booking.scheduled_at);
+  // 24h → $25 penalty"), and only once the booking is committed — declining an
+  // unpriced request, or walking away from an adjustment the customer has not
+  // answered, is not a broken commitment.
+  const late =
+    cancellationFeeApplies(booking.status) &&
+    isWithinLateCancelWindow(booking.scheduled_at);
   const penaltyCents = late ? PROVIDER_CANCEL_PENALTY_CENTS : 0;
 
   const { data: cancelled, error: updateErr } = await supabase
@@ -602,10 +699,11 @@ async function providerCancelBooking(body: {
       cancellation_fee: late ? penaltyCents / 100 : null,
       declined_reason: reason ?? null,
       approval_expires_at: null,
+      ...CLEARED_PROPOSALS,
       updated_at: new Date().toISOString(),
     })
     .eq('id', booking_id)
-    .in('status', CANCELLABLE_STATUSES)
+    .in('status', cancellableStatuses)
     .select('id');
 
   if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
@@ -623,6 +721,9 @@ async function providerCancelBooking(body: {
     booking_id,
     cancelled_by: 'provider',
     penalty_cents: penaltyCents,
+    // 0 when nothing had been charged (a declined request), so the customer is
+    // not told about a deposit refund that never happened.
+    refund_cents: 'refunded_amount' in refund ? refund.refunded_amount : 0,
   });
 
   return jsonResponse(
@@ -800,6 +901,43 @@ async function requireCaller(
   return { ok: true, userId: data.user.id };
 }
 
+// Resolve the caller AND which side of this booking they are on. requireCaller
+// says who called; this says whether they may act on this booking at all, and
+// as whom. `expected` narrows it to one side for actions only one party owns.
+//
+// A user on both sides of the same booking (a 'both'-role account that booked
+// itself) resolves as the customer: every customer action is the safer one.
+async function requireParty(
+  req: Request,
+  booking: { customer_id: string | null; provider_id: string | null },
+  expected?: BookingParty,
+): Promise<{ ok: true; party: BookingParty; userId: string } | { ok: false; response: Response }> {
+  const caller = await requireCaller(req);
+  if (!caller.ok) return caller;
+
+  let party: BookingParty | null = null;
+  if (booking.customer_id && booking.customer_id === caller.userId) {
+    party = 'customer';
+  } else if (booking.provider_id) {
+    const { data: profile, error } = await supabase
+      .from('provider_profiles')
+      .select('user_id')
+      .eq('id', booking.provider_id)
+      .maybeSingle();
+    if (error) return { ok: false, response: jsonResponse({ error: error.message }, 500) };
+    if (profile?.user_id === caller.userId) party = 'provider';
+  }
+
+  if (!party || (expected && party !== expected)) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Not authorized to act on this booking' }, 403),
+    };
+  }
+
+  return { ok: true, party, userId: caller.userId };
+}
+
 async function submitQuote(
   req: Request,
   body: {
@@ -956,13 +1094,15 @@ async function submitQuote(
 // charged", which is the state createDepositIntent requires, so the customer's
 // client opens PaymentSheet immediately afterwards through the existing path.
 //
-// The deposit is charged here rather than by the client in the resequenced
-// design (§5: SetupIntent at request, off-session charge at approval, one tap).
-// That change is deliberately NOT in this action yet — it is the highest-risk
-// item in the plan and lands on a payment path that has never been observed
-// end to end, so it is staged separately. When it does land, the charge slots
-// in after the guarded update below and this action stops returning
-// 'requires_deposit'.
+// The deposit is charged here (§5: SetupIntent at request, off-session charge
+// at approval, one tap). The card is the one create_setup_intent saved when the
+// customer sent the request. When there is none — a request sent before card
+// saving existed, or one whose sheet never completed — or the bank refuses the
+// off-session charge (a decline, or 3-D Secure wanting the customer present),
+// the booking stays at 'pending' and the response says 'requires_deposit', so
+// the client falls back to the on-session PaymentSheet through
+// createDepositIntent. Either way the client never asserts the payment worked:
+// stripe-events confirms the booking on the signed payment_intent.succeeded.
 //
 // ⚠️ Pairs with a change in stripe-events: on deposit success a booking whose
 // quoted_total_amount is non-null must be promoted to 'confirmed', not to
@@ -985,7 +1125,7 @@ async function acceptQuote(
   const { data: booking, error: fetchErr } = await supabase
     .from('bookings')
     .select(
-      'id, customer_id, provider_id, status, service_fee, quoted_total_amount',
+      'id, customer_id, provider_id, status, service_fee, quoted_total_amount, stripe_setup_intent_id',
     )
     .eq('id', booking_id)
     .maybeSingle();
@@ -1053,6 +1193,22 @@ async function acceptQuote(
   const { totalCents, depositCents, platformFeeCents, providerPayoutCents } =
     amounts.value;
 
+  // How the deposit gets collected. Decided before the guarded update so an
+  // unusable card routes straight to the PaymentSheet fallback.
+  const saved = paidDeposit ? null : await savedCardFor(booking.stripe_setup_intent_id);
+  const plan = planDepositCollection({
+    hasSucceededDeposit: Boolean(paidDeposit),
+    savedPaymentMethodId: saved?.paymentMethodId ?? null,
+  });
+
+  // A re-approval with a deposit already taken has nothing left to collect, so
+  // it confirms here: stripe-events only promotes a booking on a deposit that
+  // has not happened yet, and 'pending' would strand it. Every first approval
+  // returns to 'pending' — "exists, nothing charged" — which is the state both
+  // the off-session charge below and createDepositIntent require.
+  const nextStatus = plan === 'already_paid' ? 'confirmed' : 'pending';
+  const now = new Date().toISOString();
+
   // Guarded on the approval state, same shape as acceptBooking: if the provider
   // re-quoted or either party cancelled between the read above and here, this
   // matches nothing and the customer is told to refetch rather than approving a
@@ -1060,18 +1216,30 @@ async function acceptQuote(
   const { data: approved, error: updateErr } = await supabase
     .from('bookings')
     .update({
-      status: 'pending',
+      status: nextStatus,
+      ...(nextStatus === 'confirmed' ? { confirmed_at: now } : {}),
       total_amount: totalCents / 100, // DB stores dollars
       deposit_amount: depositCents / 100,
       platform_fee: platformFeeCents / 100,
       provider_payout: providerPayoutCents / 100,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq('id', booking_id)
     .eq('status', 'pending_customer_approval')
     .select('id');
 
   if (updateErr) {
+    // Reachable only on the already_paid path, the one that lands in a status
+    // the overlap guard covers.
+    if (updateErr.code === '23P01') {
+      return jsonResponse(
+        {
+          error: 'The provider no longer has room for this time. Ask them to re-quote.',
+          code: 'slot_conflict',
+        },
+        409,
+      );
+    }
     return jsonResponse({ error: updateErr.message }, 500);
   }
 
@@ -1079,6 +1247,61 @@ async function acceptQuote(
     return jsonResponse(
       { error: 'This quote is no longer awaiting your approval' },
       409,
+    );
+  }
+
+  if (plan === 'already_paid') {
+    await fireNotify('notify-booking-confirmed', { booking_id });
+    return jsonResponse(
+      {
+        ok: true,
+        status: 'confirmed',
+        next: 'none',
+        total_cents: totalCents,
+        deposit_cents: depositCents,
+      },
+      200,
+    );
+  }
+
+  if (plan === 'charge_saved_card' && saved) {
+    const charge = await chargeDepositOffSession({
+      bookingId: booking_id,
+      userId: booking.customer_id,
+      customerId: saved.customerId,
+      paymentMethodId: saved.paymentMethodId,
+      amountCents: depositCents,
+    });
+
+    if (charge.ok) {
+      return jsonResponse(
+        {
+          ok: true,
+          status: 'pending',
+          // Submitted, not succeeded. stripe-events confirms the booking when
+          // Stripe says the charge landed; the client shows "processing".
+          next: 'deposit_processing',
+          total_cents: totalCents,
+          deposit_cents: depositCents,
+        },
+        200,
+      );
+    }
+
+    // The approval stands and the booking sits at 'pending', exactly as it
+    // would have with no saved card. Fall through to the PaymentSheet, with
+    // the reason, so the customer can confirm with their bank or use another
+    // card without re-approving the price.
+    return jsonResponse(
+      {
+        ok: true,
+        status: 'pending',
+        next: 'requires_deposit',
+        charge_error: charge.message,
+        total_cents: totalCents,
+        deposit_cents: depositCents,
+      },
+      200,
     );
   }
 
@@ -1093,6 +1316,773 @@ async function acceptQuote(
       next: 'requires_deposit',
       total_cents: totalCents,
       deposit_cents: depositCents,
+    },
+    200,
+  );
+}
+
+// The card a SetupIntent saved, if it saved one. Stripe is asked directly —
+// never the client — and anything short of 'succeeded' means there is no card
+// to charge, which routes the approval to the PaymentSheet fallback.
+async function savedCardFor(
+  setupIntentId: string | null,
+): Promise<{ customerId: string; paymentMethodId: string } | null> {
+  if (!setupIntentId) return null;
+  try {
+    const intent = await stripe.setupIntents.retrieve(setupIntentId);
+    if (intent.status !== 'succeeded') return null;
+    const paymentMethodId =
+      typeof intent.payment_method === 'string'
+        ? intent.payment_method
+        : intent.payment_method?.id ?? null;
+    const customerId =
+      typeof intent.customer === 'string' ? intent.customer : intent.customer?.id ?? null;
+    if (!paymentMethodId || !customerId) return null;
+    return { customerId, paymentMethodId };
+  } catch (err) {
+    console.warn(`savedCardFor ${setupIntentId} failed`, err);
+    return null;
+  }
+}
+
+// Charge the deposit against a saved card with the customer absent.
+//
+// Created, recorded, THEN confirmed. Confirming in the create call would let
+// payment_intent.succeeded reach stripe-events before the payments row exists,
+// and that handler marks the row by PaymentIntent id — it would match nothing,
+// leaving the deposit 'pending' forever, and refunds and the balance capture
+// both look for a 'succeeded' deposit.
+async function chargeDepositOffSession(input: {
+  bookingId: string;
+  userId: string;
+  customerId: string;
+  paymentMethodId: string;
+  amountCents: number;
+}): Promise<{ ok: true; paymentIntentId: string } | { ok: false; message: string }> {
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await stripe.paymentIntents.create({
+      amount: input.amountCents,
+      currency: 'usd',
+      customer: input.customerId,
+      payment_method: input.paymentMethodId,
+      // Cards only, for the reason createDepositIntent gives.
+      payment_method_types: ['card'],
+      metadata: { booking_id: input.bookingId, payment_type: 'deposit' },
+    });
+  } catch (err) {
+    console.error(`deposit intent create failed for ${input.bookingId}`, err);
+    return { ok: false, message: describeOffSessionFailure(null) };
+  }
+
+  const { error: insertError } = await supabase.from('payments').insert({
+    booking_id: input.bookingId,
+    user_id: input.userId,
+    stripe_payment_intent_id: intent.id,
+    payment_type: 'deposit',
+    amount: input.amountCents / 100, // DB stores dollars
+    status: 'pending',
+  });
+
+  if (insertError) {
+    await stripe.paymentIntents.cancel(intent.id).catch(() => undefined);
+    return { ok: false, message: 'Could not record the payment.' };
+  }
+
+  try {
+    await stripe.paymentIntents.confirm(intent.id, { off_session: true });
+    return { ok: true, paymentIntentId: intent.id };
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code ?? null;
+    await supabase
+      .from('payments')
+      .update({ status: 'failed', processed_at: new Date().toISOString() })
+      .eq('stripe_payment_intent_id', intent.id);
+    await stripe.paymentIntents.cancel(intent.id).catch(() => undefined);
+    return { ok: false, message: describeOffSessionFailure(code) };
+  }
+}
+
+// ── Card saved at request time (Phase 3 / spec §2, §5) ────────────────
+//
+// §2: "Card collection — saved at request (SetupIntent — no hold, no charge);
+// deposit charges at approval". The customer's app creates the unpriced row,
+// then calls create_setup_intent and opens PaymentSheet in setup mode. Nothing
+// is charged and nothing is held. accept_quote later charges the deposit
+// against the payment method this saves.
+
+// Statuses a customer may (re)save a card in: while the request is waiting on
+// the provider, or on them.
+const SETUP_INTENT_STATUSES = [
+  'pending_provider_quote',
+  'awaiting_customer_info',
+  'pending_customer_approval',
+];
+
+async function createSetupIntent(
+  req: Request,
+  body: { booking_id?: string },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  if (!SETUP_INTENT_STATUSES.includes(booking.status)) {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} cannot save a card` },
+      409,
+    );
+  }
+
+  const stripeCustomer = await getOrCreateStripeCustomer(party.userId);
+  if (!stripeCustomer.ok) return stripeCustomer.response;
+
+  let ephemeralKey: Stripe.EphemeralKey;
+  let setupIntent: Stripe.SetupIntent;
+  try {
+    ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: stripeCustomer.customerId },
+      { apiVersion: STRIPE_API_VERSION },
+    );
+    setupIntent = await stripe.setupIntents.create({
+      customer: stripeCustomer.customerId,
+      // Charged later with the customer absent: the deposit at approval and
+      // the balance at completion.
+      usage: 'off_session',
+      // Cards only, for the reason createDepositIntent gives: a non-card method
+      // cannot be reliably charged off-session, which is the whole point.
+      payment_method_types: ['card'],
+      metadata: { booking_id, purpose: 'quote_request' },
+    });
+  } catch (err) {
+    return stripeError('Could not start saving the card', err);
+  }
+
+  const { error: saveErr } = await supabase
+    .from('bookings')
+    .update({ stripe_setup_intent_id: setupIntent.id, updated_at: new Date().toISOString() })
+    .eq('id', booking_id);
+
+  if (saveErr) {
+    // A card saved to an intent the booking does not know about is a card
+    // accept_quote cannot find. Cancel it rather than leave the customer
+    // believing it was saved for this job.
+    await stripe.setupIntents.cancel(setupIntent.id).catch(() => undefined);
+    return jsonResponse({ error: 'Failed to record the card setup' }, 500);
+  }
+
+  return jsonResponse(
+    {
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+      customerId: stripeCustomer.customerId,
+      ephemeralKeySecret: ephemeralKey.secret,
+    },
+    200,
+  );
+}
+
+// Called after the setup sheet closes without error. The client does not get
+// to say the card was saved: Stripe is asked, and only a 'succeeded' intent
+// counts. On success the provider is told the request is waiting — this is the
+// moment it becomes a real request rather than a half-finished form.
+async function confirmSetupIntent(
+  req: Request,
+  body: { booking_id?: string },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status, stripe_setup_intent_id')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  const saved = await savedCardFor(booking.stripe_setup_intent_id);
+  if (!saved) {
+    return jsonResponse({ error: 'The card has not been saved yet', card_saved: false }, 409);
+  }
+
+  if (booking.status === 'pending_provider_quote') {
+    await fireNotify('notify-quote-requested', { booking_id });
+  }
+
+  return jsonResponse({ ok: true, card_saved: true }, 200);
+}
+
+// ── More information (§7 "photos unusable") ───────────────────────────
+//
+// Rather than declining a request it cannot price, the provider sends it back
+// with a note. Nothing has been charged in either state, so this is a status
+// move and a push, nothing more.
+
+async function requestMorePhotos(
+  req: Request,
+  body: { booking_id?: string; note?: unknown },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const note = validateInfoRequestNote(body.note);
+  if (!note.ok) return jsonResponse({ error: note.error }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
+  const { data: parked, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'awaiting_customer_info',
+      info_request_note: note.value,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_provider_quote')
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!parked || parked.length === 0) {
+    return jsonResponse({ error: 'This request is no longer waiting on your quote' }, 409);
+  }
+
+  await fireNotify('notify-photos-requested', { booking_id });
+  return jsonResponse({ ok: true, status: 'awaiting_customer_info' }, 200);
+}
+
+// The customer has added what was asked for (photos, a different window) and
+// hands the request back. The note is kept so the provider can see what they
+// asked for when they pick it up again.
+async function provideCustomerInfo(
+  req: Request,
+  body: { booking_id?: string },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  const { data: returned, error: updateErr } = await supabase
+    .from('bookings')
+    .update({ status: 'pending_provider_quote', updated_at: new Date().toISOString() })
+    .eq('id', booking_id)
+    .eq('status', 'awaiting_customer_info')
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!returned || returned.length === 0) {
+    return jsonResponse({ error: 'This request is not waiting on you' }, 409);
+  }
+
+  await fireNotify('notify-quote-requested', { booking_id, resubmitted: true });
+  return jsonResponse({ ok: true, status: 'pending_provider_quote' }, 200);
+}
+
+// ── Adjustment (§7 "vehicle worse than declared on arrival") ──────────
+//
+// The provider proposes a new duration and any extra charges on a confirmed
+// job. Nothing agreed moves until the customer approves: the proposal lives in
+// the adjustment_* columns, and total_amount, deposit_amount and
+// estimated_duration_mins stay as they were. pending_adjustment_approval is
+// covered by the overlap guard (20260822000000), so the slot stays held.
+//
+// If the customer declines, the booking is cancelled with a full refund and no
+// fee — the provider asked to change the deal and the customer said no, which
+// is nobody's fault. Either side can also cancel penalty-free while it is open
+// (see cancellationFeeApplies).
+
+// Read back whenever an adjustment is in play. One literal, not a
+// concatenation: supabase-js parses the select string at the type level, and a
+// built-up string types every row as an error.
+const ADJUSTMENT_COLUMNS =
+  'id, customer_id, provider_id, status, total_amount, service_fee, estimated_duration_mins, quote_line_items, adjustment_duration_mins, adjustment_line_items, adjustment_total_amount, adjustment_reason';
+
+// The adjustment columns emptied, for every exit from the waiting state.
+const CLEARED_ADJUSTMENT = {
+  adjustment_duration_mins: null,
+  adjustment_line_items: null,
+  adjustment_total_amount: null,
+  adjustment_reason: null,
+};
+
+async function succeededDepositCents(bookingId: string): Promise<
+  { ok: true; cents: number | null } | { ok: false; response: Response }
+> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('amount')
+    .eq('booking_id', bookingId)
+    .eq('payment_type', 'deposit')
+    .eq('status', 'succeeded')
+    .maybeSingle();
+  if (error) return { ok: false, response: jsonResponse({ error: error.message }, 500) };
+  return { ok: true, cents: data ? Math.round(Number(data.amount) * 100) : null };
+}
+
+async function adjustJobDuration(
+  req: Request,
+  body: {
+    booking_id?: string;
+    estimated_duration_mins?: unknown;
+    adjustment_line_items?: unknown;
+    reason?: unknown;
+  },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(ADJUSTMENT_COLUMNS)
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
+  if (booking.status !== 'confirmed') {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} cannot be adjusted` },
+      409,
+    );
+  }
+
+  const deposit = await succeededDepositCents(booking_id);
+  if (!deposit.ok) return deposit.response;
+
+  const prepared = prepareAdjustment(
+    {
+      estimated_duration_mins: body.estimated_duration_mins,
+      adjustment_line_items: body.adjustment_line_items,
+      reason: body.reason,
+    },
+    {
+      currentTotalCents: Math.round(Number(booking.total_amount ?? 0) * 100),
+      currentDurationMins: booking.estimated_duration_mins,
+      chargedDepositCents: deposit.cents,
+    },
+  );
+  if (!prepared.ok) return jsonResponse({ error: prepared.error }, 400);
+
+  const { durationMins, lineItems, reason, adjustedTotalCents } = prepared.value;
+
+  const { data: proposed, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'pending_adjustment_approval',
+      adjustment_duration_mins: durationMins,
+      adjustment_line_items: lineItems,
+      adjustment_total_amount: adjustedTotalCents / 100, // DB stores dollars
+      adjustment_reason: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'confirmed')
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!proposed || proposed.length === 0) {
+    return jsonResponse({ error: 'This booking is no longer confirmed' }, 409);
+  }
+
+  await fireNotify('notify-adjustment-proposed', { booking_id });
+
+  return jsonResponse(
+    {
+      ok: true,
+      status: 'pending_adjustment_approval',
+      adjustment_duration_mins: durationMins,
+      adjustment_total_cents: adjustedTotalCents,
+      adjustment_line_items: lineItems,
+    },
+    200,
+  );
+}
+
+// The provider takes the proposal back before the customer answers, and the
+// job carries on as agreed.
+async function withdrawAdjustment(
+  req: Request,
+  body: { booking_id?: string },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
+  const { data: withdrawn, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'confirmed',
+      ...CLEARED_ADJUSTMENT,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_adjustment_approval')
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!withdrawn || withdrawn.length === 0) {
+    return jsonResponse({ error: 'There is no pending change to withdraw' }, 409);
+  }
+
+  return jsonResponse({ ok: true, status: 'confirmed' }, 200);
+}
+
+async function respondAdjustment(
+  req: Request,
+  body: { booking_id?: string; approve?: unknown },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+  if (typeof body.approve !== 'boolean') {
+    return jsonResponse({ error: 'approve must be true or false' }, 400);
+  }
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(ADJUSTMENT_COLUMNS)
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  if (booking.status !== 'pending_adjustment_approval') {
+    return jsonResponse({ error: 'There is no change waiting on you' }, 409);
+  }
+
+  if (!body.approve) {
+    return await declineAdjustment(booking_id, booking.adjustment_total_amount);
+  }
+
+  const deposit = await succeededDepositCents(booking_id);
+  if (!deposit.ok) return deposit.response;
+
+  const { data: profile, error: profileErr } = await supabase
+    .from('provider_profiles')
+    .select('platform_fee_rate')
+    .eq('id', booking.provider_id)
+    .maybeSingle();
+
+  if (profileErr) return jsonResponse({ error: profileErr.message }, 500);
+  if (!profile) return jsonResponse({ error: 'Provider not found for booking' }, 409);
+
+  // Same arithmetic as a quote approval, for the same two reasons: the deposit
+  // already charged is kept as recorded so the balance still sums to what the
+  // customer agreed, and the provider's payout grows with the new charges.
+  const amounts = computeAcceptedAmounts({
+    quotedTotalCents: Math.round(Number(booking.adjustment_total_amount ?? 0) * 100),
+    serviceFeeCents: Math.round(Number(booking.service_fee ?? 0) * 100),
+    platformFeeRate: Number(profile.platform_fee_rate ?? DEFAULT_PLATFORM_FEE_RATE),
+    chargedDepositCents: deposit.cents,
+  });
+  if (!amounts.ok) return jsonResponse({ error: amounts.error }, 409);
+
+  const { totalCents, depositCents, platformFeeCents, providerPayoutCents } =
+    amounts.value;
+
+  // The itemisation the booking carries afterwards: whatever the quote had,
+  // then the new charges, so base + items still sums to the total.
+  const addedItems = appendLineItems(booking.adjustment_line_items, []);
+  const lineItems = appendLineItems(booking.quote_line_items, addedItems);
+
+  // Guarded on the exact proposal read above as well as the status, so a
+  // proposal withdrawn and re-made between the read and here is not approved
+  // on the strength of the old one.
+  const { data: approved, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'confirmed',
+      estimated_duration_mins: booking.adjustment_duration_mins,
+      total_amount: totalCents / 100,
+      deposit_amount: depositCents / 100,
+      platform_fee: platformFeeCents / 100,
+      provider_payout: providerPayoutCents / 100,
+      quote_line_items: lineItems,
+      quoted_total_amount: totalCents / 100,
+      ...CLEARED_ADJUSTMENT,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'pending_adjustment_approval')
+    .eq('adjustment_total_amount', booking.adjustment_total_amount)
+    .select('id');
+
+  if (updateErr) {
+    // A longer job can run into the provider's next one. The proposal stays
+    // open; the provider has to shorten it or move the other job.
+    if (updateErr.code === '23P01') {
+      return jsonResponse(
+        {
+          error:
+            'The longer job would overlap another booking on the provider’s calendar. They need to change the proposal.',
+          code: 'slot_conflict',
+        },
+        409,
+      );
+    }
+    return jsonResponse({ error: updateErr.message }, 500);
+  }
+
+  if (!approved || approved.length === 0) {
+    return jsonResponse({ error: 'The proposed change has been replaced. Refresh and review it again.' }, 409);
+  }
+
+  await fireNotify('notify-adjustment-approved', { booking_id });
+
+  return jsonResponse(
+    { ok: true, status: 'confirmed', total_cents: totalCents, deposit_cents: depositCents },
+    200,
+  );
+}
+
+// Declining cancels the booking with a full deposit refund and no fee.
+async function declineAdjustment(
+  bookingId: string,
+  proposedTotal: number | null,
+): Promise<Response> {
+  const { data: cancelled, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      cancelled_by: 'customer',
+      cancellation_fee: null,
+      deposit_forfeited: false,
+      declined_reason: 'Customer declined the provider’s proposed change',
+      approval_expires_at: null,
+      ...CLEARED_PROPOSALS,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', bookingId)
+    .eq('status', 'pending_adjustment_approval')
+    .eq('adjustment_total_amount', proposedTotal)
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!cancelled || cancelled.length === 0) {
+    return jsonResponse({ error: 'The proposed change has been replaced. Refresh and review it again.' }, 409);
+  }
+
+  const refund = await issueDepositRefund(bookingId, 'requested_by_customer');
+  if (!refund.ok) {
+    return jsonResponse({ error: refund.error, cancelled: true }, refund.status);
+  }
+
+  await fireNotify('notify-booking-cancelled', {
+    booking_id: bookingId,
+    cancelled_by: 'customer',
+    fee_cents: 0,
+    refund_cents: 'refunded_amount' in refund ? refund.refunded_amount : 0,
+  });
+
+  return jsonResponse({ ok: true, status: 'cancelled', refund }, 200);
+}
+
+// ── Reschedule (confirmed bookings, either party) ─────────────────────
+//
+// A confirmed start is a commitment on both sides, so neither side moves it
+// alone. One party proposes; the booking keeps its current start — and its
+// slot — until the other accepts. The client lost its UPDATE on scheduled_at
+// in 20260822000000 for the same reason.
+
+async function proposeReschedule(
+  req: Request,
+  body: { booking_id?: string; scheduled_at?: unknown },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status, scheduled_at')
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking);
+  if (!party.ok) return party.response;
+
+  if (booking.status !== 'confirmed') {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} cannot be rescheduled` },
+      409,
+    );
+  }
+
+  const start = validateRescheduleStart(body.scheduled_at, {
+    currentScheduledAt: booking.scheduled_at,
+    nowMs: Date.now(),
+  });
+  if (!start.ok) return jsonResponse({ error: start.error }, 400);
+
+  // A new proposal replaces any open one, from either side — a counter-offer
+  // is just a proposal from the other party.
+  const { data: proposed, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      proposed_scheduled_at: start.value,
+      reschedule_proposed_by: party.party,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'confirmed')
+    .select('id');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!proposed || proposed.length === 0) {
+    return jsonResponse({ error: 'This booking is no longer confirmed' }, 409);
+  }
+
+  await fireNotify('notify-reschedule-proposed', { booking_id });
+
+  return jsonResponse(
+    { ok: true, proposed_scheduled_at: start.value, proposed_by: party.party },
+    200,
+  );
+}
+
+async function respondReschedule(
+  req: Request,
+  body: { booking_id?: string; accept?: unknown },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+  if (typeof body.accept !== 'boolean') {
+    return jsonResponse({ error: 'accept must be true or false' }, 400);
+  }
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(
+      'id, customer_id, provider_id, status, proposed_scheduled_at, reschedule_proposed_by',
+    )
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking);
+  if (!party.ok) return party.response;
+
+  if (
+    booking.status !== 'confirmed' ||
+    !booking.proposed_scheduled_at ||
+    (booking.reschedule_proposed_by !== 'customer' &&
+      booking.reschedule_proposed_by !== 'provider')
+  ) {
+    return jsonResponse({ error: 'There is no new time waiting for an answer' }, 409);
+  }
+
+  const proposedBy: BookingParty = booking.reschedule_proposed_by;
+  const decision = rescheduleResponseAllowed(party.party, proposedBy, body.accept);
+  if (!decision.ok) return jsonResponse({ error: decision.error }, 403);
+
+  const cleared = { proposed_scheduled_at: null, reschedule_proposed_by: null };
+
+  // Guarded on the exact proposal read above, so a counter-proposal that
+  // landed in between is not accepted on the strength of this one.
+  const { data: resolved, error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      ...(decision.value === 'accept' ? { scheduled_at: booking.proposed_scheduled_at } : {}),
+      ...cleared,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', booking_id)
+    .eq('status', 'confirmed')
+    .eq('proposed_scheduled_at', booking.proposed_scheduled_at)
+    .select('id');
+
+  if (updateErr) {
+    if (updateErr.code === '23P01') {
+      return jsonResponse(
+        {
+          error:
+            'That time overlaps another confirmed job on the provider’s calendar. Propose a different time.',
+          code: 'slot_conflict',
+        },
+        409,
+      );
+    }
+    return jsonResponse({ error: updateErr.message }, 500);
+  }
+
+  if (!resolved || resolved.length === 0) {
+    return jsonResponse({ error: 'The proposed time has changed. Refresh and review it again.' }, 409);
+  }
+
+  // The proposer hears the answer; a withdrawal tells nobody, since the other
+  // party had not acted on it.
+  if (decision.value !== 'withdraw') {
+    await fireNotify('notify-reschedule-resolved', {
+      booking_id,
+      notify_party: proposedBy,
+      accepted: decision.value === 'accept',
+      scheduled_at: booking.proposed_scheduled_at,
+    });
+  }
+
+  return jsonResponse(
+    {
+      ok: true,
+      outcome: decision.value,
+      ...(decision.value === 'accept' ? { scheduled_at: booking.proposed_scheduled_at } : {}),
     },
     200,
   );
@@ -1341,14 +2331,28 @@ async function captureBalance(body: {
     return jsonResponse({ error: 'Booking is cancelled' }, 409);
   }
 
+  // The customer has not agreed to the price this would charge. The balance is
+  // total_amount − deposit_amount, and total_amount only moves when they
+  // approve the adjustment (respond_adjustment).
+  if (booking.status === 'pending_adjustment_approval') {
+    return jsonResponse(
+      { error: 'The customer has not answered your proposed change yet' },
+      409,
+    );
+  }
+
   // Non-Negotiable #3: a job cannot be completed without the minimum number of
   // before/after photos. The client enforces this too (Flow 5.5) but the gate
   // must live here so the rule can't be bypassed via a direct API call. Skip
   // the check on idempotent re-runs of an already-captured booking below.
+  // before/after only. Intake photos are the customer's, taken before the job
+  // was even priced, and say nothing about whether it was done — counting them
+  // would let four request photos satisfy the completion gate.
   const { count: photoCount, error: photoError } = await supabase
     .from('booking_photos')
     .select('id', { count: 'exact', head: true })
-    .eq('booking_id', booking_id);
+    .eq('booking_id', booking_id)
+    .in('photo_type', ['before', 'after']);
 
   if (photoError) {
     return jsonResponse({ error: 'Failed to verify job photos' }, 500);

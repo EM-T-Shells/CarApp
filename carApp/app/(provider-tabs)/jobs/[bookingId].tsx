@@ -20,6 +20,13 @@
 //
 // expo-location is approved but not yet installed (External); like LiveMap's
 // react-native-maps, this screen compiles against it and works once installed.
+//
+// Quote-first (Phase 3) additions on a confirmed job, all server actions:
+//   • Adjust Job — propose a longer duration and/or extra charges (§7 "vehicle
+//     worse than declared"). Nothing agreed moves until the customer approves;
+//     the provider can withdraw it until then.
+//   • Propose New Time — reschedule by proposal; the start moves only when the
+//     customer accepts, and a customer's proposal is answered here.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -56,6 +63,13 @@ import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
 import { StatusTimeline } from '../../../src/components/booking/StatusTimeline';
 import { JobPhotoCapture } from '../../../src/components/provider/JobPhotoCapture';
+import QuoteBuilder, { type QuoteDraft } from '../../../src/components/provider/QuoteBuilder';
+import {
+  RescheduleProposalCard,
+  RescheduleSheet,
+} from '../../../src/components/booking/RescheduleProposal';
+import { Sheet } from '../../../src/components/ui/Sheet';
+import { TextField } from '../../../src/components/ui/TextField';
 import type { BookingStatus } from '../../../src/components/booking/StatusTimeline';
 import { colors, spacing } from '../../../src/design/tokens';
 import {
@@ -68,14 +82,20 @@ import { updateBooking, insertMessageThread } from '../../../src/lib/supabase/mu
 import {
   captureBalance,
   acceptBooking,
+  adjustJobDuration,
   declineBooking,
   providerCancelBooking,
   markNoShow,
+  proposeReschedule,
+  respondReschedule,
+  withdrawAdjustment,
 } from '../../../src/lib/stripe';
+import { MAX_ADJUSTMENT_REASON_LENGTH } from '../../../supabase/functions/_shared/quote';
 import { sendProviderLocation } from '../../../src/lib/location/tracking';
 import { useAuthStore } from '../../../src/state/auth';
 import { centsToDisplay } from '../../../src/utils/money';
 import { formatDateTime } from '../../../src/utils/date';
+import { formatDuration } from '../../../src/utils/duration';
 import { MIN_PHOTOS_PER_TYPE, photoRequirement } from '../../../src/utils/jobPhotos';
 import type { ProviderJobParams } from '../../../src/types/navigation';
 import type { BookingPhoto } from '../../../src/types/models';
@@ -115,6 +135,10 @@ export default function ProviderJobScreen(): React.ReactElement {
   const [error, setError] = useState<Error | null>(null);
   const [isMutating, setIsMutating] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [showRescheduleSheet, setShowRescheduleSheet] = useState(false);
+  const [adjustDraft, setAdjustDraft] = useState<QuoteDraft | null>(null);
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustError, setAdjustError] = useState<string | undefined>();
 
   const photoReq = useMemo(() => photoRequirement(photos), [photos]);
 
@@ -407,6 +431,80 @@ export default function ProviderJobScreen(): React.ReactElement {
     );
   }, [job, photoReq, fetchJob]);
 
+  // ── Adjust a confirmed job (§7) ──────────────────────────────────────
+  const openAdjust = useCallback(() => {
+    if (!job) return;
+    setAdjustDraft({
+      scheduledAt: null,
+      durationMins: job.estimated_duration_mins ?? job.suggested_duration_mins ?? 60,
+      lineItems: [],
+    });
+    setAdjustReason('');
+    setAdjustError(undefined);
+  }, [job]);
+
+  const handleSubmitAdjust = useCallback(async () => {
+    if (!job || !adjustDraft) return;
+    setIsMutating(true);
+    setAdjustError(undefined);
+    const result = await adjustJobDuration({
+      bookingId: job.id,
+      estimatedDurationMins: adjustDraft.durationMins,
+      lineItems: adjustDraft.lineItems
+        .filter((item) => item.label.trim().length > 0 && item.amountCents > 0)
+        .map((item) => ({ label: item.label.trim(), amount_cents: item.amountCents })),
+      reason: adjustReason.trim(),
+    });
+    setIsMutating(false);
+    if (result.error) {
+      // Inline: the distinctions matter (nothing changed, below the deposit,
+      // no longer confirmed) and the form is still open to fix it.
+      setAdjustError(result.error.message);
+      return;
+    }
+    setAdjustDraft(null);
+    fetchJob(true);
+    Alert.alert('Change sent', 'The customer has been asked to approve it. Nothing changes until they do.');
+  }, [job, adjustDraft, adjustReason, fetchJob]);
+
+  const handleWithdrawAdjust = useCallback(async () => {
+    if (!job) return;
+    setIsMutating(true);
+    const result = await withdrawAdjustment(job.id);
+    setIsMutating(false);
+    if (result.error) Alert.alert('Could not withdraw', result.error.message);
+    fetchJob(true);
+  }, [job, fetchJob]);
+
+  // ── Reschedule, by proposal ──────────────────────────────────────────
+  const handleProposeReschedule = useCallback(
+    async (scheduledAt: string) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await proposeReschedule(job.id, scheduledAt);
+      setIsMutating(false);
+      if (result.error) {
+        Alert.alert('Could not propose', result.error.message);
+        return;
+      }
+      setShowRescheduleSheet(false);
+      fetchJob(true);
+    },
+    [job, fetchJob],
+  );
+
+  const handleRespondReschedule = useCallback(
+    async (accept: boolean) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await respondReschedule(job.id, accept);
+      setIsMutating(false);
+      if (result.error) Alert.alert('Could not update', result.error.message);
+      fetchJob(true);
+    },
+    [job, fetchJob],
+  );
+
   // ── Navigate / message ───────────────────────────────────────────────
   const handleOpenInMaps = useCallback(() => {
     if (!job?.location_lat || !job?.location_lng) return;
@@ -543,6 +641,49 @@ export default function ProviderJobScreen(): React.ReactElement {
           </Card>
 
           <Spacer size="lg" />
+
+          {status === 'pending_adjustment_approval' && job.adjustment_total_amount != null && (
+            <>
+              <View testID="adjustment-pending">
+                <Card>
+                  <Text variant="label" color="charcoal">
+                    Waiting on the customer
+                  </Text>
+                  <Spacer size="sm" />
+                  <Text variant="body" color="midGray">
+                    You proposed {formatDuration(job.adjustment_duration_mins) || 'a new duration'}{' '}
+                    and a new total of {centsToDisplay(dollarsToCents(job.adjustment_total_amount))}.
+                    The job stays as agreed until they approve.
+                  </Text>
+                  <Spacer size="md" />
+                  <Button
+                    label="Withdraw Change"
+                    variant="secondary"
+                    size="md"
+                    onPress={handleWithdrawAdjust}
+                    loading={isMutating}
+                    testID="adjustment-withdraw"
+                  />
+                </Card>
+              </View>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {status === 'confirmed' && job.proposed_scheduled_at && (
+            <>
+              <RescheduleProposalCard
+                proposedAt={job.proposed_scheduled_at}
+                proposedByViewer={job.reschedule_proposed_by === 'provider'}
+                otherPartyLabel={customerName}
+                onAccept={() => handleRespondReschedule(true)}
+                onDecline={() => handleRespondReschedule(false)}
+                onWithdraw={() => handleRespondReschedule(false)}
+                busy={isMutating}
+              />
+              <Spacer size="lg" />
+            </>
+          )}
 
           {/* Details */}
           <Card variant="outlined">
@@ -711,15 +852,40 @@ export default function ProviderJobScreen(): React.ReactElement {
               )}
 
               {status === 'confirmed' && (
-                <Button
-                  label="Start Travel"
-                  variant="primary"
-                  size="lg"
-                  loading={isMutating}
-                  onPress={handleStartTravel}
-                  leftIcon={<Truck size={18} color={palette.offWhite} strokeWidth={2} />}
-                  testID="job-start-travel"
-                />
+                <>
+                  <Button
+                    label="Start Travel"
+                    variant="primary"
+                    size="lg"
+                    loading={isMutating}
+                    onPress={handleStartTravel}
+                    leftIcon={<Truck size={18} color={palette.offWhite} strokeWidth={2} />}
+                    testID="job-start-travel"
+                  />
+                  <Spacer size="sm" />
+                  <View style={styles.actionRow}>
+                    <Button
+                      label="Adjust Job"
+                      variant="secondary"
+                      size="md"
+                      onPress={openAdjust}
+                      disabled={isMutating}
+                      style={styles.flexBtn}
+                      testID="job-adjust"
+                    />
+                    {!job.proposed_scheduled_at && (
+                      <Button
+                        label="New Time"
+                        variant="secondary"
+                        size="md"
+                        onPress={() => setShowRescheduleSheet(true)}
+                        disabled={isMutating}
+                        style={styles.flexBtn}
+                        testID="job-reschedule"
+                      />
+                    )}
+                  </View>
+                </>
               )}
 
               {status === 'en_route' && (
@@ -743,6 +909,19 @@ export default function ProviderJobScreen(): React.ReactElement {
                   onPress={handleComplete}
                   leftIcon={<CheckCircle2 size={18} color={palette.offWhite} strokeWidth={2} />}
                   testID="job-complete"
+                />
+              )}
+
+              {/* Walking away from an unanswered adjustment is penalty-free
+                  (bookingPolicy.cancellationFeeApplies). */}
+              {status === 'pending_adjustment_approval' && (
+                <Button
+                  label="Cancel Job"
+                  variant="ghost"
+                  size="md"
+                  loading={isMutating}
+                  onPress={handleProviderCancel}
+                  testID="job-provider-cancel"
                 />
               )}
 
@@ -799,6 +978,64 @@ export default function ProviderJobScreen(): React.ReactElement {
             </View>
           </SafeAreaView>
         )}
+
+        <RescheduleSheet
+          visible={showRescheduleSheet}
+          onClose={() => setShowRescheduleSheet(false)}
+          currentScheduledAt={job.scheduled_at}
+          otherPartyLabel={customerName}
+          onSubmit={handleProposeReschedule}
+          submitting={isMutating}
+        />
+
+        {/* Adjustment: the same builder as a quote, with no window (the start
+            is agreed) and the current total as the base. The server adds the
+            charges and returns the total the customer will see. */}
+        <Sheet
+          visible={adjustDraft !== null}
+          onClose={() => setAdjustDraft(null)}
+          title="Adjust this job"
+        >
+          {adjustDraft && (
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text variant="body" color="midGray">
+                Tell {customerName} what changed. Nothing is updated until they
+                approve; if they decline, the booking is cancelled and they are
+                refunded in full.
+              </Text>
+              <Spacer size="md" />
+              <QuoteBuilder
+                window={null}
+                baseTotalCents={totalCents}
+                baseLabel="Current total"
+                totalLabel="New total"
+                draft={adjustDraft}
+                onChange={setAdjustDraft}
+                error={adjustError}
+              />
+              <Spacer size="md" />
+              <TextField
+                label="Why?"
+                value={adjustReason}
+                onChangeText={(text) => setAdjustReason(text.slice(0, MAX_ADJUSTMENT_REASON_LENGTH))}
+                placeholder="Heavy mud throughout the interior"
+                multiline
+                testID="adjust-reason"
+              />
+              <Spacer size="lg" />
+              <Button
+                label="Send to Customer"
+                variant="primary"
+                size="lg"
+                onPress={handleSubmitAdjust}
+                loading={isMutating}
+                disabled={adjustReason.trim().length === 0}
+                testID="adjust-send"
+              />
+              <Spacer size="base" />
+            </ScrollView>
+          )}
+        </Sheet>
       </View>
     </>
   );

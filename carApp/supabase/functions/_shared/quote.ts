@@ -214,6 +214,11 @@ export function validateQuoteDuration(input: unknown): QuoteValidation<number> {
  *
  * A NULL window means the customer named an exact time through the pre-quote
  * DateTimePicker flow; there is nothing to place the start inside.
+ *
+ * propose_reschedule exists now, but only for confirmed bookings — an unpriced
+ * request has nothing agreed to reschedule. A provider who cannot make the
+ * window sends the request back with request_more_photos and a note, and the
+ * customer can pick a new window while it is with them.
  */
 export function validateQuoteStart(
   input: unknown,
@@ -252,7 +257,7 @@ export function validateQuoteStart(
     return {
       ok: false,
       error:
-        'The start time is outside the arrival window the customer asked for. Propose a reschedule instead.',
+        'The start time is outside the arrival window the customer asked for. Send the request back to ask the customer for another window.',
     };
   }
 
@@ -409,4 +414,191 @@ export function prepareQuote(
       quotedTotalCents: total.value,
     },
   };
+}
+
+// ── request_more_photos ───────────────────────────────────────────────
+
+// Matches bookings_info_request_note_check in 20260822000000.
+export const MAX_INFO_REQUEST_NOTE_LENGTH = 500;
+
+/**
+ * What the provider tells the customer when sending a request back (§7
+ * "photos unusable"). Required: a request parked in awaiting_customer_info with
+ * no explanation leaves the customer guessing what would unblock it.
+ */
+export function validateInfoRequestNote(input: unknown): QuoteValidation<string> {
+  const note = typeof input === 'string' ? input.trim() : '';
+  if (note.length === 0) {
+    return { ok: false, error: 'Tell the customer what you need from them' };
+  }
+  if (note.length > MAX_INFO_REQUEST_NOTE_LENGTH) {
+    return {
+      ok: false,
+      error: `Keep the note under ${MAX_INFO_REQUEST_NOTE_LENGTH} characters`,
+    };
+  }
+  return { ok: true, value: note };
+}
+
+// ── adjust_job_duration (§7 "vehicle worse than declared") ────────────
+
+export const MAX_ADJUSTMENT_REASON_LENGTH = 280;
+
+export interface AdjustmentRequest {
+  estimated_duration_mins?: unknown;
+  adjustment_line_items?: unknown;
+  reason?: unknown;
+}
+
+export interface PreparedAdjustment {
+  durationMins: number;
+  /** The extra charges only — appended to the quote's items on approval. */
+  lineItems: QuoteLineItem[];
+  reason: string;
+  /** What total_amount becomes if the customer approves. */
+  adjustedTotalCents: number;
+}
+
+/**
+ * Validate a provider's proposed change to a confirmed job.
+ *
+ * The adjusted total is the agreed total plus the new items, with the same
+ * no-fee-on-surcharges rule as a quote, so the approval screen's itemisation
+ * sums to exactly what the customer is asked to agree to. It is refused here if
+ * it falls below a deposit already charged, rather than letting the proposal
+ * reach the customer and fail at approval: computeAcceptedAmounts refuses that
+ * case too, for the same balance-arithmetic reason.
+ */
+export function prepareAdjustment(
+  request: AdjustmentRequest,
+  context: {
+    currentTotalCents: number;
+    currentDurationMins: number | null;
+    chargedDepositCents: number | null;
+  },
+): QuoteValidation<PreparedAdjustment> {
+  const duration = validateQuoteDuration(request.estimated_duration_mins);
+  if (!duration.ok) return duration;
+
+  const items = normalizeQuoteLineItems(request.adjustment_line_items);
+  if (!items.ok) return items;
+
+  const reason = typeof request.reason === 'string' ? request.reason.trim() : '';
+  if (reason.length === 0) {
+    return { ok: false, error: 'Tell the customer why the job needs to change' };
+  }
+  if (reason.length > MAX_ADJUSTMENT_REASON_LENGTH) {
+    return {
+      ok: false,
+      error: `Keep the reason under ${MAX_ADJUSTMENT_REASON_LENGTH} characters`,
+    };
+  }
+
+  // An "adjustment" that changes nothing would still pull the customer into an
+  // approval step and, until they answer, a status their screens treat as a
+  // question. Refuse it rather than ask them to approve a no-op.
+  if (duration.value === context.currentDurationMins && items.value.length === 0) {
+    return { ok: false, error: 'Change the duration or add a charge to adjust the job' };
+  }
+
+  const total = computeQuotedTotalCents(context.currentTotalCents, items.value);
+  if (!total.ok) return total;
+
+  if (
+    context.chargedDepositCents !== null &&
+    total.value < context.chargedDepositCents
+  ) {
+    return {
+      ok: false,
+      error: 'The adjusted total cannot be less than the deposit already charged',
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      durationMins: duration.value,
+      lineItems: items.value,
+      reason,
+      adjustedTotalCents: total.value,
+    },
+  };
+}
+
+/**
+ * The booking's itemisation after an approved adjustment: what it already had,
+ * then the new charges. The existing column is read leniently — a malformed
+ * entry is dropped rather than failing an approval the customer has already
+ * agreed to — because the grammar trigger guards every write going forward.
+ */
+export function appendLineItems(
+  existing: unknown,
+  added: readonly QuoteLineItem[],
+): QuoteLineItem[] {
+  const prior = Array.isArray(existing)
+    ? existing.flatMap((raw): QuoteLineItem[] => {
+        const item = raw as { label?: unknown; amount_cents?: unknown };
+        if (
+          typeof item?.label !== 'string' ||
+          item.label.trim().length === 0 ||
+          typeof item.amount_cents !== 'number' ||
+          !Number.isSafeInteger(item.amount_cents)
+        ) {
+          return [];
+        }
+        return [{ label: item.label, amount_cents: item.amount_cents }];
+      })
+    : [];
+  return [...prior, ...added];
+}
+
+// ── propose_reschedule / respond_reschedule ───────────────────────────
+
+/** Which side of a booking the caller is. */
+export type BookingParty = 'customer' | 'provider';
+
+/**
+ * A proposed new start for a confirmed job. Only sanity is checked: the other
+ * party's acceptance is the real validation, and the overlap constraint is the
+ * last word on whether the provider's calendar can hold it.
+ */
+export function validateRescheduleStart(
+  input: unknown,
+  context: { currentScheduledAt: string | null; nowMs: number },
+): QuoteValidation<string> {
+  if (typeof input !== 'string' || input.length === 0) {
+    return { ok: false, error: 'scheduled_at is required' };
+  }
+  const startMs = new Date(input).getTime();
+  if (Number.isNaN(startMs)) {
+    return { ok: false, error: 'scheduled_at is not a valid timestamp' };
+  }
+  if (startMs <= context.nowMs) {
+    return { ok: false, error: 'A new time has to be in the future' };
+  }
+  if (
+    context.currentScheduledAt !== null &&
+    new Date(context.currentScheduledAt).getTime() === startMs
+  ) {
+    return { ok: false, error: 'That is already the scheduled time' };
+  }
+  return { ok: true, value: new Date(startMs).toISOString() };
+}
+
+/**
+ * Who may answer a pending proposal. The other party accepts or declines; the
+ * proposer may only withdraw — accepting your own proposal would be the
+ * one-sided reschedule this pair of actions exists to prevent.
+ */
+export function rescheduleResponseAllowed(
+  caller: BookingParty,
+  proposedBy: BookingParty,
+  accept: boolean,
+): QuoteValidation<'accept' | 'decline' | 'withdraw'> {
+  if (caller === proposedBy) {
+    return accept
+      ? { ok: false, error: 'You cannot accept your own proposal' }
+      : { ok: true, value: 'withdraw' };
+  }
+  return { ok: true, value: accept ? 'accept' : 'decline' };
 }

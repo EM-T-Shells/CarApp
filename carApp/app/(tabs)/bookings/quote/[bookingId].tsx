@@ -1,13 +1,16 @@
 // Customer quote approval — the moment money enters the quote flow.
 //
-// Shows the provider's itemised price, then approves it in two steps that must
-// stay separate:
+// Shows the provider's itemised price, then approves it. The server names the
+// next step (spec §2, §5 — card saved at request, deposit charged at approval):
 //
-//   1. acceptQuote() — the server writes total_amount, deposit_amount,
-//      platform_fee and provider_payout together and returns the booking to
-//      'pending'. Charges nothing. Returns next: 'requires_deposit'.
-//   2. createDepositPaymentIntent() + presentDepositPaymentSheet() — the
-//      existing deposit flow, unchanged.
+//   • deposit_processing — acceptQuote() wrote the amounts and charged the
+//     deposit off-session to the card saved when the request was sent. Nothing
+//     to open; the booking confirms when stripe-events hears the charge land.
+//   • requires_deposit   — no saved card, or the bank refused the off-session
+//     charge (decline, or 3-D Secure wanting the customer present). The
+//     approval stands; createDepositPaymentIntent() + presentDepositPaymentSheet()
+//     collect the deposit on-session, as the deposit-first flow always did.
+//   • none               — a deposit was already paid; the booking confirmed.
 //
 // The client never asserts the payment succeeded (.claude/rules/stripe-payments).
 // PaymentSheet returning without error means Stripe accepted the card, not that
@@ -80,12 +83,57 @@ export default function QuoteApprovalScreen(): React.ReactElement {
     load();
   }, [load]);
 
+  // The on-session fallback: the existing deposit flow, unchanged.
+  const collectDeposit = useCallback(
+    async (depositCents: number) => {
+      if (!booking) return;
+      setIsApproving(true);
+
+      const intent = await createDepositPaymentIntent(booking.id, depositCents);
+
+      if (intent.error) {
+        setIsApproving(false);
+        // The quote stays approved and the booking sits at 'pending'. Retrying
+        // the deposit is the recovery, not re-approving — so refresh rather
+        // than unwinding anything.
+        Alert.alert('Payment setup failed', intent.error.message, [
+          { text: 'OK', onPress: () => load() },
+        ]);
+        return;
+      }
+
+      const paid = await presentDepositPaymentSheet(intent.data);
+      setIsApproving(false);
+
+      if (paid.error) {
+        Alert.alert('Payment failed', paid.error.message, [
+          { text: 'OK', onPress: () => load() },
+        ]);
+        return;
+      }
+
+      if (paid.data.canceled) {
+        // Dismissed the sheet. Nothing is charged and the booking stays at
+        // 'pending' with the approved price on it, so they can pay later.
+        await load();
+        return;
+      }
+
+      // Deliberately NOT asserting the booking is confirmed. stripe-events is
+      // what moves it, on the signed webhook, and it confirms a quote-first
+      // booking outright. Send them to the booking and let the row speak.
+      router.replace(`/bookings/${booking.id}`);
+    },
+    [booking, load, router],
+  );
+
   const handleApprove = useCallback(async () => {
     if (!booking) return;
 
     setIsApproving(true);
 
-    // Step 1 — approve. Writes the money columns; charges nothing.
+    // Approve. The server writes the money columns and, when a card was saved
+    // with the request, charges the deposit to it off-session.
     const approved = await acceptQuote(booking.id);
 
     if (approved.error) {
@@ -99,52 +147,39 @@ export default function QuoteApprovalScreen(): React.ReactElement {
       return;
     }
 
+    const { next, deposit_cents: depositCents = 0, charge_error: chargeError } =
+      approved.data;
+
     // The server names the next step rather than the client inferring it.
-    if (approved.data.next !== 'requires_deposit') {
+    if (next === 'deposit_processing' || next === 'none') {
+      // Submitted (or already paid), not confirmed — the booking screen shows
+      // the row as it stands, and stripe-events moves it.
+      setIsApproving(false);
+      router.replace(`/bookings/${booking.id}`);
+      return;
+    }
+
+    if (next !== 'requires_deposit') {
       setIsApproving(false);
       await load();
       return;
     }
 
-    // Step 2 — the existing deposit flow, unchanged.
-    const intent = await createDepositPaymentIntent(
-      booking.id,
-      approved.data.deposit_cents ?? 0,
-    );
-
-    if (intent.error) {
-      setIsApproving(false);
-      // The quote stays approved and the booking sits at 'pending'. Retrying
-      // the deposit is the recovery, not re-approving — so refresh rather than
-      // unwinding anything.
-      Alert.alert('Payment setup failed', intent.error.message, [
-        { text: 'OK', onPress: () => load() },
-      ]);
-      return;
-    }
-
-    const paid = await presentDepositPaymentSheet(intent.data);
     setIsApproving(false);
 
-    if (paid.error) {
-      Alert.alert('Payment failed', paid.error.message, [
-        { text: 'OK', onPress: () => load() },
-      ]);
+    if (chargeError) {
+      // The saved card was tried and refused. Say so before asking for a card,
+      // or the sheet appearing looks like a second charge for the same thing.
+      Alert.alert(
+        'Card not charged',
+        `${chargeError} Your approval is saved — enter a card to pay the deposit.`,
+        [{ text: 'Continue', onPress: () => void collectDeposit(depositCents) }],
+      );
       return;
     }
 
-    if (paid.data.canceled) {
-      // Dismissed the sheet. Nothing is charged and the booking stays at
-      // 'pending' with the approved price on it, so they can pay later.
-      await load();
-      return;
-    }
-
-    // Deliberately NOT asserting the booking is confirmed. stripe-events is
-    // what moves it, on the signed webhook, and it confirms a quote-first
-    // booking outright. Send them to the booking and let the row speak.
-    router.replace(`/bookings/${booking.id}`);
-  }, [booking, load, router]);
+    await collectDeposit(depositCents);
+  }, [booking, load, router, collectDeposit]);
 
   if (isLoading) {
     return (
@@ -259,8 +294,9 @@ export default function QuoteApprovalScreen(): React.ReactElement {
 
         <Card>
           <Text variant="caption" color="midGray">
-            Approving charges a deposit now and the balance when the job is
-            done. The exact deposit is shown in the payment sheet.
+            Approving charges a deposit now to the card you saved with your
+            request, and the balance when the job is done. If that card
+            can&apos;t be charged, you&apos;ll be asked for another.
           </Text>
         </Card>
 

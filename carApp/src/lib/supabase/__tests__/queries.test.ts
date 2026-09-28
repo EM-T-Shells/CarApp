@@ -386,6 +386,11 @@ describe('getUpcomingBookingsForCustomer', () => {
       'confirmed',
       'en_route',
       'in_progress',
+      'pending_adjustment_approval',
+      // The customer's own unpriced requests stay reachable from the list.
+      'pending_provider_quote',
+      'pending_customer_approval',
+      'awaiting_customer_info',
     ])
     expect(builder.order).toHaveBeenCalledWith('scheduled_at', {
       ascending: true,

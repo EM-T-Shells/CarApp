@@ -269,13 +269,14 @@ describe('validateQuoteStart', () => {
     expect(validateQuoteStart(WINDOW.end, WINDOW, NOW).ok).toBe(true);
   });
 
-  // §2 gave the window to the customer. A provider who cannot make it has
-  // propose_reschedule; quoting outside it would commit the customer to a time
-  // they never offered.
+  // §2 gave the window to the customer. A provider who cannot make it sends the
+  // request back (request_more_photos) so the customer can pick another one;
+  // quoting outside it would commit the customer to a time they never offered.
+  // propose_reschedule is for confirmed jobs only, so it is not the advice here.
   it('refuses a start before the window opens', () => {
     const result = validateQuoteStart('2026-08-20T12:59:59Z', WINDOW, NOW);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toContain('Propose a reschedule');
+    expect(result.ok === false && result.error).toContain('ask the customer for another window');
   });
 
   it('refuses a start after the window closes', () => {

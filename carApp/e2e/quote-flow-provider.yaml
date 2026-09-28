@@ -1,0 +1,83 @@
+# quote-flow-provider.yaml
+#
+# Quote-first booking, provider side (Blueprint/quote_first_booking.md §3):
+#   Jobs → Requests → the customer's request → photos, suggested duration and
+#   surcharges pre-filled from the provider's modifiers → pick a start inside
+#   the window → Send Quote
+#
+# Preconditions:
+#   • Provider session for provider@carapp.dev
+#   • An unpriced request from test@carapp.dev (the first half of
+#     quote-flow.yaml)
+#
+# Run: maestro test e2e/quote-flow-provider.yaml
+
+appId: com.emre.carapp
+tags:
+  - provider
+  - quote
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Jobs"
+    timeout: 10000
+
+- tapOn:
+    text: "Jobs"
+
+- extendedWaitUntil:
+    visible:
+      text: "Needs a quote"
+    timeout: 10000
+
+- tapOn:
+    text: "Needs a quote"
+
+# ── The request leads with the photos ─────────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Photos from the customer.*"
+    timeout: 8000
+
+- scrollUntilVisible:
+    element:
+      text: "Start time"
+    direction: DOWN
+
+# Choose the first start the window offers (every chip is inside it).
+- tapOn:
+    index: 0
+    id: "quote-start-.*"
+
+# One step longer than suggested.
+- tapOn:
+    id: "quote-duration-plus"
+
+- scrollUntilVisible:
+    element:
+      id: "send-quote"
+    direction: DOWN
+
+- assertVisible:
+    id: "quote-total"
+
+- tapOn:
+    id: "send-quote"
+
+- extendedWaitUntil:
+    visible:
+      text: "Quote sent"
+    timeout: 10000
+
+- tapOn:
+    text: "Done"
+
+# The request now waits on the customer.
+- extendedWaitUntil:
+    visible:
+      text: "Waiting on the customer to approve"
+    timeout: 10000

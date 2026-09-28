@@ -17,7 +17,8 @@
 //   { booking_id: string,
 //     cancelled_by: 'customer' | 'provider' | 'no_show',
 //     fee_cents?: number,      // customer late-cancel fee retained
-//     refund_cents?: number,   // amount refunded to the customer
+//     refund_cents?: number,   // amount refunded to the customer (0 = nothing
+//                              // was charged, e.g. a declined quote request)
 //     penalty_cents?: number } // provider penalty recorded
 //
 // Runs on Deno. Secrets accessed via Deno.env.get().
@@ -94,10 +95,15 @@ serve(async (req: Request) => {
       }
     } else if (cancelled_by === 'provider' && booking.customer_id) {
       // Notify the customer the provider cancelled; their deposit was refunded.
+      // refund_cents === 0 means nothing had been charged — the provider
+      // declined an unpriced request — so there is no deposit to talk about.
       const customer = await getUserPushTarget(booking.customer_id);
       const message = {
         title: 'Booking cancelled',
-        body: 'The provider had to cancel. Your deposit has been refunded in full — we can help you re-book.',
+        body:
+          refund_cents === 0
+            ? "The provider couldn't take this request. You were not charged — we can help you find someone else."
+            : 'The provider had to cancel. Your deposit has been refunded in full — we can help you re-book.',
         data,
       };
       await sendFcm(customer ?? { fcm_token: null }, message);

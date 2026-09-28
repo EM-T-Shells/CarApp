@@ -21,6 +21,7 @@ export type BookingStatus =
   | 'pending_provider_quote'
   | 'pending_customer_approval'
   | 'awaiting_customer_info'
+  | 'pending_adjustment_approval'
   | 'confirmed'
   | 'en_route'
   | 'in_progress'
@@ -49,11 +50,16 @@ const STEPS: { key: BookingStatus; label: string }[] = [
 // waiting on more information from the customer. None has taken a payment, and
 // a quote-first booking jumps straight to 'confirmed' on deposit success
 // rather than passing through pending_provider_approval.
+//
+// pending_adjustment_approval (20260822000000) is a confirmed job with a
+// question attached — the slot is still held and the job still happens — so it
+// stays on "Confirmed" rather than stepping back.
 const STEP_INDEX: Partial<Record<BookingStatus, number>> = {
   pending_provider_approval: 0,
   pending_provider_quote: 0,
   pending_customer_approval: 0,
   awaiting_customer_info: 0,
+  pending_adjustment_approval: 1,
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────

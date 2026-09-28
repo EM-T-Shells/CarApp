@@ -1,11 +1,18 @@
 // Booking flow — multi-step screen where a customer requests a provider.
-// Steps: 1. Select services → 2. Vehicle + Address + Arrival window → 3. Review
+// Steps: 1. Select services → 2. Vehicle + Photos + Address + Arrival window
+//        → 3. Review
 //
-// Quote-first (spec §3): this screen COLLECTS NO PAYMENT. It creates a
-// 'pending_provider_quote' row via mutations.ts and stops. The provider prices
-// it through the submit_quote Edge Function, and the customer pays only after
-// approving that quote, on the approval screen. Nothing here touches Stripe,
-// so there is no PaymentSheet to dismiss and no unpaid row to unwind.
+// Quote-first (spec §2, §3): this screen CHARGES NOTHING, but it does save the
+// customer's card. It creates a 'pending_provider_quote' row via mutations.ts,
+// then opens PaymentSheet in setup mode (a SetupIntent: no hold, no charge).
+// The provider prices the request through submit_quote, and the deposit is
+// charged off-session to that saved card only when the customer approves the
+// quote, on the approval screen.
+//
+// If the card is not saved — the sheet is dismissed or fails — the row is
+// cancelled, exactly as the deposit-first flow cancelled an unpaid booking:
+// the provider is only told about a request once Stripe confirms the card
+// (confirm_setup_intent), so an abandoned one never reaches them.
 //
 // The prices shown on Review are the provider's ADVERTISED rates, an estimate.
 // quoted_total_amount is what the customer actually approves, and it stays
@@ -30,7 +37,6 @@ import {
   Check,
   ChevronRight,
   ChevronLeft,
-  Clock,
   Car,
 } from 'lucide-react-native';
 import { Text } from '../../../../src/components/ui/Text';
@@ -40,21 +46,34 @@ import { Spacer } from '../../../../src/components/ui/Spacer';
 import { TextField } from '../../../../src/components/ui/TextField';
 import { AddressPicker } from '../../../../src/components/booking/AddressPicker';
 import { ArrivalWindowPicker } from '../../../../src/components/booking/ArrivalWindowPicker';
+import IntakePhotoUploader, {
+  uploadIntakePhoto,
+  type PickedPhoto,
+} from '../../../../src/components/booking/IntakePhotoUploader';
+import PackageSelector from '../../../../src/components/booking/PackageSelector';
 import { PriceBreakdown } from '../../../../src/components/booking/PriceBreakdown';
-import { colors, spacing, borderRadius, type Palette } from '../../../../src/design/tokens';
+import { colors, spacing, type Palette } from '../../../../src/design/tokens';
 import VehicleConditionForm from '../../../../src/components/booking/VehicleConditionForm';
 import {
   isVehicleSizeClass,
   type ConditionAnswers,
   type VehicleSizeClass,
 } from '../../../../src/utils/suggestion';
-import { centsToDisplay } from '../../../../src/utils/money';
-import { getProviderById } from '../../../../src/lib/supabase/queries';
-import { getVehiclesByUser } from '../../../../src/lib/supabase/queries';
+import {
+  getProviderById,
+  getServiceDurationModifiers,
+  getVehiclesByUser,
+} from '../../../../src/lib/supabase/queries';
 import {
   insertBooking,
   isSlotUnavailableError,
+  updateBooking,
 } from '../../../../src/lib/supabase/mutations';
+import {
+  confirmSetupIntent,
+  createSetupIntent,
+  presentCardSetupSheet,
+} from '../../../../src/lib/stripe';
 import { useAuthStore } from '../../../../src/state/auth';
 import {
   useBookingDraftStore,
@@ -63,11 +82,12 @@ import {
   selectEstimatedDuration,
   selectIsReadyToBook,
   selectHasServices,
+  type IntakePhotoDraft,
 } from '../../../../src/state/bookingDraft';
 import type { ProviderDetail } from '../../../../src/lib/supabase/queries';
 import type {
   ArrivalWindow,
-  ServicePackage,
+  ServiceDurationModifier,
   Vehicle,
 } from '../../../../src/types/models';
 import type { BookProviderParams } from '../../../../src/types/navigation';
@@ -78,6 +98,34 @@ import { formatDuration } from '../../../../src/utils/duration';
 
 const STEPS = ['Services', 'Details', 'Review'] as const;
 type Step = (typeof STEPS)[number];
+
+// ── Request helpers ──────────────────────────────────────────────────
+
+/**
+ * Cancel a request whose card was never saved. The customer may cancel an
+ * unpriced request themselves (enforce_booking_status_transition), and the
+ * provider has not been told about it yet, so a plain status write is enough.
+ * Best-effort: if it fails the row is an unpriced request with no card, which
+ * either side can still cancel later.
+ */
+async function abandonRequest(bookingId: string): Promise<void> {
+  await updateBooking(bookingId, { status: 'cancelled' });
+}
+
+/** Upload the draft's photos to the new request. Returns how many failed. */
+async function uploadDraftPhotos(
+  bookingId: string,
+  photos: IntakePhotoDraft[],
+): Promise<number> {
+  let failed = 0;
+  // One at a time: these are phone uploads on a mobile connection, and a
+  // burst of parallel 5 MB uploads is how some of them time out.
+  for (const photo of photos) {
+    const result = await uploadIntakePhoto(bookingId, photo);
+    if (result.error) failed += 1;
+  }
+  return failed;
+}
 
 // ── Screen ───────────────────────────────────────────────────────────
 
@@ -102,6 +150,9 @@ export default function BookProviderScreen(): React.ReactElement {
   const [stepIndex, setStepIndex] = useState(0);
   const [provider, setProvider] = useState<ProviderDetail | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  // The provider's published modifiers, for the price ranges on the Services
+  // step. Optional: without them every range is just the base price.
+  const [modifiers, setModifiers] = useState<ServiceDurationModifier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -117,9 +168,10 @@ export default function BookProviderScreen(): React.ReactElement {
       setIsLoading(true);
       setError(null);
 
-      const [providerRes, vehiclesRes] = await Promise.all([
+      const [providerRes, vehiclesRes, modifiersRes] = await Promise.all([
         getProviderById(providerId),
         user ? getVehiclesByUser(user.id) : Promise.resolve({ data: [] as Vehicle[], error: null }),
+        getServiceDurationModifiers(providerId),
       ]);
 
       if (cancelled) return;
@@ -131,6 +183,7 @@ export default function BookProviderScreen(): React.ReactElement {
       }
 
       setProvider(providerRes.data);
+      if (modifiersRes.data) setModifiers(modifiersRes.data);
       draft.setProvider(
         providerRes.data.id,
         providerRes.data.users?.full_name ?? 'Provider',
@@ -239,11 +292,10 @@ export default function BookProviderScreen(): React.ReactElement {
 
     // Create the unpriced request.
     //
-    // Quote-first: this collects nothing. The row goes in as
+    // Quote-first: this charges nothing. The row goes in as
     // 'pending_provider_quote' and waits for the provider to price it via the
-    // submit_quote Edge Function; the customer pays only after approving that
-    // quote, through acceptQuote() + the existing deposit flow on the approval
-    // screen. Nothing here touches Stripe.
+    // submit_quote Edge Function; the deposit is charged only after the
+    // customer approves that quote (acceptQuote), against the card saved below.
     //
     // The client states intent — which provider, which packages — and never a
     // price. trg_derive_booking_amounts still recomputes every money column
@@ -302,16 +354,61 @@ export default function BookProviderScreen(): React.ReactElement {
 
     const booking = bookingResult.data;
 
-    setIsSubmitting(false);
+    // Save the card (spec §2: "card saved at request — no hold, no charge").
+    // A request whose card was never saved cannot have its deposit charged at
+    // approval, so it is cancelled rather than left for the provider to price.
+    const setup = await createSetupIntent(booking.id);
+    if (setup.error) {
+      await abandonRequest(booking.id);
+      setIsSubmitting(false);
+      Alert.alert('Could not save your card', setup.error.message);
+      return;
+    }
 
-    // No payment, nothing to unwind. The request simply exists and waits for a
-    // price — which is why there is no abandonBooking() here and no
-    // PaymentSheet to dismiss. Both parties can cancel an unpriced request
-    // (enforce_booking_status_transition allows it), so an ignored request is
-    // not a stranded one.
+    const saved = await presentCardSetupSheet(setup.data);
+    if (saved.error || saved.data.canceled) {
+      await abandonRequest(booking.id);
+      setIsSubmitting(false);
+      // Dismissing the sheet is a normal outcome — they can come back to it —
+      // so only a real failure gets an alert.
+      if (saved.error) Alert.alert('Card not saved', saved.error.message);
+      return;
+    }
+
+    // Photos go up before the provider is told the request exists, so they
+    // arrive to a request that already has them. A photo that fails is not
+    // worth losing the request over: it can be added from the booking.
+    const failedPhotos = await uploadDraftPhotos(booking.id, draft.intakePhotos);
+
+    // The server asks Stripe whether the card really was saved and only then
+    // notifies the provider. The sheet closing without error is not proof, and
+    // the client never asserts it. A failure here leaves a valid request that
+    // the provider has not been pinged about, so it is not unwound.
+    await confirmSetupIntent(booking.id);
+
+    setIsSubmitting(false);
     draft.reset();
     router.replace(`/bookings/${booking.id}`);
+
+    if (failedPhotos > 0) {
+      Alert.alert(
+        'Some photos did not upload',
+        `${failedPhotos} photo${failedPhotos === 1 ? '' : 's'} could not be added. You can add them from your booking.`,
+      );
+    }
   }, [user, provider, isReady, draft, router]);
+
+  // ── Intake photos ────────────────────────────────────────────────
+
+  const handleAddPhoto = useCallback(
+    (photo: PickedPhoto) => {
+      draft.addIntakePhoto({
+        key: `intake-${Date.now()}-${draft.intakePhotos.length}`,
+        ...photo,
+      });
+    },
+    [draft],
+  );
 
   // ── Loading state ────────────────────────────────────────────────
 
@@ -396,12 +493,11 @@ export default function BookProviderScreen(): React.ReactElement {
           keyboardShouldPersistTaps="handled"
         >
           {currentStep === 'Services' && (
-            <StepServices
+            <PackageSelector
               packages={provider.service_packages}
+              modifiers={modifiers}
               selectedIds={draft.selectedServices.map((s) => s.id)}
               onToggle={draft.toggleService}
-              palette={palette}
-              isDark={isDark}
             />
           )}
 
@@ -415,6 +511,9 @@ export default function BookProviderScreen(): React.ReactElement {
               sizePrefilled={sizePrefilled}
               conditionAnswers={draft.conditionAnswers}
               onChangeConditionAnswer={draft.setConditionAnswer}
+              photos={draft.intakePhotos}
+              onAddPhoto={handleAddPhoto}
+              onRemovePhoto={draft.removeIntakePhoto}
               address={draft.serviceAddress}
               onChangeAddress={draft.setServiceAddress}
               arrivalWindow={draft.arrivalWindow}
@@ -435,6 +534,7 @@ export default function BookProviderScreen(): React.ReactElement {
               durationMins={duration}
               arrivalWindow={draft.arrivalWindow}
               address={draft.serviceAddress}
+              photoCount={draft.intakePhotos.length}
               vehicleName={
                 vehicles.find((v) => v.id === draft.vehicleId)
                   ? `${vehicles.find((v) => v.id === draft.vehicleId)!.year} ${vehicles.find((v) => v.id === draft.vehicleId)!.make} ${vehicles.find((v) => v.id === draft.vehicleId)!.model}`
@@ -515,124 +615,6 @@ export default function BookProviderScreen(): React.ReactElement {
   );
 }
 
-// ── Step 1: Services ─────────────────────────────────────────────────
-
-interface StepServicesProps {
-  packages: ServicePackage[];
-  selectedIds: string[];
-  onToggle: (pkg: ServicePackage) => void;
-  palette: Palette;
-  isDark: boolean;
-}
-
-function StepServices({
-  packages,
-  selectedIds,
-  onToggle,
-  palette,
-  isDark,
-}: StepServicesProps): React.ReactElement {
-  if (packages.length === 0) {
-    return (
-      <View style={styles.emptyState}>
-        <Text variant="body" color="midGray">
-          This provider has no services available.
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View>
-      <Text variant="subheading" color="charcoal">
-        Select Services
-      </Text>
-      <Spacer size="sm" />
-      <Text variant="body" color="midGray">
-        Choose one or more services for your booking.
-      </Text>
-      <Spacer size="lg" />
-
-      {packages.map((pkg) => {
-        const isSelected = selectedIds.includes(pkg.id);
-        return (
-          <Pressable
-            key={pkg.id}
-            onPress={() => onToggle(pkg)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: isSelected }}
-            accessibilityLabel={`${pkg.name} — ${centsToDisplay(Math.round(Number(pkg.base_price ?? 0) * 100))}`}
-          >
-            <Card
-              variant={isSelected ? 'elevated' : 'outlined'}
-              style={[
-                styles.serviceCard,
-                isSelected && {
-                  borderWidth: 2,
-                  borderColor: palette.deepIndigo,
-                },
-              ]}
-            >
-              <View style={styles.serviceRow}>
-                <View style={styles.serviceInfo}>
-                  <Text variant="body" color="charcoal">
-                    {pkg.name}
-                  </Text>
-                  {pkg.description != null && pkg.description.length > 0 && (
-                    <Text variant="caption" color="midGray" numberOfLines={2}>
-                      {pkg.description}
-                    </Text>
-                  )}
-                  {pkg.duration_mins != null && (
-                    <View style={styles.durationRow}>
-                      <Clock
-                        size={12}
-                        color={palette.midGray}
-                        strokeWidth={2}
-                      />
-                      <Text variant="caption" color="midGray">
-                        {formatDuration(pkg.duration_mins)}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.serviceRight}>
-                  <Text variant="price" color="charcoal">
-                    {centsToDisplay(
-                      Math.round(Number(pkg.base_price ?? 0) * 100),
-                    )}
-                  </Text>
-                  <View
-                    style={[
-                      styles.checkbox,
-                      {
-                        backgroundColor: isSelected
-                          ? palette.deepIndigo
-                          : 'transparent',
-                        borderColor: isSelected
-                          ? palette.deepIndigo
-                          : palette.midGray,
-                      },
-                    ]}
-                  >
-                    {isSelected && (
-                      <Check
-                        size={14}
-                        color={palette.offWhite}
-                        strokeWidth={3}
-                      />
-                    )}
-                  </View>
-                </View>
-              </View>
-            </Card>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 // ── Step 2: Details ──────────────────────────────────────────────────
 
 interface StepDetailsProps {
@@ -647,6 +629,9 @@ interface StepDetailsProps {
     question: K,
     answer: ConditionAnswers[K],
   ) => void;
+  photos: IntakePhotoDraft[];
+  onAddPhoto: (photo: PickedPhoto) => void;
+  onRemovePhoto: (key: string) => void;
   address: string;
   onChangeAddress: (address: string) => void;
   arrivalWindow: ArrivalWindow | null;
@@ -666,6 +651,9 @@ function StepDetails({
   sizePrefilled,
   conditionAnswers,
   onChangeConditionAnswer,
+  photos,
+  onAddPhoto,
+  onRemovePhoto,
   address,
   onChangeAddress,
   arrivalWindow,
@@ -767,6 +755,17 @@ function StepDetails({
 
       <Spacer size="xl" />
 
+      {/* Photos (spec §3 "guided photo upload"). Right after the condition
+          questions, because they answer the same question: what state is the
+          car in. Optional — the provider can ask for more. */}
+      <IntakePhotoUploader
+        photos={photos}
+        onAdd={onAddPhoto}
+        onRemove={onRemovePhoto}
+      />
+
+      <Spacer size="xl" />
+
       {/* Address */}
       <AddressPicker
         value={address}
@@ -806,6 +805,7 @@ interface StepReviewProps {
   durationMins: number;
   arrivalWindow: ArrivalWindow | null;
   address: string;
+  photoCount: number;
   vehicleName: string;
 }
 
@@ -817,6 +817,7 @@ function StepReview({
   durationMins,
   arrivalWindow,
   address,
+  photoCount,
   vehicleName,
 }: StepReviewProps): React.ReactElement {
   return (
@@ -856,6 +857,12 @@ function StepReview({
             </Text>
           </View>
         )}
+        <View style={styles.reviewLine}>
+          <Text variant="body" color="midGray">Photos</Text>
+          <Text variant="body" color="charcoal">
+            {photoCount === 0 ? 'None added' : `${photoCount} added`}
+          </Text>
+        </View>
         {durationMins > 0 && (
           <View style={styles.reviewLine}>
             <Text variant="body" color="midGray">Est. Duration</Text>
@@ -880,19 +887,21 @@ function StepReview({
 
       <Spacer size="lg" />
 
-      {/* No DepositSummary here: quote-first collects nothing at request time.
+      {/* No DepositSummary here: quote-first charges nothing at request time.
           Showing a deposit would promise a charge that does not happen until
-          the customer approves the quote on the approval screen. */}
+          the customer approves the quote on the approval screen. The card is
+          saved now, and spec §2 wants that labelled plainly. */}
       <Card>
         <Text variant="label" color="charcoal">
-          You won&apos;t be charged yet
+          You won&apos;t be charged until you approve your final price
         </Text>
         <Spacer size="sm" />
         <Text variant="body" color="midGray">
-          This is an estimate from {providerName}&apos;s listed prices. They
-          will review your request and send you a final price, including any
-          surcharges for your vehicle&apos;s size or condition. Nothing is
-          charged until you approve it.
+          This is an estimate from {providerName}&apos;s listed prices. Next
+          you&apos;ll save a card — nothing is held or charged. {providerName}{' '}
+          will review your request and send a final price, including any
+          surcharges for your vehicle&apos;s size or condition. The deposit is
+          charged to your saved card only when you approve it.
         </Text>
       </Card>
     </View>
@@ -932,40 +941,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.base,
-  },
-  emptyState: {
-    paddingVertical: spacing['3xl'],
-    alignItems: 'center',
-  },
-  serviceCard: {
-    marginBottom: spacing.sm,
-  },
-  serviceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  serviceInfo: {
-    flex: 1,
-    marginRight: spacing.md,
-    gap: spacing.xs,
-  },
-  serviceRight: {
-    alignItems: 'flex-end',
-    gap: spacing.sm,
-  },
-  durationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   vehicleCard: {
     marginBottom: spacing.sm,

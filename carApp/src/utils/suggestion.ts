@@ -253,3 +253,32 @@ export function surchargeFromModifiers(
 ): number {
   return breakdown.applied.reduce((sum, m) => sum + m.deltaPrice, 0);
 }
+
+/**
+ * The provider's quote surcharges, pre-filled from their own modifiers (Phase
+ * 3): one line per matching factor with a non-zero delta_price, e.g.
+ * "Vehicle size: SUV / Crossover" +$30.00.
+ *
+ * Client-side and editable on purpose. The provider may change or delete any
+ * line before sending, and submit_quote validates and totals whatever they send
+ * — delta_price never reaches a money column directly, because wiring a
+ * provider-writable table into derive_booking_amounts would hand the client an
+ * indirect route to the totals it was denied in 20260817140000.
+ *
+ * Amounts are integer cents, matching the quote_line_items grammar.
+ */
+export function surchargeLineItems(
+  modifiers: ServiceDurationModifier[],
+  sizeClass?: string | null,
+  answers?: ConditionAnswers | null,
+): { label: string; amountCents: number }[] {
+  return selectModifiers(modifiers, sizeClass, answers)
+    .map((m) => ({
+      label: `${FACTOR_TYPE_LABELS[m.factor_type as FactorType] ?? m.factor_type}: ${factorValueLabel(m.factor_type, m.factor_value)}`,
+      amountCents: Math.round(Number(m.delta_price ?? 0) * 100),
+    }))
+    // Surcharges only. QuoteBuilder's entry is deliberately unsigned (a line
+    // reads "+$30.00"), so a discount modifier is not pre-filled: it could not
+    // be shown or edited as what it is.
+    .filter((line) => Number.isSafeInteger(line.amountCents) && line.amountCents > 0);
+}

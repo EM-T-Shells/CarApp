@@ -202,6 +202,22 @@ export function resolvePushRoute(
       return payload.bookingId
         ? `/bookings/tracking/${payload.bookingId}`
         : null;
+    // Quote flow. The newer notify-* functions send an explicit `route` (read
+    // above); these are the fallbacks for a payload without one, including
+    // notify-quote-ready as first deployed.
+    case 'quote_ready':
+      return payload.bookingId ? `/bookings/quote/${payload.bookingId}` : null;
+    case 'photos_requested':
+    case 'adjustment_proposed':
+      return payload.bookingId ? `/bookings/${payload.bookingId}` : null;
+    case 'quote_requested':
+      return payload.bookingId
+        ? `/(provider-tabs)/jobs/quote/${payload.bookingId}`
+        : null;
+    case 'adjustment_approved':
+      return payload.bookingId
+        ? `/(provider-tabs)/jobs/${payload.bookingId}`
+        : null;
     case 'kudos_received':
       return '/more/provider';
     case 'new_message':

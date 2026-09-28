@@ -33,6 +33,8 @@ const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
   pending_provider_quote: { label: 'Awaiting Quote', colorKey: 'midGray', Icon: MapPin },
   pending_customer_approval: { label: 'Quote Ready', colorKey: 'gearGold', Icon: MapPin },
   awaiting_customer_info: { label: 'Info Needed', colorKey: 'gearGold', Icon: MapPin },
+  // A confirmed job with a proposed change waiting on the customer.
+  pending_adjustment_approval: { label: 'Change Proposed', colorKey: 'gearGold', Icon: Check },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue', Icon: Check },
   en_route: { label: 'En Route', colorKey: 'gearGold', Icon: Navigation },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen', Icon: Wrench },

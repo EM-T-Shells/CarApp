@@ -25,6 +25,24 @@ export interface ServiceSnapshot {
   category: string;
   base_price: number;
   duration_mins: number | null;
+  /**
+   * Set on an add-on: the main service it belongs to. Draft-only — the stored
+   * snapshot is rebuilt by derive_booking_amounts and does not carry it.
+   */
+  parent_package_id?: string | null;
+}
+
+/**
+ * A photo the customer picked for their request, held on the device until the
+ * request row exists. booking_photos rows FK to a booking, so nothing can be
+ * uploaded before "Send Request" creates one.
+ */
+export interface IntakePhotoDraft {
+  /** Stable key for list rendering and removal. */
+  key: string;
+  uri: string;
+  mimeType: string;
+  fileSize: number;
 }
 
 export interface BookingDraftState {
@@ -63,6 +81,8 @@ export interface BookingDraftState {
   vehicleSizeClass: VehicleSizeClass | null;
   /** The three condition questions. Partial until all three are answered. */
   conditionAnswers: ConditionAnswers;
+  /** Photos for the provider to quote from (spec §3 "guided photo upload"). */
+  intakePhotos: IntakePhotoDraft[];
 
   // ── Mutators ──────────────────────────────────────────────────────
 
@@ -78,6 +98,8 @@ export interface BookingDraftState {
     question: K,
     answer: ConditionAnswers[K],
   ) => void;
+  addIntakePhoto: (photo: IntakePhotoDraft) => void;
+  removeIntakePhoto: (key: string) => void;
   reset: () => void;
 }
 
@@ -91,6 +113,7 @@ function snapshotService(pkg: ServicePackage): ServiceSnapshot {
     category: pkg.category,
     base_price: Math.round(Number(pkg.base_price ?? 0) * 100),
     duration_mins: pkg.duration_mins,
+    parent_package_id: pkg.parent_package_id ?? null,
   };
 }
 
@@ -108,6 +131,7 @@ const INITIAL_STATE = {
   notes: '',
   vehicleSizeClass: null,
   conditionAnswers: {} as ConditionAnswers,
+  intakePhotos: [] as IntakePhotoDraft[],
 };
 
 // ── Store ─────────────────────────────────────────────────────────────
@@ -118,13 +142,16 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
   setProvider: (providerId, providerName) =>
     set({ providerId, providerName }),
 
+  // Deselecting a main service takes its add-ons with it: the database refuses
+  // a booking that carries an add-on without its parent (20260822000000), so
+  // leaving them selected would only fail at "Send Request".
   toggleService: (pkg) =>
     set((s) => {
       const exists = s.selectedServices.some((svc) => svc.id === pkg.id);
       if (exists) {
         return {
           selectedServices: s.selectedServices.filter(
-            (svc) => svc.id !== pkg.id,
+            (svc) => svc.id !== pkg.id && svc.parent_package_id !== pkg.id,
           ),
         };
       }
@@ -157,7 +184,13 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
       return { conditionAnswers: next };
     }),
 
-  reset: () => set({ ...INITIAL_STATE, conditionAnswers: {} }),
+  addIntakePhoto: (photo) =>
+    set((s) => ({ intakePhotos: [...s.intakePhotos, photo] })),
+
+  removeIntakePhoto: (key) =>
+    set((s) => ({ intakePhotos: s.intakePhotos.filter((p) => p.key !== key) })),
+
+  reset: () => set({ ...INITIAL_STATE, conditionAnswers: {}, intakePhotos: [] }),
 }));
 
 // ── Selectors ─────────────────────────────────────────────────────────

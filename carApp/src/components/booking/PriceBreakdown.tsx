@@ -23,8 +23,14 @@ export interface PriceBreakdownProps {
   services: ServiceSnapshot[];
   /** 2% customer service fee in cents. */
   serviceFeeCents: number;
-  /** Grand total (subtotal + service fee) in cents. */
+  /** Grand total (subtotal + service fee + any surcharges) in cents. */
   totalCents: number;
+  /**
+   * The provider's itemised surcharges from the quote and any approved
+   * adjustment (bookings.quote_line_items). Listed after the fee so a quoted
+   * booking's lines sum to its total; omitted for an unquoted booking.
+   */
+  surcharges?: { label: string; amount_cents: number }[];
   /** Optional container style overrides. */
   style?: ViewStyle;
 }
@@ -35,6 +41,7 @@ export function PriceBreakdown({
   services,
   serviceFeeCents,
   totalCents,
+  surcharges = [],
   style,
 }: PriceBreakdownProps): React.ReactElement {
   const scheme = useColorScheme();
@@ -78,6 +85,18 @@ export function PriceBreakdown({
           {centsToDisplay(serviceFeeCents)}
         </Text>
       </View>
+
+      {/* Quoted surcharges */}
+      {surcharges.map((line, index) => (
+        <View key={`${line.label}-${index}`} style={styles.lineItem}>
+          <Text variant="body" color="charcoal" style={styles.lineLabel}>
+            {line.label}
+          </Text>
+          <Text variant="body" color="charcoal">
+            {centsToDisplay(line.amount_cents)}
+          </Text>
+        </View>
+      ))}
 
       {/* Total */}
       <View

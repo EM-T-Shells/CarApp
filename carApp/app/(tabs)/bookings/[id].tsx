@@ -10,6 +10,15 @@
 //   - Before/after photo gallery once the provider uploads photos
 //   - "Rate now" CTA that opens the ReviewSheet
 //   - "Report an issue" CTA (48h dispute window) that flags the rating
+//
+// Quote-first (Phase 3) additions, each a server action rather than a write:
+//   - Intake photos on an unpriced request, and handing a request back after
+//     the provider asked for more (provide_customer_info)
+//   - Reviewing a change the provider proposed to a confirmed job
+//     (respond_adjustment — declining cancels with a full refund)
+//   - Rescheduling by proposal: a confirmed start moves only when the other
+//     party accepts (propose_reschedule / respond_reschedule). The direct
+//     scheduled_at write this screen used to make was revoked in 20260822000000.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -45,8 +54,17 @@ import { Sheet } from '../../../src/components/ui/Sheet';
 import { GearRating } from '../../../src/components/ui/GearRating';
 import { PriceBreakdown } from '../../../src/components/booking/PriceBreakdown';
 import { DepositSummary } from '../../../src/components/booking/DepositSummary';
-import { DateTimePicker } from '../../../src/components/booking/DateTimePicker';
 import { StatusTimeline } from '../../../src/components/booking/StatusTimeline';
+import { ArrivalWindowPicker } from '../../../src/components/booking/ArrivalWindowPicker';
+import IntakePhotoUploader, {
+  uploadIntakePhoto,
+  type PickedPhoto,
+} from '../../../src/components/booking/IntakePhotoUploader';
+import AdjustmentReviewCard from '../../../src/components/booking/AdjustmentReviewCard';
+import {
+  RescheduleProposalCard,
+  RescheduleSheet,
+} from '../../../src/components/booking/RescheduleProposal';
 import { BookingPhotoGallery } from '../../../src/components/booking/BookingPhotoGallery';
 import {
   ReviewSheet,
@@ -69,7 +87,14 @@ import {
   insertKudos,
   insertMessageThread,
 } from '../../../src/lib/supabase/mutations';
-import { cancelBooking } from '../../../src/lib/stripe';
+import {
+  cancelBooking,
+  proposeReschedule,
+  provideCustomerInfo,
+  respondAdjustment,
+  respondReschedule,
+} from '../../../src/lib/stripe';
+import { appendLineItems } from '../../../supabase/functions/_shared/quote';
 import { useAuthStore } from '../../../src/state/auth';
 import {
   centsToDisplay,
@@ -89,7 +114,7 @@ import {
 } from '../../../src/utils/duration';
 import type { BookingDetailParams } from '../../../src/types/navigation';
 import type { ServiceSnapshot } from '../../../src/state/bookingDraft';
-import type { BookingPhoto, Rating } from '../../../src/types/models';
+import type { ArrivalWindow, BookingPhoto, Rating } from '../../../src/types/models';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -116,7 +141,26 @@ function parseServicesSnapshot(value: unknown): ServiceSnapshot[] {
 }
 
 const ACTIVE_FOR_TRACKING: BookingStatus[] = ['en_route', 'in_progress'];
-const EDITABLE_STATUSES: BookingStatus[] = ['pending', 'confirmed'];
+
+// Unpriced: nothing has been charged, so cancelling costs nothing and the
+// cancel sheet says so instead of talking about a deposit.
+const UNPRICED_STATUSES: BookingStatus[] = [
+  'pending_provider_quote',
+  'pending_customer_approval',
+  'awaiting_customer_info',
+];
+
+// Everything cancel_booking accepts from the customer (bookingPolicy.ts).
+const CANCELLABLE_STATUSES: BookingStatus[] = [
+  'pending',
+  'confirmed',
+  'pending_adjustment_approval',
+  ...UNPRICED_STATUSES,
+];
+
+// Where the customer may still add intake photos: while the provider has not
+// priced the job, or has sent it back asking for more.
+const PHOTO_STATUSES: BookingStatus[] = ['pending_provider_quote', 'awaiting_customer_info'];
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
@@ -140,7 +184,6 @@ export default function BookingDetailScreen(): React.ReactElement {
   const [showCancelSheet, setShowCancelSheet] = useState(false);
   const [showRescheduleSheet, setShowRescheduleSheet] = useState(false);
   const [showReviewSheet, setShowReviewSheet] = useState(false);
-  const [rescheduleAt, setRescheduleAt] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState(false);
 
   // ─── Load ────────────────────────────────────────────────────────────
@@ -206,10 +249,29 @@ export default function BookingDetailScreen(): React.ReactElement {
     : null;
 
   const canTrack = ACTIVE_FOR_TRACKING.includes(status);
-  const canEdit = EDITABLE_STATUSES.includes(status);
-  const withinForfeitWindow = booking
+  const canCancel = CANCELLABLE_STATUSES.includes(status);
+  // Only a confirmed start is rescheduled by proposal; an unpriced request
+  // changes its window instead, and nothing else has a start to move.
+  const canReschedule = status === 'confirmed' && !booking?.proposed_scheduled_at;
+  const isUnpriced = UNPRICED_STATUSES.includes(status);
+  // cancelBooking waives the fee here (bookingPolicy.cancellationFeeApplies).
+  const feeWaived = isUnpriced || status === 'pending' || status === 'pending_adjustment_approval';
+  const withinForfeitWindow = booking && !feeWaived
     ? isWithin24Hours(booking.scheduled_at)
     : false;
+
+  const intakePhotos = useMemo(
+    () => photos.filter((p) => p.photo_type === 'intake'),
+    [photos],
+  );
+  const jobPhotos = useMemo(
+    () => photos.filter((p) => p.photo_type === 'before' || p.photo_type === 'after'),
+    [photos],
+  );
+  const surcharges = useMemo(
+    () => appendLineItems(booking?.quote_line_items, []),
+    [booking?.quote_line_items],
+  );
 
   const isCompleted = status === 'completed';
   const canRate = isCompleted && !rating;
@@ -268,29 +330,114 @@ export default function BookingDetailScreen(): React.ReactElement {
     router.push(`/inbox/${threadId}`);
   }, [booking, user, router]);
 
-  const openReschedule = useCallback(() => {
-    setRescheduleAt(booking?.scheduled_at ?? null);
-    setShowRescheduleSheet(true);
-  }, [booking?.scheduled_at]);
+  // ─── Reschedule, by proposal ──────────────────────────────────────
 
-  const handleReschedule = useCallback(async () => {
-    if (!booking || !rescheduleAt) return;
+  const handleProposeReschedule = useCallback(
+    async (scheduledAt: string) => {
+      if (!booking) return;
+      setIsMutating(true);
+      const { error: err } = await proposeReschedule(booking.id, scheduledAt);
+      setIsMutating(false);
+      if (err) {
+        Alert.alert('Could Not Propose', err.message);
+        return;
+      }
+      setShowRescheduleSheet(false);
+      await fetchBooking(true);
+    },
+    [booking, fetchBooking],
+  );
+
+  const handleRespondReschedule = useCallback(
+    async (accept: boolean) => {
+      if (!booking) return;
+      setIsMutating(true);
+      const { error: err } = await respondReschedule(booking.id, accept);
+      setIsMutating(false);
+      if (err) Alert.alert('Could Not Update', err.message);
+      await fetchBooking(true);
+    },
+    [booking, fetchBooking],
+  );
+
+  // ─── Adjustment ──────────────────────────────────────────────────
+
+  const handleApproveAdjustment = useCallback(async () => {
+    if (!booking) return;
     setIsMutating(true);
-
-    const { data, error: err } = await updateBooking(booking.id, {
-      scheduled_at: rescheduleAt,
-    });
-
+    const { error: err } = await respondAdjustment(booking.id, true);
     setIsMutating(false);
-    setShowRescheduleSheet(false);
+    if (err) Alert.alert('Could Not Approve', err.message);
+    await fetchBooking(true);
+  }, [booking, fetchBooking]);
 
+  const handleDeclineAdjustment = useCallback(() => {
+    if (!booking) return;
+    Alert.alert(
+      'Decline and cancel?',
+      'Declining the change cancels this booking. Your deposit is refunded in full and no fee applies.',
+      [
+        { text: 'Keep Reviewing', style: 'cancel' },
+        {
+          text: 'Decline & Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            setIsMutating(true);
+            const { error: err } = await respondAdjustment(booking.id, false);
+            setIsMutating(false);
+            if (err) Alert.alert('Could Not Decline', err.message);
+            await fetchBooking(true);
+          },
+        },
+      ],
+    );
+  }, [booking, fetchBooking]);
+
+  // ─── More information ────────────────────────────────────────────
+
+  const handleAddIntakePhoto = useCallback(
+    async (photo: PickedPhoto) => {
+      if (!booking) return;
+      const { error: err } = await uploadIntakePhoto(booking.id, photo);
+      if (err) {
+        Alert.alert('Upload Failed', err.message);
+        return;
+      }
+      const refreshed = await getBookingPhotos(booking.id);
+      if (!refreshed.error) setPhotos(refreshed.data ?? []);
+    },
+    [booking],
+  );
+
+  // The window is the customer's to state (20260821000000 grants it), so a
+  // provider who asked for another day gets it by a plain write.
+  const handleChangeWindow = useCallback(
+    async (window: ArrivalWindow) => {
+      if (!booking) return;
+      const { data, error: err } = await updateBooking(booking.id, {
+        requested_window_start: window.start,
+        requested_window_end: window.end,
+      });
+      if (err) {
+        Alert.alert('Could Not Change Window', err.message);
+        return;
+      }
+      if (data) setBooking((prev) => (prev ? { ...prev, ...data } : prev));
+    },
+    [booking],
+  );
+
+  const handleSendBack = useCallback(async () => {
+    if (!booking) return;
+    setIsMutating(true);
+    const { error: err } = await provideCustomerInfo(booking.id);
+    setIsMutating(false);
     if (err) {
-      Alert.alert('Reschedule Failed', err.message);
+      Alert.alert('Could Not Send', err.message);
       return;
     }
-
-    if (data) setBooking((prev) => (prev ? { ...prev, ...data } : prev));
-  }, [booking, rescheduleAt]);
+    await fetchBooking(true);
+  }, [booking, fetchBooking]);
 
   const handleCancel = useCallback(async () => {
     if (!booking) return;
@@ -532,10 +679,129 @@ export default function BookingDetailScreen(): React.ReactElement {
                 </Text>
                 <Spacer size="sm" />
                 <Text variant="body" color="midGray">
-                  {booking.provider_profiles?.users?.full_name ?? 'Your provider'}{' '}
-                  is reviewing your request. You have not been charged.
+                  {providerName} is reviewing your request. You have not been
+                  charged.
                 </Text>
               </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {/* §7 "photos unusable": the provider sent the request back. What
+              they asked for, the tools to supply it, and the button that hands
+              it back. Nothing moves until the customer taps it. */}
+          {status === 'awaiting_customer_info' && (
+            <>
+              <Card>
+                <Text variant="label" color="charcoal">
+                  {providerName} needs a little more
+                </Text>
+                {booking.info_request_note ? (
+                  <>
+                    <Spacer size="sm" />
+                    <Text variant="body" color="charcoal" testID="info-request-note">
+                      “{booking.info_request_note}”
+                    </Text>
+                  </>
+                ) : null}
+                <Spacer size="sm" />
+                <Text variant="caption" color="midGray">
+                  Add photos or pick another time if they asked, then send it
+                  back. You have not been charged.
+                </Text>
+                <Spacer size="md" />
+                <ArrivalWindowPicker
+                  value={
+                    booking.requested_window_start && booking.requested_window_end
+                      ? {
+                          start: booking.requested_window_start,
+                          end: booking.requested_window_end,
+                        }
+                      : null
+                  }
+                  onChange={handleChangeWindow}
+                />
+                <Spacer size="md" />
+                <Button
+                  label="Send Back to Provider"
+                  variant="primary"
+                  size="lg"
+                  onPress={handleSendBack}
+                  loading={isMutating}
+                  testID="send-back-to-provider"
+                />
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {/* Photos for the provider to price from. Addable while the request
+              is with the provider or sent back; after that they are the basis
+              of an agreed price and stay as they are. */}
+          {PHOTO_STATUSES.includes(status) && (
+            <>
+              <Card variant="outlined">
+                <IntakePhotoUploader
+                  photos={intakePhotos.map((p) => ({ key: p.id, uri: p.storage_url }))}
+                  onAdd={handleAddIntakePhoto}
+                  disabled={isMutating}
+                />
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {/* A change the provider proposed to a confirmed job. */}
+          {status === 'pending_adjustment_approval' &&
+            booking.adjustment_duration_mins != null &&
+            booking.adjustment_total_amount != null && (
+              <>
+                <AdjustmentReviewCard
+                  providerName={providerName}
+                  reason={booking.adjustment_reason}
+                  currentTotalCents={totalCents}
+                  adjustedTotalCents={dollarsToCents(booking.adjustment_total_amount)}
+                  currentDurationMins={booking.estimated_duration_mins}
+                  adjustedDurationMins={booking.adjustment_duration_mins}
+                  lines={appendLineItems(booking.adjustment_line_items, [])}
+                  onApprove={handleApproveAdjustment}
+                  onDecline={handleDeclineAdjustment}
+                  busy={isMutating}
+                />
+                <Spacer size="lg" />
+              </>
+            )}
+
+          {/* Approved, deposit submitted. For a quote-first booking the saved
+              card was charged off-session; stripe-events confirms the booking
+              when Stripe says it landed. Not "paid" — processing. */}
+          {status === 'pending' && booking.quoted_total_amount != null && (
+            <>
+              <Card>
+                <Text variant="label" color="charcoal">
+                  Deposit processing
+                </Text>
+                <Spacer size="sm" />
+                <Text variant="body" color="midGray">
+                  You approved {providerName}&apos;s price. We&apos;ll confirm
+                  your booking as soon as your bank does.
+                </Text>
+              </Card>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {booking.proposed_scheduled_at && status === 'confirmed' && (
+            <>
+              <RescheduleProposalCard
+                proposedAt={booking.proposed_scheduled_at}
+                proposedByViewer={booking.reschedule_proposed_by === 'customer'}
+                otherPartyLabel={providerName}
+                onAccept={() => handleRespondReschedule(true)}
+                onDecline={() => handleRespondReschedule(false)}
+                onWithdraw={() => handleRespondReschedule(false)}
+                busy={isMutating}
+              />
               <Spacer size="lg" />
             </>
           )}
@@ -643,10 +909,11 @@ export default function BookingDetailScreen(): React.ReactElement {
 
           <Spacer size="lg" />
 
-          {/* Before/after photos (Flow 2.10) */}
-          {photos.length > 0 && (
+          {/* Before/after photos (Flow 2.10). Intake photos are shown in their
+              own card above while they can still change. */}
+          {jobPhotos.length > 0 && (
             <>
-              <BookingPhotoGallery photos={photos} />
+              <BookingPhotoGallery photos={jobPhotos} />
               <Spacer size="lg" />
             </>
           )}
@@ -696,17 +963,22 @@ export default function BookingDetailScreen(): React.ReactElement {
                 services={services}
                 serviceFeeCents={serviceFeeCents}
                 totalCents={totalCents}
+                surcharges={surcharges}
               />
               <Spacer size="lg" />
             </>
           )}
 
-          {/* Deposit summary */}
-          <DepositSummary
-            totalCents={totalCents}
-            depositCents={depositCents}
-            balanceCents={balanceCents}
-          />
+          {/* Deposit summary. Not for an unpriced request: its deposit_amount
+              is derived from the advertised price and is not what will be
+              charged — the quote decides that. */}
+          {!isUnpriced && (
+            <DepositSummary
+              totalCents={totalCents}
+              depositCents={depositCents}
+              balanceCents={balanceCents}
+            />
+          )}
 
           <Spacer size="xl" />
 
@@ -783,12 +1055,12 @@ export default function BookingDetailScreen(): React.ReactElement {
                 }
                 style={styles.actionButton}
               />
-              {canEdit && (
+              {canReschedule && (
                 <Button
                   label="Reschedule"
                   variant="secondary"
                   size="md"
-                  onPress={openReschedule}
+                  onPress={() => setShowRescheduleSheet(true)}
                   leftIcon={
                     <CalendarClock
                       size={16}
@@ -801,11 +1073,11 @@ export default function BookingDetailScreen(): React.ReactElement {
               )}
             </View>
 
-            {canEdit && (
+            {canCancel && (
               <>
                 <Spacer size="sm" />
                 <Button
-                  label="Cancel Booking"
+                  label={isUnpriced ? 'Cancel Request' : 'Cancel Booking'}
                   variant="ghost"
                   size="md"
                   onPress={() => setShowCancelSheet(true)}
@@ -848,7 +1120,17 @@ export default function BookingDetailScreen(): React.ReactElement {
           title="Cancel Booking"
         >
           <View>
-            {withinForfeitWindow ? (
+            {isUnpriced ? (
+              <Text variant="body" color="charcoal">
+                Nothing has been charged, so cancelling this request is free.
+              </Text>
+            ) : status === 'pending_adjustment_approval' ? (
+              <Text variant="body" color="charcoal">
+                {providerName} proposed a change you have not answered, so
+                cancelling now is free — your{' '}
+                {centsToDisplay(depositCents)} deposit is refunded in full.
+              </Text>
+            ) : withinForfeitWindow ? (
               <View style={styles.warningRow}>
                 <AlertTriangle
                   size={20}
@@ -894,38 +1176,15 @@ export default function BookingDetailScreen(): React.ReactElement {
           </View>
         </Sheet>
 
-        {/* Reschedule sheet */}
-        <Sheet
+        {/* Reschedule sheet — proposes; the provider has to accept */}
+        <RescheduleSheet
           visible={showRescheduleSheet}
           onClose={() => setShowRescheduleSheet(false)}
-          title="Reschedule"
-        >
-          <View>
-            <DateTimePicker
-              value={rescheduleAt}
-              onChange={setRescheduleAt}
-            />
-            <Spacer size="lg" />
-            <Button
-              label="Save New Time"
-              variant="primary"
-              size="lg"
-              onPress={handleReschedule}
-              loading={isMutating}
-              disabled={
-                !rescheduleAt || rescheduleAt === booking.scheduled_at
-              }
-            />
-            <Spacer size="sm" />
-            <Button
-              label="Cancel"
-              variant="ghost"
-              size="md"
-              onPress={() => setShowRescheduleSheet(false)}
-              disabled={isMutating}
-            />
-          </View>
-        </Sheet>
+          currentScheduledAt={booking.scheduled_at}
+          otherPartyLabel={providerName}
+          onSubmit={handleProposeReschedule}
+          submitting={isMutating}
+        />
 
         {/* Review / rating sheet (Flow 2.11) */}
         <ReviewSheet

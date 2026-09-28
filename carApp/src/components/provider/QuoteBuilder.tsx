@@ -3,6 +3,9 @@
 // Controlled and presentational: the parent owns the draft quote and this
 // renders it. Submitting belongs to the screen, which calls submitQuote().
 //
+// Also the body of the provider's adjustment sheet (adjust_job_duration), with
+// no window — the start is already agreed — and the current total as the base.
+//
 // Three things the provider states, and one they do not:
 //   • the exact start, chosen INSIDE the customer's arrival window
 //   • how long the job will take
@@ -64,13 +67,20 @@ export interface QuoteDraft {
 }
 
 export interface QuoteBuilderProps {
-  /** The window the customer said they are free in. Starts are drawn from it. */
-  window: ArrivalWindow;
+  /**
+   * The window the customer said they are free in. Starts are drawn from it.
+   * null hides the start picker — an adjustment keeps the agreed start.
+   */
+  window: ArrivalWindow | null;
   /**
    * The row's derived total_amount in cents — the advertised price the
    * surcharges add to. Server-derived; shown, never edited.
    */
   baseTotalCents: number;
+  /** Label for the base line of the preview. Defaults to "Your listed price". */
+  baseLabel?: string;
+  /** Label for the total line of the preview. Defaults to "Quote total". */
+  totalLabel?: string;
   draft: QuoteDraft;
   onChange: (draft: QuoteDraft) => void;
   /** Inline error, e.g. a rejection returned by submit_quote. */
@@ -105,6 +115,8 @@ export function surchargeTotalCents(items: QuoteLineItemDraft[]): number {
 export function QuoteBuilder({
   window,
   baseTotalCents,
+  baseLabel = 'Your listed price',
+  totalLabel = 'Quote total',
   draft,
   onChange,
   error,
@@ -114,7 +126,7 @@ export function QuoteBuilder({
   const isDark = scheme === 'dark';
   const palette = isDark ? colors.dark : colors.light;
 
-  const starts = useMemo(() => startOptions(window), [window]);
+  const starts = useMemo(() => (window ? startOptions(window) : []), [window]);
   const surcharges = surchargeTotalCents(draft.lineItems);
 
   const cardBg = isDark ? 'rgba(255,255,255,0.06)' : palette.offWhite;
@@ -175,48 +187,52 @@ export function QuoteBuilder({
   return (
     <View style={style}>
       {/* ── Start time ─────────────────────────────────────────────── */}
-      <Text variant="label" color="charcoal">
-        Start time
-      </Text>
-      <Text variant="caption" color="midGray">
-        The customer is free {formatTime(window.start)}–
-        {formatTime(window.end)}.
-      </Text>
-      <Spacer size="sm" />
+      {window && (
+        <>
+          <Text variant="label" color="charcoal">
+            Start time
+          </Text>
+          <Text variant="caption" color="midGray">
+            The customer is free {formatTime(window.start)}–
+            {formatTime(window.end)}.
+          </Text>
+          <Spacer size="sm" />
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.startRow}
-      >
-        {starts.map((iso) => {
-          const active = iso === draft.scheduledAt;
-          return (
-            <Pressable
-              key={iso}
-              onPress={() => onChange({ ...draft, scheduledAt: iso })}
-              style={({ pressed }) => [
-                styles.startChip,
-                {
-                  backgroundColor: active ? palette.electricBlue : cardBg,
-                  borderColor: active ? palette.electricBlue : cardBorder,
-                },
-                pressed && styles.pressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Start at ${formatTime(iso)}`}
-              testID={`quote-start-${iso}`}
-            >
-              <Text variant="label" color={active ? 'offWhite' : 'charcoal'}>
-                {formatTime(iso)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.startRow}
+          >
+            {starts.map((iso) => {
+              const active = iso === draft.scheduledAt;
+              return (
+                <Pressable
+                  key={iso}
+                  onPress={() => onChange({ ...draft, scheduledAt: iso })}
+                  style={({ pressed }) => [
+                    styles.startChip,
+                    {
+                      backgroundColor: active ? palette.electricBlue : cardBg,
+                      borderColor: active ? palette.electricBlue : cardBorder,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Start at ${formatTime(iso)}`}
+                  testID={`quote-start-${iso}`}
+                >
+                  <Text variant="label" color={active ? 'offWhite' : 'charcoal'}>
+                    {formatTime(iso)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
-      <Spacer size="lg" />
+          <Spacer size="lg" />
+        </>
+      )}
 
       {/* ── Duration ───────────────────────────────────────────────── */}
       <Text variant="label" color="charcoal">
@@ -337,7 +353,7 @@ export function QuoteBuilder({
       <Card>
         <View style={styles.totalLine}>
           <Text variant="body" color="midGray">
-            Your listed price
+            {baseLabel}
           </Text>
           <Text variant="body" color="charcoal">
             {centsToDisplay(baseTotalCents)}
@@ -356,7 +372,7 @@ export function QuoteBuilder({
         <Spacer size="sm" />
         <View style={styles.totalLine}>
           <Text variant="label" color="charcoal">
-            Quote total
+            {totalLabel}
           </Text>
           <Text variant="label" color="charcoal" testID="quote-total">
             {centsToDisplay(baseTotalCents + surcharges)}

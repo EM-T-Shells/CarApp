@@ -3,8 +3,11 @@
 // calls. The app never touches Stripe secret keys directly.
 //
 // Flow:
-//   1. createDepositPaymentIntent — called when customer confirms booking.
-//      Returns a client secret for the 15% deposit charge.
+//   0. createSetupIntent + presentCardSetupSheet + confirmSetupIntent — the
+//      quote-first request saves the customer's card (no hold, no charge).
+//      acceptQuote later charges the deposit off-session against it.
+//   1. createDepositPaymentIntent — the deposit PaymentIntent, for bookings
+//      with no saved card or whose off-session charge was refused.
 //   2. presentDepositPaymentSheet — opens Stripe's PaymentSheet against that
 //      client secret to collect the card and confirm the charge.
 //   3. captureBalance — invoked when a provider marks a job complete (Flow 5.6).
@@ -576,11 +579,26 @@ export async function submitQuote(
 // payment rules the client never asserts that a payment succeeded; only the
 // signed Stripe event handler moves a paid booking onward.
 
+/**
+ * What the client does after approving, named by the server rather than
+ * inferred:
+ *   • deposit_processing — the saved card was charged off-session; the booking
+ *     confirms when stripe-events hears the charge landed. Nothing to open.
+ *   • requires_deposit   — no saved card, or the charge was refused; open the
+ *     PaymentSheet through createDepositPaymentIntent.
+ *   • none               — a deposit was already paid; the booking confirmed.
+ */
+export type AcceptQuoteNext = 'deposit_processing' | 'requires_deposit' | 'none';
+
 export interface AcceptQuoteResponse {
   ok: boolean;
   status?: string;
-  /** 'requires_deposit' — open PaymentSheet next. Named, never inferred. */
-  next?: string;
+  next?: AcceptQuoteNext;
+  /**
+   * Set when the saved card was tried and refused. Shown before the
+   * PaymentSheet so the customer knows why they are being asked for a card.
+   */
+  charge_error?: string;
   /** The approved total, in cents. Server-derived. */
   total_cents?: number;
   /** What the deposit will be, in cents. Not a receipt — nothing is charged yet. */
@@ -632,4 +650,267 @@ export async function acceptQuote(
       error: err instanceof Error ? err : new Error(String(err)),
     };
   }
+}
+
+// ── Shared invoke for the newer actions ───────────────────────────────
+
+/**
+ * Every Phase 3 action after accept_quote has the same contract: 2xx with
+ * `ok: true` on success, a JSON `{ error }` body otherwise. The message on the
+ * body is the one the person needs ("that time overlaps another job"), so it
+ * is read back rather than flattened to invoke()'s generic non-2xx string.
+ */
+async function invokeAction<T extends { ok: boolean }>(
+  body: Record<string, unknown>,
+  fallback: string,
+): Promise<StripeResult<T>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', { body });
+    if (error) {
+      return { data: null, error: await readFunctionError(error, fallback) };
+    }
+    const response = data as T;
+    if (!response?.ok) {
+      return { data: null, error: new Error(fallback) };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+// ── Save the card at request time (spec §2, §5) ───────────────────────
+//
+// "Card saved at request, no hold, no charge." The request row exists first
+// (the SetupIntent is recorded on it), then PaymentSheet opens in setup mode.
+// Only a Stripe-verified saved card turns the row into a request the provider
+// is told about — see confirmSetupIntent.
+
+export interface CreateSetupIntentResponse {
+  clientSecret: string;
+  setupIntentId: string;
+  customerId?: string;
+  ephemeralKeySecret?: string;
+}
+
+export async function createSetupIntent(
+  bookingId: string,
+): Promise<StripeResult<CreateSetupIntentResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'create_setup_intent', booking_id: bookingId },
+    });
+    if (error) {
+      return { data: null, error: await readFunctionError(error, 'Could not start saving your card') };
+    }
+    const response = data as CreateSetupIntentResponse;
+    if (!response?.clientSecret) {
+      return { data: null, error: new Error('Invalid response from payment service') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Opens PaymentSheet in setup mode: the customer enters or picks a card and
+ * nothing is charged. Same `canceled` contract as presentDepositPaymentSheet —
+ * a dismissed sheet is an outcome, not an error.
+ */
+export async function presentCardSetupSheet(
+  intent: CreateSetupIntentResponse,
+): Promise<StripeResult<DepositPaymentOutcome>> {
+  try {
+    const { error: initError } = await initPaymentSheet({
+      merchantDisplayName: MERCHANT_DISPLAY_NAME,
+      setupIntentClientSecret: intent.clientSecret,
+      ...(intent.customerId && intent.ephemeralKeySecret
+        ? {
+            customerId: intent.customerId,
+            customerEphemeralKeySecret: intent.ephemeralKeySecret,
+          }
+        : {}),
+      // The saved card is charged later with the customer absent, so a method
+      // that settles days later is no use here either.
+      allowsDelayedPaymentMethods: false,
+      primaryButtonLabel: 'Save card',
+      returnURL: PAYMENT_RETURN_URL,
+    });
+
+    if (initError) {
+      return { data: null, error: new Error(initError.message ?? 'Could not open card setup') };
+    }
+
+    const { error: presentError } = await presentPaymentSheet();
+    if (presentError) {
+      if (presentError.code === PaymentSheetError.Canceled) {
+        return { data: { canceled: true }, error: null };
+      }
+      return { data: null, error: new Error(presentError.message ?? 'Card could not be saved') };
+    }
+
+    return { data: { canceled: false }, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+export interface ConfirmSetupIntentResponse {
+  ok: boolean;
+  card_saved?: boolean;
+}
+
+/**
+ * Asks the server — which asks Stripe — whether the card really was saved, and
+ * on success tells the provider the request is waiting. The sheet closing
+ * without error is not taken as proof of anything.
+ */
+export function confirmSetupIntent(
+  bookingId: string,
+): Promise<StripeResult<ConfirmSetupIntentResponse>> {
+  return invokeAction<ConfirmSetupIntentResponse>(
+    { action: 'confirm_setup_intent', booking_id: bookingId },
+    'Your card has not been saved yet',
+  );
+}
+
+// ── More information (§7 "photos unusable") ───────────────────────────
+
+export interface StatusResponse {
+  ok: boolean;
+  status?: string;
+}
+
+/** Provider sends an unpriced request back to the customer with a note. */
+export function requestMorePhotos(
+  bookingId: string,
+  note: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'request_more_photos', booking_id: bookingId, note },
+    'Could not send the request back',
+  );
+}
+
+/** Customer hands the request back after adding what was asked for. */
+export function provideCustomerInfo(
+  bookingId: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'provide_customer_info', booking_id: bookingId },
+    'Could not send your request back',
+  );
+}
+
+// ── Adjustment (§7 "vehicle worse than declared") ─────────────────────
+
+export interface AdjustJobInput {
+  bookingId: string;
+  estimatedDurationMins: number;
+  /** The extra charges only, integer cents. */
+  lineItems: QuoteLineItem[];
+  reason: string;
+}
+
+export interface AdjustJobResponse extends StatusResponse {
+  adjustment_duration_mins?: number;
+  /** Server-derived. The client never computes the adjusted total. */
+  adjustment_total_cents?: number;
+  adjustment_line_items?: QuoteLineItem[];
+}
+
+/** Provider proposes a new duration and/or extra charges on a confirmed job. */
+export function adjustJobDuration(
+  input: AdjustJobInput,
+): Promise<StripeResult<AdjustJobResponse>> {
+  return invokeAction<AdjustJobResponse>(
+    {
+      action: 'adjust_job_duration',
+      booking_id: input.bookingId,
+      estimated_duration_mins: input.estimatedDurationMins,
+      adjustment_line_items: input.lineItems,
+      reason: input.reason,
+    },
+    'Could not propose the change',
+  );
+}
+
+/** Provider takes back a proposal the customer has not answered. */
+export function withdrawAdjustment(
+  bookingId: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'withdraw_adjustment', booking_id: bookingId },
+    'Could not withdraw the change',
+  );
+}
+
+export interface RespondAdjustmentResponse extends StatusResponse {
+  total_cents?: number;
+  deposit_cents?: number;
+  refund?: unknown;
+}
+
+/**
+ * Customer approves the provider's proposed change, or declines it — which
+ * cancels the booking with a full refund and no fee. Both outcomes are decided
+ * and priced server-side.
+ */
+export function respondAdjustment(
+  bookingId: string,
+  approve: boolean,
+): Promise<StripeResult<RespondAdjustmentResponse>> {
+  return invokeAction<RespondAdjustmentResponse>(
+    { action: 'respond_adjustment', booking_id: bookingId, approve },
+    approve ? 'Could not approve the change' : 'Could not decline the change',
+  );
+}
+
+// ── Reschedule (confirmed bookings, either party) ─────────────────────
+
+export interface ProposeRescheduleResponse {
+  ok: boolean;
+  proposed_scheduled_at?: string;
+  proposed_by?: 'customer' | 'provider';
+}
+
+/** Either party proposes a new start. Nothing moves until the other accepts. */
+export function proposeReschedule(
+  bookingId: string,
+  scheduledAt: string,
+): Promise<StripeResult<ProposeRescheduleResponse>> {
+  return invokeAction<ProposeRescheduleResponse>(
+    { action: 'propose_reschedule', booking_id: bookingId, scheduled_at: scheduledAt },
+    'Could not propose the new time',
+  );
+}
+
+export interface RespondRescheduleResponse {
+  ok: boolean;
+  outcome?: 'accept' | 'decline' | 'withdraw';
+  scheduled_at?: string;
+}
+
+/**
+ * The other party accepts or declines a proposed time; the proposer may only
+ * withdraw (accept = false). The server decides which it is from who calls.
+ */
+export function respondReschedule(
+  bookingId: string,
+  accept: boolean,
+): Promise<StripeResult<RespondRescheduleResponse>> {
+  return invokeAction<RespondRescheduleResponse>(
+    { action: 'respond_reschedule', booking_id: bookingId, accept },
+    'Could not answer the proposed time',
+  );
 }

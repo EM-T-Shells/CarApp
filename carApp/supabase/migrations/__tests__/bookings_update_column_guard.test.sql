@@ -7,7 +7,9 @@
 -- provider profile, and two bookings, then checks both layers of the fix:
 --
 --   * Column privileges — a customer cannot write total_amount or
---     provider_payout, but can still reschedule.
+--     provider_payout. (They could reschedule here too until 20260822000000
+--     took scheduled_at out of the UPDATE allowlist; a reschedule now needs the
+--     other party's agreement through propose_reschedule / respond_reschedule.)
 --   * Status trigger — a customer cannot jump a confirmed booking to
 --     'completed' or stamp started_at, but can abandon a pending one; the
 --     provider can walk confirmed -> en_route -> in_progress.
@@ -70,14 +72,17 @@ EXCEPTION
   WHEN OTHERS THEN PERFORM set_config('test.payout', 'ERR:' || SQLSTATE, TRUE);
 END $$;
 
--- The allowlist must not over-reach: rescheduling still has to work.
+-- Since 20260822000000 a customer cannot move a confirmed start on their own:
+-- it is the provider's committed day too, so it goes through
+-- propose_reschedule / respond_reschedule.
 DO $$
 BEGIN
   UPDATE public.bookings SET scheduled_at = now() + interval '9 days'
     WHERE id = '55555555-0000-0000-0000-000000000005';
   PERFORM set_config('test.reschedule', 'ALLOWED', TRUE);
-EXCEPTION WHEN OTHERS THEN
-  PERFORM set_config('test.reschedule', 'ERR:' || SQLSTATE, TRUE);
+EXCEPTION
+  WHEN insufficient_privilege THEN PERFORM set_config('test.reschedule', 'BLOCKED', TRUE);
+  WHEN OTHERS THEN PERFORM set_config('test.reschedule', 'ERR:' || SQLSTATE, TRUE);
 END $$;
 
 -- ── 2. Status trigger, as the CUSTOMER ──────────────────────────────────
@@ -173,8 +178,8 @@ INSERT INTO _results SELECT 'customer cannot write total_amount',
   current_setting('test.money', TRUE) = 'BLOCKED', 'expect BLOCKED';
 INSERT INTO _results SELECT 'customer cannot write provider_payout',
   current_setting('test.payout', TRUE) = 'BLOCKED', 'expect BLOCKED';
-INSERT INTO _results SELECT 'customer can still reschedule',
-  current_setting('test.reschedule', TRUE) = 'ALLOWED', 'expect ALLOWED';
+INSERT INTO _results SELECT 'customer cannot reschedule directly (20260822000000)',
+  current_setting('test.reschedule', TRUE) = 'BLOCKED', 'expect BLOCKED';
 INSERT INTO _results SELECT 'customer cannot self-complete a booking',
   current_setting('test.self_complete', TRUE) = 'BLOCKED', 'expect BLOCKED';
 INSERT INTO _results SELECT 'customer cannot stamp started_at',

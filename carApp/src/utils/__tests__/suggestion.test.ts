@@ -7,6 +7,7 @@ import {
   selectModifiers,
   suggestDuration,
   surchargeFromModifiers,
+  surchargeLineItems,
 } from '../suggestion';
 import type { ServiceDurationModifier } from '../../types/models';
 
@@ -259,5 +260,42 @@ describe('surchargeFromModifiers', () => {
   it('is zero when nothing applied', () => {
     const result = suggestDuration({ baseMins: 90, modifiers: MODIFIERS });
     expect(surchargeFromModifiers(result)).toBe(0);
+  });
+});
+
+describe('surchargeLineItems', () => {
+  const PRICED = [
+    modifier('size_class', 'suv', 30, 30),
+    modifier('size_class', 'compact', -15, -10),
+    modifier('soil_level', 'heavy', 45, 25),
+    modifier('pets', 'frequent', 20, 0),
+  ];
+
+  it('pre-fills one line per matching modifier, in integer cents', () => {
+    expect(
+      surchargeLineItems(PRICED, 'suv', { soil_level: 'heavy', pets: 'frequent' }),
+    ).toEqual([
+      { label: 'Vehicle size: SUV / Crossover', amountCents: 3000 },
+      { label: 'Interior condition: Heavily soiled', amountCents: 2500 },
+    ]);
+  });
+
+  // A modifier with no price is a duration knob only; a $0.00 line would be
+  // noise on the customer's approval screen.
+  it('omits modifiers with no price', () => {
+    const lines = surchargeLineItems(PRICED, null, { pets: 'frequent' });
+    expect(lines).toEqual([]);
+  });
+
+  // QuoteBuilder's entry is unsigned by design, so a discount could not be
+  // shown or edited as one. It is left for the provider to reflect in price.
+  it('does not pre-fill a discount modifier', () => {
+    expect(surchargeLineItems(PRICED, 'compact', {})).toEqual([]);
+  });
+
+  // An unanswered question is not a moderate answer — same rule as the
+  // duration engine.
+  it('adds nothing for unanswered questions', () => {
+    expect(surchargeLineItems(PRICED, null, {})).toEqual([]);
   });
 });

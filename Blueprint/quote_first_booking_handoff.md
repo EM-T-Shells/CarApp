@@ -1,12 +1,11 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-09-28 (sixth session) · **Branch:** `feature/quote-first-booking`
-**Head:** `9af6dcc` — working tree clean. `submit_quote`, `accept_quote`,
-`notify-quote-ready` and the `stripe-events` quote-first promotion are **all
-deployed and compiled**, and the **customer → quote → approve → pay loop now
-exists in the app** (`9af6dcc`, 24 files, +2934). What is missing is everything
-around that loop, and the fact that none of it has ever run against the real
-server.
+**Updated:** 2026-09-28 (seventh session) · **Branch:** `feature/quote-first-booking`
+**Head:** `44df6bb` + this session's uncommitted work (nothing committed — the
+user has not asked for a commit). **Phase 3 is complete in code and verified
+against the live project**, everything except a real card: migration
+`20260822000000` applied, nine Edge Functions deployed, both live verifiers
+green, Jest **99 suites / 1378 tests**, `tsc` clean.
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -14,60 +13,47 @@ This is the *operational* handoff: environment, what is proven versus merely
 written, and what to do first. The design and per-phase state live in the spec;
 this does not duplicate them.
 
-> `dev` was merged into this branch at `8b6f0e0`, after the Phase 2/3 work. It
-> touched **documentation and Claude config only** — `.claude/rules/`,
-> `CLAUDE.md`, `CONTRIBUTING.md`, `docs/business-rules.md`,
-> `docs/troubleshooting.md`, `.gitignore`, `.claudeignore`. No source, no
-> migrations, no tests. Verified green after the merge: 82 suites / 1111 tests,
-> `tsc` clean. Note `Claude.md` was replaced by `CLAUDE.md`, and `.claude/rules/`
-> now carries path-scoped rules that only activate via the native Read tool —
-> not Bash `cat`/`head`/`sed`.
+> **One-line summary:** Phases 0–3 are **applied, deployed and green**. The
+> quote-first loop now runs end to end against the real project as the real
+> parties — request → card saved → more info → quote → approve, plus
+> reschedule-by-proposal and adjust-and-approve on confirmed jobs —
+> `verify:checkout` **38/38**, `verify:quote-flow` **22/22**, SQL **8 suites /
+> 156 checks**. What has still never run is **a real card**: the SetupIntent
+> sheet, the off-session deposit and the `stripe-events` promotion need a
+> simulator.
+>
+> **To resume: §5.** On a new machine, §1 first — and see §2 for the service
+> key, which was stale again this session.
 
-> **One-line summary:** Phases 0, 1 and 2 are **applied and green**. Phase 3's
-> server side is **deployed** and its core UI loop is **built** — eight
-> migrations on the live project, all SQL suites passing, Jest **87 suites /
-> 1235 tests**, `tsc` clean. The app can now create an unpriced request, price
-> it, and approve and pay for it.
->
-> **But not one of those screens has ever talked to the real server.** Every
-> Jest suite mocks Supabase, so what is proven is that the payloads are shaped
-> correctly and the sequencing is right — not that Postgres accepts them or
-> that the Edge Function actions behave. The first real `submitQuote()` will be
-> the first exercise of the ownership checks and guarded updates.
->
-> **To resume: run §5 step 0, then §5 step 1 — `verify:checkout` is stale and
-> must be fixed before it can vouch for anything** (§4.5). After that, the
-> remaining Phase 3 items in §6.
->
-> **On a new machine, do §1 before §5.** The clone gives you the code and none
-> of the access — five gitignored credentials have to be recreated by hand.
-> The `SUPABASE_ACCESS_TOKEN` that expired 2026-09-16 was replaced on
-> 2026-09-23, and the **database password was reset the same day** because the
-> stored one had gone stale (`28P01`). Both are in `~/.bashrc` on the WSL2 box;
-> on any other machine they must be minted fresh.
+### Decisions made this session (by the user — do not re-litigate)
+
+1. **Payment resequencing: the spec's approach.** Card saved by SetupIntent at
+   request (no hold, no charge); deposit charged **off-session** at approval.
+   PaymentSheet remains only as the fallback (no saved card, decline, 3-D Secure).
+2. **Adjustment (`adjust_job_duration`): from `confirmed` only, a new status
+   (`pending_adjustment_approval`), and either side can cancel.** Implemented
+   as: declining cancels with a full refund and no fee; either side may cancel
+   penalty-free while it is open.
+3. **Reschedule: both parties, `confirmed` only, "you decide" on the rest.**
+   Decided: it replaces the customer's direct `scheduled_at` edit, whose UPDATE
+   grant was revoked. The proposer may withdraw; only the other party accepts.
+4. **Add-ons: child packages per spec.** `parent_package_id`, one level deep;
+   the `'addon'` category is retired (the 3 live rows became `detailing`).
+   Tiers are `basic` / `standard` / `premium` (the spec named none).
+
+`request_more_photos` was built as proposed (note → `awaiting_customer_info` →
+customer adds photos / changes window → `provide_customer_info`); the user did
+not object.
 
 ### Where the whole plan stands
-
-Spec §8 lists five phases. The overall position, because it is easy to read a
-green test count as "nearly done" and it is not:
 
 | Phase | Scope | State |
 |---|---|---|
 | **0** | Duration columns, backfill, ready-by display | ✅ complete |
 | **1** | Buffers, working hours, timezone, time-off, `EXCLUDE` constraint, RLS tightening | ✅ complete |
-| **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete, minus two pieces deliberately moved to Phase 3 |
-| **3** | Quote flow, payment resequencing, quote UI | 🟡 ~two-thirds; schema applied, **2 of ~6 actions + the resequencing deployed and live**, **core UI loop built**; see §6 for what is left |
+| **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete |
+| **3** | Quote flow, payment resequencing, quote UI | ✅ complete in code, live-verified except a real card (§4) |
 | **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ⬜ not started |
-
-**Phase 3 is roughly two-thirds done.** The payment resequencing that spec §8
-rates highest-risk is written, deployed and wired into the approval screen —
-but it has never processed a real payment, so "done" here means "exists and
-type-checks", not "observed working". Phase 4 has not been begun at all: no
-live ETC, no overrun cascade, no early-finish, no calibration reporting.
-
-Independently of all of it: **Stripe has still never run end to end** — see
-§4, "NOT proven". The payment path Phase 3 is about to rewrite has never been
-observed working in the first place.
 
 ---
 
@@ -77,7 +63,7 @@ observed working in the first place.
 git clone git@github.com:EM-T-Shells/CarApp.git
 cd CarApp && git checkout feature/quote-first-booking
 cd carApp && npm ci
-npx tsc --noEmit && npm test          # expect 87 suites / 1235 tests, all green
+npx tsc --noEmit && npm test          # expect 99 suites / 1378 tests, all green
 ```
 
 If that is green, the JavaScript half of the project is fully restored.
@@ -199,6 +185,17 @@ behaviour, so leave it in place regardless of where you land.
 
 ## 2. API keys — resolved, but know the shape of it
 
+> ⚠️ **It happened again on 2026-09-28.** The `sb_secret_…` key in
+> `carApp/.env.local` had been deleted from the project (the project listed one
+> secret key; its prefix matched nothing local), so `seed:e2e` failed with
+> `Unregistered API key`. The fix is a key from **Project Settings → API Keys →
+> "Publishable and secret API keys" → Secret keys**. The first replacement
+> pasted from the **"Legacy API keys"** tab instead — an `eyJ…` JWT — which is
+> disabled and fails `401 Legacy API keys are disabled`. Check a key without
+> printing it: compare its first 15 characters against
+> `supabase projects api-keys` programmatically, or call
+> `/auth/v1/admin/users?per_page=1` with it and read only the status code.
+
 **Legacy API keys were disabled on this project on 2026-06-24T01:28:08Z.** The
 publishable key (`EXPO_PUBLIC_SUPABASE_KEY`) was migrated at the same time, but
 `SUPABASE_SERVICE_ROLE_KEY` in `carApp/.env.local` was missed and sat on the old
@@ -288,390 +285,262 @@ scripts. Node-side only; React Native has its own networking stack.
 
 ## 3. State of the database
 
-All eight Phase 0–3 migrations applied; `supabase migration list --linked`
-aligns on every row (15 rows in total, including the four that predate this
-work). Seven of the eight carry a `.test.sql` suite.
+All nine Phase 0–3 migrations applied; `supabase migration list --linked`
+aligns on every row (16 rows in total, including the four that predate this
+work). Eight of the nine carry a `.test.sql` suite, all green on 2026-09-28
+(156 checks).
 
 | Migration | SQL test | Checks |
 |---|---|---|
 | `20260817000000_booking_duration` | — | — |
 | `20260817120000_bookings_update_column_guard` | ✅ | 12/12 |
 | `20260817140000_bookings_server_derived_pricing` | ✅ | 15/15 |
-| `20260818000000_booking_buffers_and_overlap_guard` | ✅ | green |
-| `20260818120000_provider_profiles_column_guard` | ✅ | green |
+| `20260818000000_booking_buffers_and_overlap_guard` | ✅ | 18/18 |
+| `20260818120000_provider_profiles_column_guard` | ✅ | 15/15 |
 | `20260819000000_provider_working_hours_and_time_off` | ✅ | 21/21 |
 | `20260820000000_intake_vehicle_size_and_modifiers` | ✅ | 25/25 |
 | `20260821000000_quote_statuses_and_arrival_windows` | ✅ | 21/21 |
+| `20260822000000_quote_flow_completion` | ✅ | 29/29 |
 
-The overlap pre-scan found no existing double-bookings and `btree_gist` resolved
-without intervention. All suites wrap in a transaction and `ROLLBACK`:
+`20260822000000` adds `pending_adjustment_approval` (inside the overlap guard),
+eight server-only booking columns (`stripe_setup_intent_id`,
+`info_request_note`, `proposed_scheduled_at`, `reschedule_proposed_by`,
+`adjustment_*`), revokes the client's UPDATE on `scheduled_at`, extends the
+line-item grammar to `adjustment_line_items`, and adds package tiers, duration
+ranges and add-ons (`parent_package_id`) with two triggers:
+`trg_validate_service_package_hierarchy` and `trg_validate_booking_addons`. It
+recategorised the three live `'addon'` packages to `detailing` and narrowed the
+CHECK. `bookings_update_column_guard.test.sql` was updated to expect the revoked
+reschedule. All suites wrap in a transaction and `ROLLBACK`:
 
 ```bash
 cd carApp
 for f in bookings_update_column_guard bookings_server_derived_pricing \
          booking_buffers_and_overlap_guard provider_profiles_column_guard \
          provider_working_hours_and_time_off intake_vehicle_size_and_modifiers \
-         quote_statuses_and_arrival_windows; do
+         quote_statuses_and_arrival_windows quote_flow_completion; do
   supabase db query --linked -f supabase/migrations/__tests__/$f.test.sql
 done
 # expect every row's pass = t
 ```
 
-`stripe-webhook` is deployed with the `23P01 → 409 {code:'slot_conflict'}`
-mapping.
+`quote_flow_completion.test.sql` borrows two existing provider profiles rather
+than inserting one — see §7 on `pg_timezone_names` for why.
+
+`carApp/supabase/schema.sql` has not been updated for any Phase 0–3 migration
+(it predates them); the migrations are the source of truth for this work.
 
 ---
 
 ## 4. What is proven, and what is not
 
-### Four test systems, and they do not substitute for each other
+### Five test systems, and they do not substitute for each other
 
 Worth knowing before reading the numbers below, because the obvious reading of
 "Jest is green" is wrong:
 
 | System | Scope | How to run |
 |---|---|---|
-| **Jest** — 87 suites / 1235 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
-| **`.test.sql`** — 7 files | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
-| **`verify-checkout.mjs`** — 30 checks | The real client payload against the real grants | `npm run verify:checkout` |
-| **Maestro** — `booking-flow.yaml` | The app in a simulator | needs macOS + simulator |
+| **Jest** — 99 suites / 1378 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **`.test.sql`** — 8 files, 156 checks | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
+| **`verify-checkout.mjs`** — 38 checks | The real client payload against the real grants | `npm run verify:checkout` |
+| **`verify-quote-flow.mjs`** — 22 checks | The Phase 3 Edge Function actions, called as the real customer and provider | `npm run verify:quote-flow` |
+| **Maestro** — `quote-flow.yaml` + `quote-flow-provider.yaml` | The app in a simulator | needs macOS + simulator |
 
-A Jest test **cannot** prove that Postgres refuses a forged column: `supabase`
-is a mock, so such a test would assert that a fake returns the error it was told
-to return, and would pass just as happily against a database with the column
-wide open. That is why the guard assertions live in the other two systems, and
-why adding checks there does not move the Jest count.
+A Jest test **cannot** prove that Postgres refuses a forged column, or that an
+Edge Function refuses the wrong party: `supabase` is a mock. That is why the
+guard assertions live in the SQL suites and the two verifiers.
 
-### Proven
+### Proven (2026-09-28)
 
-- **Jest: 87 suites / 1235 tests.** `npx tsc --noEmit` clean. Logic only —
-  every suite mocks Supabase, so this says nothing about the live project.
-- **All seven SQL suites green against the live project.**
-- **The four deployed Edge Function pieces compile.** Verified by downloading
-  each live bundle and diffing it against the working tree (§4.5).
-
-⚠️ **`npm run verify:checkout` is STALE and its 30/30 no longer means what it
-says.** It still fires `status: 'pending'` with no `requested_window_*` —
-`scripts/verify-checkout.mjs:225`. That was the exact payload `handleConfirm()`
-sent before the sixth session rewrote the booking screen quote-first, so the
-script now verifies a payload the app no longer sends. **A green run would be
-misleading, not reassuring.**
-
-Updating it is §5 step 2 and the highest-value next task, because it is the
-only check that puts a real client payload through the real column privileges
-and triggers. What it should now prove: that a `pending_provider_quote` insert
-carrying `requested_window_start`/`requested_window_end` is accepted with the
-anon key, that `scheduled_at` standing in from the window start is accepted,
-and that stating `quoted_total_amount` or `quote_line_items` from the client is
-still refused. The existing forged-price and intake assertions should survive
-unchanged.
-
-Historically it proved: client payload → column privileges → trigger → row, the
-forged-price rejections, the abandon path, that `suggested_duration_mins` comes
-back derived (a broken trigger order shows up here as a null), and that stating
-a suggested duration, a quoted total, an unknown size class, an invalid
-condition answer or an unknown condition key are all refused. **Re-run it after
-any change to the booking screen's payload or the INSERT grant list** — which
-is exactly the rule the sixth session broke.
+- **Jest 99 / 1378, `tsc` clean.** New suites cover the shared server grammar
+  (`_shared/__tests__/quoteActions.test.ts`, `bookingPolicy.test.ts` — the
+  shipping modules, not re-implementations), the Stripe wrappers, the new
+  components, and all four quote-path screens.
+- **SQL: 8 suites / 156 checks green** against the live project, including
+  `quote_flow_completion` (29).
+- **`verify:checkout` 38/38.** No longer stale: it sends the quote-first
+  payload (`pending_provider_quote`, both window ends, `scheduled_at` from the
+  window start) and additionally proves that stating quote line items or a
+  SetupIntent is refused, a half window is refused, an add-on without its main
+  service is refused (and priced with it), the client can no longer move
+  `scheduled_at` but can still change its window, and the abandon path
+  (`pending_provider_quote → cancelled`) works.
+- **`verify:quote-flow` 22/22 — the first time any Phase 3 action ran for
+  real.** Every ownership refusal (customer quoting, provider approving, either
+  party accepting their own proposal, customer adjusting…), the unpriced loop
+  request → more info → hand back → quote → approve → cancel, reschedule by
+  proposal, adjustment approve (deposit kept as charged; balance correct) and
+  decline (cancelled, no fee), a TEST-mode SetupIntent recorded on the row, and
+  that `stripe-webhook` actually reaches the notify functions (an in-app
+  notification row appears).
+- **Nine Edge Functions deployed** with `--use-api`: `stripe-webhook` v26,
+  `stripe-events` v10, `notify-booking-cancelled` v12, and six new notify
+  functions at v1. `verify_jwt` confirmed via `mcp__supabase__list_edge_functions`:
+  `stripe-events` false, everything else true.
+- **The Edge Function bodies type-check** under a scratch shim
+  (real `@supabase/supabase-js` types, stubbed `Deno`/Stripe/std). Not a
+  committed gate — see §7 — but it caught one real bug (a concatenated select
+  string supabase-js cannot parse).
 
 ### ⚠️ NOT proven
 
-**1. Stripe, still — the oldest untested path.** No `create_deposit_intent`, no
-PaymentSheet, no `stripe-events` promotion has ever been observed running.
-Needs macOS + a booted simulator + Maestro; no machine so far has had all
-three. **The fifth session made this worse, not better:** the quote-first
-promotion it added to `stripe-events` rewrites that same unobserved path, so
-there is now a new branch inside it that has also never run. Do this on the
-first machine that can.
+**1. A real card, still.** No SetupIntent has been *completed* (the verifier
+creates one but cannot attach a card), so none of these has run: the setup-mode
+PaymentSheet, `confirm_setup_intent` on a succeeded intent (and the
+`notify-quote-requested` it fires), `accept_quote`'s off-session charge
+(`next: 'deposit_processing'`), the 3-D Secure / decline fallback to the
+PaymentSheet, `stripe-events` confirming a quote-first booking, and its new
+refund-if-cancelled branch. Needs macOS + a booted simulator + Maestro, test
+card 4242…, and 4000 0027 6000 3184 for the 3-D Secure fallback.
 
-**2. The 409 → provider UI path.** `acceptBooking` reads the error body off the
-`FunctionsHttpError` `context` Response. Unit-tested against a synthetic
-`Response`, never a real 409.
+**2. The 409 → provider UI path, and `Intl` under Hermes.** Unchanged from
+earlier sessions.
 
-**3. `Intl` timezone support on device.** `src/utils/schedule.ts` uses
-`Intl.DateTimeFormat` with an IANA `timeZone`. Works in Jest (Node has full
-ICU); never run under Hermes. The failure is graceful by construction — an
-unresolvable zone falls back to the device offset — but "graceful" means
-*silently wrong for a provider in another zone*, so check it on the first
-simulator run.
+**3. No screen has been seen running.** Everything UI is Jest + `tsc` only.
 
-**4. Nothing in the UI has been seen running — and there is now much more of
-it.** The sixth session added five screens/components on the quote path
-(`ArrivalWindowPicker`, `QuoteBuilder`, the provider quote screen, the customer
-approval screen, the provider request queue) plus the rewritten booking screen.
-All are verified by Jest and `tsc` only, and every one of those Jest suites
-mocks Supabase, so what is proven is payload shape and call sequencing — not
-that any of it works.
-
-Two specific unknowns, both first-run risks:
-
-- **The booking screen no longer collects payment.** If the
-  `pending_provider_quote` insert is refused for any reason, the customer gets
-  a failure where they previously got a PaymentSheet. `verify:checkout` is the
-  check that would catch this and it is currently stale (see below).
-- **The approval screen is the only path to a deposit now.** Nothing else in
-  the app charges a card on a quote-first booking, so a bug there is a bug in
-  the entire revenue path — not in a secondary flow.
-
-**5. The quote flow is deployed, but has still never been *exercised*.** All
-four pieces compiled and are live as of 2026-09-23. Verified by downloading each
-live bundle and diffing it against the working tree — not by trusting the
-dashboard:
-
-| Piece | Where | Live version | Source matches HEAD |
-|---|---|---|---|
-| `submit_quote` | `stripe-webhook` action | 25 | ✅ byte-identical |
-| `accept_quote` | `stripe-webhook` action | 25 | ✅ byte-identical |
-| `notify-quote-ready` | new Edge Function | 1 | ✅ byte-identical |
-| quote-first deposit promotion | `stripe-events` | 9 | ✅ byte-identical |
-
-**Compiled is not exercised.** No request has ever reached any of them: no
-screen calls `submitQuote()` or `acceptQuote()`, and no row has taken either
-new status. The first real call will be the first test of the Supabase plumbing
-— the selects, the guarded updates, the ownership checks.
-
-> ⚠️ **The fifth-session handoff said none of this was deployed, and that was
-> wrong.** `stripe-webhook` was already at v25 carrying both actions and
-> `_shared/quote.ts`. Two sessions were planned around a deploy that had
-> partly happened. **Verify live state by downloading and diffing the bundle**
-> — `supabase functions list` timestamps are unreliable (v25 reported
-> `2026-09-03` while containing code committed `2026-09-22`):
->
-> ```bash
-> mkdir -p /tmp/fncheck/supabase
-> printf 'project_id = "apbubklogxgqkokbctwz"\n' > /tmp/fncheck/supabase/config.toml
-> supabase functions download stripe-webhook --project-ref apbubklogxgqkokbctwz \
->   --use-api --workdir /tmp/fncheck
-> diff /tmp/fncheck/supabase/functions/stripe-webhook/index.ts \
->      carApp/supabase/functions/stripe-webhook/index.ts
-> ```
->
-> Download into a scratch workdir, never the repo — `functions download` writes
-> straight into `supabase/functions/` and will overwrite local source.
-
-The import to watch resolved: `stripe-webhook`'s `../_shared/quote.ts` bundles
-correctly, so the "every payment action goes down with it" risk is retired.
-
-**`verify_jwt` is now declared in `config.toml`, and must stay that way.**
-Previously neither Stripe function was declared, and `stripe-events` relied on
-`--no-verify-jwt` being remembered at the command line. Forgetting it re-gates
-the endpoint and 401s every live Stripe delivery before the handler runs —
-which is exactly the bug `Blueprint/fixes.md` records as already fixed once.
-Both are now pinned:
-
-```toml
-[functions.stripe-webhook]
-verify_jwt = true
-[functions.stripe-events]
-verify_jwt = false
-```
-
-Confirmed after deploying: `stripe-events` v9 still reports `verify_jwt: false`.
-Check it via `mcp__supabase__list_edge_functions`, which returns the flag;
-`supabase functions list` does not show it.
-
-This box has no Docker, so every deploy needs `--use-api` to bundle
-server-side.
-
-- **The Edge Function halves are type-checked by nothing.** `tsconfig.json`
-  excludes `supabase/functions/*/index.ts` (the remote imports would not
-  resolve) and Deno is not installed, so `npx tsc --noEmit` says nothing about
-  any action body. `_shared/quote.ts` *is* covered — it sits outside the
-  exclude list precisely because it carries no remote imports, and its tests
-  exercise the shipping code rather than a re-implementation, including
-  `computeAcceptedAmounts`. The uncovered part is the Supabase plumbing, and
-  the deploy has now compiled it; what remains untested is its behaviour.
+**4. The Maestro flows are written but have never run.** `booking-flow.yaml`
+and the reschedule step of `bookings-management.yaml` are **stale** — they drive
+the deposit-first screen and the direct reschedule that no longer exist (noted
+in `e2e/README.md`).
 
 ---
 
 ## 5. Do this first, in this order
 
-0. **Confirm you are where this document says you are.** Two minutes, and it
-   distinguishes "something drifted" from "something broke":
+0. **Confirm you are where this says.**
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect 9af6dcc or later
-   git status --short                       # expect empty
-   cd carApp && npx tsc --noEmit && npm test # expect 87 suites / 1235 tests
-   supabase migration list --linked --workdir "$PWD"   # expect 15 aligned rows
+   cd CarApp && git status --short         # this session's work, uncommitted
+   cd carApp && npx tsc --noEmit && npm test   # expect 99 suites / 1378 tests
+   supabase migration list --linked --workdir "$PWD"   # expect 16 aligned rows
+   npm run verify:checkout                 # expect 38/38
+   npm run verify:quote-flow               # expect 22/22
    ```
 
-   ⚠️ **`npm run verify:checkout` is deliberately not in that list any more.**
-   It is stale (§4) — it still sends the pre-quote-first payload, so whatever
-   it reports is about a payload the app no longer builds. Fix it first (§5
-   step 2), then put it back in this checklist.
+   If a verifier fails at sign-in with `Unregistered API key` or `Legacy API
+   keys are disabled`, it is the service key again — §2.
 
-   `verify:checkout` is still the one worth running every time once repaired:
-   it is the only check
-   that exercises the real client payload against the real grants, so it catches
-   a booking-screen change that no Jest test can (they all mock Supabase).
-
-   **Everything is committed, so a clean tree is the healthy state.** The quote
-   flow spans three commits: `d0768db` (`submit_quote`, `_shared/quote.ts`, the
-   `submitQuote()` wrapper), `49ea09d` (`accept_quote`,
-   `computeAcceptedAmounts`, `notify-quote-ready`, the `stripe-events`
-   quote-first promotion, `acceptQuote()`) and `9af6dcc` (the whole UI loop,
-   the `config.toml` `verify_jwt` blocks, 24 files). Run
-   `git show --stat 9af6dcc` if a fresh clone looks wrong; `npm test` returning
-   83 suites instead of 87 means it predates that commit.
-
-   `.claude/rules/edge-functions.md` is the canonical description of what each
-   action does; prefer it over this file wherever the two disagree, because it
-   is updated alongside the code and this one is not.
-
-1. ~~Deploy~~ **Done 2026-09-23** (§4.5). All four pieces are live and
-   byte-verified against HEAD. Nothing to deploy unless you change a function.
-2. ⚠️ **Fix `scripts/verify-checkout.mjs` — it is stale and currently lies.**
-   It still sends `status: 'pending'` with no `requested_window_*`, which is
-   the payload the booking screen sent *before* the quote-first rewrite. Until
-   it is updated it proves nothing about what the app now does, and a green
-   30/30 from it would be actively misleading. This is the single most valuable
-   next step: it is the only check that exercises a real payload against the
-   real grants, and it is the first thing that would tell you whether the
-   quote-first insert is accepted at all.
-3. **Exercise the loop against the real project.** Nothing built in the sixth
-   session has ever talked to Supabase. Create a request, quote it, approve it.
-   Expect the first failures here, in the Edge Function plumbing that no Jest
-   test covers: the ownership checks, the guarded updates, the selects.
-4. **The remaining Edge Function actions** — `request_more_photos`,
-   `adjust_job_duration`, `propose_reschedule` / `respond_reschedule` (§6).
-   Smaller than they look; they follow a pattern that now has two worked
-   examples in the same file.
-5. **On a Mac:** `brew install maestro`, boot a simulator,
-   `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two seed failure modes are
-   intended: an inactive/unapproved package now fails the booking at insert, and
-   seeded bookings occupy real ranges with buffers, so two committed jobs close
-   together for one provider will be refused.
+1. **Commit**, when asked — nothing from this session is committed. It spans
+   the migration + tests, `stripe-webhook`/`stripe-events`/nine notify
+   functions, `_shared/bookingPolicy.ts`, the client wrappers, five new
+   components, four screens, two scripts, two Maestro flows and the docs.
+2. **On a Mac: the card.** `brew install maestro`, boot a simulator, then
+   `quote-flow.yaml` (first half) → `quote-flow-provider.yaml` →
+   `quote-flow.yaml` (second half). Watch for: the setup sheet saying "Save
+   card"; the provider getting `notify-quote-requested`; approval opening **no**
+   sheet and the booking going from "Deposit processing" to Confirmed when
+   `stripe-events` hears the charge. Then repeat with the 3-D Secure card to see
+   the fallback alert and PaymentSheet.
+3. **Rewrite the stale Maestro steps** (`booking-flow.yaml`, the reschedule
+   step in `bookings-management.yaml`) against the quote-first screens.
+4. **Phase 4** (spec §8): live ETC, overrun cascade, early-finish, calibration.
 
 ---
 
-## 6. Phase 3 — server deployed, core UI built, nothing exercised
+## 6. Phase 3 — what was built
 
-Rated highest-risk in spec §8. The fifth session wrote the payment
-resequencing, the sixth deployed it and built the UI that reaches it. All of it
-remains unrun against the real project.
+The spec's Phase 3 list is done. Canonical per-action behaviour is
+`.claude/rules/edge-functions.md`; this is the map.
 
-**The additive half is already applied** (`20260821000000`, 21/21): the two
-quote statuses plus `awaiting_customer_info`, `requested_window_start/end`,
-`quote_line_items` / `quoted_total_amount`, and one new client transition —
-either party cancelling an *unpriced* request. It changes no existing behaviour,
-and **no row has yet taken any of the new statuses** — the actions are deployed
-and the screens now call them, but nobody has run the flow. That was the point
-of splitting it this way: the risky half gets written and reverted against a
-schema already in place and tested.
+**Server (`stripe-webhook`)** — every new action resolves which side of the
+booking the caller is on (`requireParty`) before writing:
 
-**What is written and now deployed** — live as of 2026-09-23, but never yet
-called by anything. `.claude/rules/edge-functions.md` carries the canonical
-per-action description; this is the shape of it:
+| Action | Who | Does |
+|---|---|---|
+| `create_setup_intent` / `confirm_setup_intent` | customer | Save a card for the request; Stripe confirms it, then the provider is notified |
+| `accept_quote` (changed) | customer | Writes the amounts, then charges the deposit off-session to the saved card; PaymentSheet fallback via `next: 'requires_deposit'` + `charge_error` |
+| `request_more_photos` / `provide_customer_info` | provider / customer | Send an unpriced request back with a note, and return it |
+| `adjust_job_duration` / `withdraw_adjustment` | provider | Propose / withdraw a longer or dearer confirmed job |
+| `respond_adjustment` | customer | Approve (deposit kept, charges itemised) or decline (cancel, full refund, no fee) |
+| `propose_reschedule` / `respond_reschedule` | either | Propose a new start; only the other party accepts; the proposer withdraws |
+| `cancel_booking` / `provider_cancel_booking` (changed) | customer / provider | Now owner-checked, cover unpriced and adjustment states, fees only on committed bookings |
+| `capture_balance` (changed) | provider | Counts only before/after photos; refuses while an adjustment is pending |
 
-- **`submit_quote`** — the assigned provider prices an unpriced request. Writes
-  `quote_line_items` and `quoted_total_amount` and moves the booking to
-  `pending_customer_approval`. Charges nothing. Writes **neither**
-  `total_amount` nor `deposit_amount`; a quote is a proposal.
-- **`accept_quote`** — the customer approves. Writes `total_amount`,
-  `deposit_amount`, `platform_fee` and `provider_payout` **together**, returns
-  the booking to `pending`, and returns `next: 'requires_deposit'` so the
-  client runs the existing `create_deposit_intent` + PaymentSheet flow. It
-  charges nothing itself.
-- **`notify-quote-ready`** — pushes the customer the quoted total. Customer
-  only; the provider just sent it.
-- **The `stripe-events` quote-first promotion** — a quote-first booking now
-  confirms *outright* on deposit success rather than entering the 2h provider
-  approval window, because the provider already committed by quoting and the
-  customer approved the price. Detected by `quoted_total_amount` being
-  non-null, which is NULL on every deposit-first booking ever made, so the
-  legacy path is untouched by construction. On `23P01` (the provider's slot
-  filled between quoting and payment) it falls back to the approval window
-  rather than stranding a paid booking in `pending`.
+`stripe-events` now refunds a deposit that succeeds on a booking already
+cancelled (the customer cancelled while the off-session charge was in flight —
+cancel_booking finds no succeeded deposit to refund at that moment).
 
-Both new actions resolve the caller from the bearer token and verify ownership
-— `verify_jwt` alone proves only that *some* authenticated user called. **The
-older actions in that file still do not do this.**
+Pure logic lives in `_shared/quote.ts` (`prepareAdjustment`,
+`appendLineItems`, `validateRescheduleStart`, `rescheduleResponseAllowed`,
+`validateInfoRequestNote`) and the new `_shared/bookingPolicy.ts`
+(`CANCELLABLE_STATUSES`, `cancellationFeeApplies`, `planDepositCollection`).
 
-> The `total_amount − deposit_amount` trap is **handled, deliberately**, and
-> worth understanding before touching any of it: `accept_quote` keeps an
-> already-succeeded deposit as recorded instead of recomputing it at 15%,
-> because `capture_balance` charges `total_amount − deposit_amount`, so
-> recomputing on a re-quote would collect `0.15A + 0.85B` instead of `B`.
-> Surcharges are provider revenue, so the payout is re-derived from the quoted
-> total less the stored `service_fee`. The arithmetic lives in
-> `computeAcceptedAmounts` (`_shared/quote.ts`) and is Jest-tested.
+**Client:**
 
-**What is left, in rough dependency order:**
+| Piece | Where |
+|---|---|
+| Booking screen: `PackageSelector`, intake photos, card setup, abandon on dismiss | `app/(tabs)/search/book/[providerId].tsx` |
+| `PackageSelector` (tiers, price + duration ranges, nested add-ons) | `src/components/booking/PackageSelector.tsx`, `src/utils/packages.ts` |
+| `IntakePhotoUploader` + `uploadIntakePhoto` | `src/components/booking/IntakePhotoUploader.tsx` |
+| Approval screen: `deposit_processing` / `requires_deposit` / `none` | `app/(tabs)/bookings/quote/[bookingId].tsx` |
+| Customer detail: more-info card, intake photos, adjustment review, reschedule proposal, cancel request | `app/(tabs)/bookings/[id].tsx`, `AdjustmentReviewCard`, `RescheduleProposal` |
+| Provider quote screen: photos, surcharges pre-filled from `delta_price`, ask for more, decline | `app/(provider-tabs)/jobs/quote/[bookingId].tsx`, `surchargeLineItems` in `src/utils/suggestion.ts` |
+| Provider job screen: Adjust Job (QuoteBuilder, no window), withdraw, New Time, answer proposals | `app/(provider-tabs)/jobs/[bookingId].tsx` |
+| Package editor: tier, duration range, add-on parent; `'addon'` category gone | `src/components/provider/ServiceMenuEditor.tsx` |
+| Customer bookings list shows unpriced requests ("Awaiting quote") | `getUpcomingBookingsForCustomer` |
+| Push routes for the new notification types | `src/lib/notifications/push.ts` |
 
-1. ~~Deploy all of the above~~ — **done 2026-09-23** (§4.5). Compiled and live;
-   still never called.
-2. The remaining Edge Function actions — `request_more_photos`,
-   `adjust_job_duration`, `propose_reschedule` / `respond_reschedule` —
-   following the guarded-transition pattern (`.eq('status', …)` + 409 on
-   mismatch) that `acceptBooking`, `submit_quote` and `accept_quote` all now
-   use.
-3. ~~The UI~~ — **the core loop was built in the sixth session** and landed in
-   `9af6dcc`. Jest 87 suites / 1235 tests, `tsc` clean:
+Three design points worth not re-deriving:
 
-   | Piece | Where |
-   |---|---|
-   | `ArrivalWindowPicker` | `src/components/booking/ArrivalWindowPicker.tsx` |
-   | Quote-first request creation | `app/(tabs)/search/book/[providerId].tsx` |
-   | `QuoteBuilder` | `src/components/provider/QuoteBuilder.tsx` |
-   | Provider quote screen | `app/(provider-tabs)/jobs/quote/[bookingId].tsx` |
-   | Customer approval screen | `app/(tabs)/bookings/quote/[bookingId].tsx` |
-   | Provider request queue | `getQuoteRequestsForProvider` + Requests section in `jobs/index.tsx` |
-
-   Three design points worth not re-deriving. **The booking screen charges
-   nothing** — it inserts `pending_provider_quote` and stops; the deposit is
-   collected on the approval screen after `acceptQuote()` returns
-   `next: 'requires_deposit'`. **`scheduled_at` is NOT NULL**, so the request
-   stands it up from the window start and `submit_quote` overwrites it.
-   **Start and duration controls are bounded by the server's own constants**,
-   imported from `_shared/quote.ts` rather than restated, so a control cannot
-   offer a value `prepareQuote` will reject.
-
-   Still missing from the UI: `PackageSelector` with tiers and ranges (below),
-   the intake photo uploader (below), and the `delta_price` pre-fill —
-   `QuoteBuilder` starts with empty surcharges, so that column is still applied
-   to nothing.
-4. The intake photo uploader.
-5. `quote-flow.yaml` alongside `booking-flow.yaml`.
-
-**What is already true and tested, which Phase 3 depends on:**
-
-- The client's write surface on `bookings` cannot state a price *or* a duration.
-  Anything Phase 3 adds — quote submission, price approval, duration adjustment
-  — must go through an Edge Function or be added deliberately to **both** the
-  column allowlist and the trigger layer. That friction is the point.
-- `service_duration_modifiers.delta_price` is stored and **still applied to
-  nothing** — neither `submit_quote` nor `accept_quote` changed this, and it is
-  easy to assume one of them did. `submit_quote` takes `quote_line_items`
-  exactly as the provider states them
-  and validates the grammar; nothing reads `delta_price` to build them. Wiring
-  it up belongs to `QuoteBuilder` (item 3), which should pre-fill the surcharges
-  from the modifiers and let the provider edit them before sending. It must
-  stay that way round — pre-filled on the client, validated and totalled on the
-  server — because wiring a provider-writable table into `derive_booking_amounts`
-  would hand the client an indirect route to the totals it was denied.
-- `DayTimeline` already takes a `proposed` slot and flags collisions, so
-  `QuoteBuilder` needs the mapping, not the geometry.
-- `VehicleConditionForm` is presentational and controlled, so the provider's
-  re-quote screen can reuse it with different plumbing.
-
-**Carried over from Phase 2**, both deferred to Phase 3 deliberately:
-
-- The **intake photo uploader**. Schema, CHECK and the customer INSERT policy
-  are in place and tested; no UI writes an `'intake'` row yet.
-- **Package tiers and ranges** — `duration_min_mins`, `duration_max_mins`,
-  `tier`, `parent_package_id` (spec §4). These belong with `PackageSelector`,
-  which is Phase 3's. **This is the only remaining Phase 3 item that needs a
-  migration** — everything else in §6 writes columns that already exist, which
-  is why `submit_quote` needed no DDL and no approval to build.
-
-⚠️ Reconcile before building the add-on model: migration `20260725200513`
-retired the `'addon'` category from `service_catalog`, but
-`service_packages.category` still allows `'addon'`.
+- **Surcharges and the advertised range are surcharge-only.** `QuoteBuilder`'s
+  amount entry is deliberately unsigned (its test says so), so a discount
+  modifier is neither pre-filled nor shown as the bottom of a price range —
+  the range runs from the base price up to what the modifiers could add.
+- **The deposit PaymentIntent is created, recorded, then confirmed.**
+  Confirming in the create call would let `payment_intent.succeeded` reach
+  `stripe-events` before the payments row exists, leaving the deposit
+  `pending` forever.
+- **`bookings_adjustment_state_check` ties the adjustment columns to the
+  status.** Every exit from `pending_adjustment_approval` — approve, withdraw,
+  decline, *and any cancel* — must null them in the same UPDATE, or it fails.
+  The cancel actions spread `CLEARED_PROPOSALS` for exactly this.
 
 ---
 
 ## 7. Traps already paid for — don't rediscover these
+
+**A schema change can take the REST API down on a starved instance.**
+On 2026-09-28 the project was already I/O-starved (`pg_cron` had logged "job
+startup timeout" every few minutes since ~13:40 UTC; counting `pg_class` took
+~4s). Applying the migration made PostgREST reload its schema cache, the reload
+query hit the `authenticator` role's 8s `statement_timeout`, and every REST call
+returned `503 PGRST002` until the user restarted the project. After the restart
+the same catalog query took 26ms. Before DDL, time a trivial catalog query; if
+it is slow, restart first. Diagnose with `mcp__supabase__query_logs` on
+`postgrest_logs` / `postgres_logs`.
+
+**`pg_timezone_names` is extremely slow on the hosted project** — anything
+from ~17s to over 100s per lookup on the starved instance.
+`trg_validate_provider_schedule` scans it on every `provider_profiles` insert
+and on timezone / working-hours updates, so a SQL suite that inserts two
+provider profiles blew past the management API's 100s gateway limit (`HTTP
+524`, output lost, the transaction still running server-side holding its locks).
+`quote_flow_completion.test.sql` therefore borrows existing providers. The same
+trigger fires when a provider saves working hours in the app — worth replacing
+the view scan with a cheap check (e.g. `now() AT TIME ZONE NEW.timezone` in an
+exception block) before real providers hit it.
+
+**Dry-run a migration with timeouts.** `BEGIN; SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s'; <migration>; <test body>; ROLLBACK;` via
+`supabase db query --linked -f`. Without the timeouts a slow statement holds the
+migration's ACCESS EXCLUSIVE locks on `bookings` for as long as it runs.
+
+**`NULL IN (…)` makes a CHECK pass.** `bookings_reschedule_proposal_check` first
+read `… AND reschedule_proposed_by IN ('customer','provider')`, which is NULL —
+and therefore passes — when the proposer is NULL. The SQL test caught it; the
+fix states `IS NOT NULL` explicitly.
+
+**Regenerate types with `--schema public`.** Without it the CLI adds a
+`graphql_public` schema the committed file never had. The remaining diff is
+the generator parenthesising its helper types — cosmetic.
+
+**`Card` takes no `testID`.** Wrap it in a `View` when a test needs to find it.
+
+**A `jest.mock` factory runs before the test's `const mock… = jest.fn()`.**
+Referencing the mock inside the factory body at definition time captures
+`undefined`; read it lazily (`() => mockX`) instead.
+
 
 **`verify_jwt` lived only in a command-line flag, and now lives in
 `config.toml`.** `stripe-events` must stay `verify_jwt: false` or every live
@@ -796,29 +665,44 @@ The client's entire write surface on `bookings`:
 
 - **INSERT** — `id`, `customer_id`, `provider_id`, `vehicle_id`, `package_id`,
   `services`, `status`, `scheduled_at`, `service_address`, `location_lat`,
-  `location_lng`, `notes`, `vehicle_size_class`, `condition_answers`
-- **UPDATE** — `scheduled_at`, `status`, `started_at`, `vehicle_size_class`,
-  `condition_answers`
-- **Status transitions** — customer `pending → cancelled`; provider
-  `confirmed → en_route → in_progress`
+  `location_lng`, `notes`, `vehicle_size_class`, `condition_answers`,
+  `requested_window_start`, `requested_window_end`
+- **UPDATE** — `status`, `started_at`, `vehicle_size_class`,
+  `condition_answers`, `requested_window_start`, `requested_window_end`.
+  **`scheduled_at` was removed in `20260822000000`** — a start moves only by
+  `propose_reschedule` + `respond_reschedule`
+- **Status transitions** — customer `pending → cancelled`; either party
+  cancelling an unpriced request (`pending_provider_quote`,
+  `pending_customer_approval`, `awaiting_customer_info` → `cancelled`);
+  provider `confirmed → en_route → in_progress`
 - **Intake columns** — customer only, and frozen once the booking leaves
   `pending` / `pending_provider_approval`
 
-**It cannot state a price, a duration, or how much of a provider's day it
-takes.** `buffer_before_mins`, `buffer_after_mins`, `occupied_range`,
-`estimated_duration_mins` and `suggested_duration_mins` are all outside both
-grant lists.
+**It cannot state a price, a duration, how much of a provider's day it takes,
+which card is charged, or a proposal.** Outside both grant lists:
+`buffer_before_mins`, `buffer_after_mins`, `occupied_range`,
+`estimated_duration_mins`, `suggested_duration_mins`, every money column,
+`quote_line_items`, `quoted_total_amount`, `stripe_setup_intent_id`,
+`info_request_note`, `proposed_scheduled_at`, `reschedule_proposed_by` and the
+four `adjustment_*` columns. `quote_flow_completion.test.sql` asserts none of the
+new ones is ever granted.
 
 On `provider_profiles`: INSERT `id`, `user_id`, `provider_type_id`; UPDATE
 `bio`, `coverage_area`, `mile_radius`, `base_lat`, `base_lng`, `availability`,
 the two `default_buffer_*_mins`, `timezone`, `working_hours`,
 `max_jobs_per_day`. DELETE revoked outright. `platform_fee_rate` and
-`verification_status` are **not** writable — that hole was confirmed live with
-the shipping anon key before being closed.
+`verification_status` are **not** writable.
 
 On `booking_photos`: INSERT `id`, `booking_id`, `photo_type`, `storage_url`,
 with the customer route restricted to `photo_type = 'intake'`. UPDATE and DELETE
-revoked — the before/after pair is dispute evidence.
+revoked — the before/after pair is dispute evidence. `capture_balance` counts
+only `before`/`after` toward the completion minimum.
+
+⚠️ **`service_packages` has no column allowlist.** `"service_packages: write
+own"` is `FOR ALL` with no column restriction, so a provider can very likely set
+`is_approved` on their own package — the same hole class `provider_profiles`
+had. Not changed in this work (it needs a decision on which columns an admin
+owns); flagged for the next security pass.
 
 Edge Functions are unaffected throughout: they connect with the service role.
-So does `scripts/seed-e2e.mjs`.
+So do `scripts/seed-e2e.mjs` and the two verifiers' setup and cleanup.

@@ -226,3 +226,79 @@ describe('selectors', () => {
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(false);
   });
 });
+
+// ── Add-ons and intake photos (Phase 3) ───────────────────────────────
+
+describe('add-ons', () => {
+  const addOn = makePkg({
+    id: 'addon-1',
+    name: 'Ceramic Boost',
+    base_price: 40,
+    parent_package_id: 'pkg-1',
+  });
+
+  it('snapshots the parent so the draft knows it is an add-on', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    const services = useBookingDraftStore.getState().selectedServices;
+    expect(services.find((s) => s.id === 'addon-1')?.parent_package_id).toBe('pkg-1');
+    expect(services.find((s) => s.id === 'pkg-1')?.parent_package_id).toBeNull();
+  });
+
+  // The database refuses an add-on booked without its main service, so it
+  // must not survive the main service being deselected.
+  it('deselecting a main service removes its add-ons', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    useBookingDraftStore.getState().toggleService(pkg2);
+
+    useBookingDraftStore.getState().toggleService(pkg1);
+
+    expect(
+      useBookingDraftStore.getState().selectedServices.map((s) => s.id),
+    ).toEqual(['pkg-2']);
+  });
+
+  it('deselecting an add-on leaves its main service', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    useBookingDraftStore.getState().toggleService(addOn);
+    expect(
+      useBookingDraftStore.getState().selectedServices.map((s) => s.id),
+    ).toEqual(['pkg-1']);
+  });
+});
+
+describe('intake photos', () => {
+  const photo = (key: string) => ({
+    key,
+    uri: `file:///${key}.jpg`,
+    mimeType: 'image/jpeg',
+    fileSize: 1000,
+  });
+
+  it('adds and removes photos by key', () => {
+    useBookingDraftStore.getState().addIntakePhoto(photo('a'));
+    useBookingDraftStore.getState().addIntakePhoto(photo('b'));
+    useBookingDraftStore.getState().removeIntakePhoto('a');
+    expect(useBookingDraftStore.getState().intakePhotos.map((p) => p.key)).toEqual(['b']);
+  });
+
+  it('reset clears them', () => {
+    useBookingDraftStore.getState().addIntakePhoto(photo('a'));
+    useBookingDraftStore.getState().reset();
+    expect(useBookingDraftStore.getState().intakePhotos).toEqual([]);
+  });
+
+  // Not required to send: a customer without the car to hand should still be
+  // able to ask, and the provider can send it back for photos.
+  it('does not gate readiness', () => {
+    const s = useBookingDraftStore.getState();
+    s.setProvider('prov-1', 'P');
+    s.toggleService(pkg1);
+    s.setVehicleId('veh-1');
+    s.setServiceAddress('1 Main St');
+    s.setArrivalWindow({ start: '2026-10-01T13:00:00Z', end: '2026-10-01T16:00:00Z' });
+    expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(true);
+  });
+});

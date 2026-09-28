@@ -202,3 +202,26 @@ describe('QuoteBuilder', () => {
     expect(getByText('That start is outside the window')).toBeTruthy();
   });
 });
+
+// The adjustment sheet reuses the builder with no window: the start is already
+// agreed, so there is nothing to place.
+describe('QuoteBuilder without a window (adjust_job_duration)', () => {
+  it('hides the start picker', () => {
+    const { queryByText, queryByTestId } = setup({ window: null });
+    expect(queryByText('Start time')).toBeNull();
+    expect(queryByTestId(`quote-start-${WINDOW.start}`)).toBeNull();
+    // Duration and surcharges are still there.
+    expect(queryByTestId('quote-duration-value')).toBeTruthy();
+    expect(queryByTestId('quote-add-item')).toBeTruthy();
+  });
+
+  it('labels the preview with the caller’s wording', () => {
+    const { getByText } = setup({
+      window: null,
+      baseLabel: 'Current total',
+      totalLabel: 'New total',
+    });
+    expect(getByText('Current total')).toBeTruthy();
+    expect(getByText('New total')).toBeTruthy();
+  });
+});

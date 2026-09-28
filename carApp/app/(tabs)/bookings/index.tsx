@@ -44,10 +44,18 @@ interface StatusConfig {
 
 const STATUS_MAP: Record<string, StatusConfig> = {
   pending: { label: 'Pending', colorKey: 'midGray' },
+  // Quote-first states. Each label says who holds the request, because that is
+  // the only thing the customer can act on.
+  pending_provider_quote: { label: 'Awaiting Quote', colorKey: 'midGray' },
+  pending_customer_approval: { label: 'Quote Ready', colorKey: 'gearGold' },
+  awaiting_customer_info: { label: 'Info Needed', colorKey: 'gearGold' },
+  pending_adjustment_approval: { label: 'Change Proposed', colorKey: 'gearGold' },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue' },
   en_route: { label: 'En Route', colorKey: 'gearGold' },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen' },
 };
+
+const UNPRICED_STATUSES: string[] = ['pending_provider_quote', 'awaiting_customer_info'];
 
 function getStatusConfig(status: string): StatusConfig {
   return STATUS_MAP[status] ?? STATUS_MAP['pending'];
@@ -139,12 +147,19 @@ function BookingCard({
 
       <Spacer size="sm" />
 
-      {/* Footer: total + chevron */}
+      {/* Footer: total + chevron. An unpriced request has no total yet — its
+          total_amount is the advertised estimate, not what will be charged. */}
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
-          <Text variant="price" color="charcoal">
-            {centsToDisplay(booking.total_amount)}
+        {UNPRICED_STATUSES.includes(booking.status) ? (
+          <Text variant="bodySmall" color="midGray">
+            Awaiting quote
           </Text>
+        ) : (
+          booking.total_amount != null && (
+            <Text variant="price" color="charcoal">
+              {centsToDisplay(booking.total_amount)}
+            </Text>
+          )
         )}
         <Spacer flex />
         <ChevronRight size={18} color={palette.midGray} strokeWidth={2} />

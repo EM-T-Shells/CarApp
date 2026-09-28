@@ -44,7 +44,9 @@ the `TODO` block in `run-e2e.sh`:
 | `auth-flow.yaml` | — | Account Creation (email/phone OTP) |
 | `oauth-flow.yaml` | — | Account Creation (Google/Apple SSO) |
 | `provider-onboarding.yaml` | — | Account Creation (provider vetting / pending) |
-| `booking-flow.yaml` | — | Workflow A (Search) + booking + deposit |
+| `booking-flow.yaml` | — | Workflow A (Search) + booking + deposit — ⚠️ **stale**: still drives the deposit-first booking screen (date picker, "Due today", Pay Deposit), which the quote-first rewrite replaced. Superseded by `quote-flow.yaml` for the booking half |
+| `quote-flow.yaml` | `booking` `quote` | Quote-first request (package tiers + add-on, photos offered, arrival window, card saved via SetupIntent) → "Waiting for your price"; second half approves a quote (deposit charged off-session) |
+| `quote-flow-provider.yaml` | `provider` `quote` | Provider prices the request (photos, pre-filled surcharges, start inside the window) |
 | `bookings-management.yaml` | `bookings` | Workflow B + cancel/reschedule (G) |
 | `inbox-messaging.yaml` | `inbox` | Workflow C |
 | `more-settings.yaml` | `more` | Workflow E |
@@ -66,7 +68,8 @@ built yet · `🖥️` desktop-web (out of Maestro's mobile scope).
 | D — Provider Dashboard | 🟡 hub/earnings ✅; recurring unavailability 🚧 | `provider-dashboard` |
 | E — More & Settings | 🟡 profile/notifs ✅; payment-methods 🚧; account-deletion 🚧 | `more-settings` |
 | F — Notifications Center | 🚧 | no screen built |
-| G — Booking Mgmt Actions | 🟡 cancel/reschedule ✅; **Add Service** 🚧 | `bookings-management` |
+| G — Booking Mgmt Actions | 🟡 cancel ✅; reschedule is now propose/accept — `bookings-management`'s direct reschedule step is stale, covered by 🔬 `detail-quote-flow` + `verify-quote-flow.mjs`; **Add Service** 🚧 | `bookings-management` |
+| Quote-first booking (Phase 3) | 🟡 request/card/quote/approve ✅ across two sessions; more-info, adjustment, reschedule 🔬 screen tests + `scripts/verify-quote-flow.mjs` (live actions); photo capture not automatable | `quote-flow`, `quote-flow-provider` |
 | H — Provider Job Flow | 🟡 status-advance + payout + photo-gate ✅; Complete (destructive) + live-GPS not driven | `provider-job-flow` |
 | I — Gift Cards & Promo | 🚧 | no screen built |
 | J — Referral Program | 🚧 | no screen built |

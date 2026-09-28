@@ -55,6 +55,7 @@ const STATUS_MAP: Record<string, StatusConfig> = {
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue' },
   en_route: { label: 'En Route', colorKey: 'gearGold' },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen' },
+  pending_adjustment_approval: { label: 'Change Proposed', colorKey: 'gearGold' },
 };
 
 function getStatusConfig(status: string): StatusConfig {
@@ -295,22 +296,30 @@ export default function ProviderJobsScreen(): React.ReactElement {
           Requests ({requests.length})
         </Text>
         <Text variant="caption" color="midGray">
-          Waiting for your price.
+          Waiting for your price, or on the customer.
         </Text>
         {requests.map((request) => {
           const awaitingProvider = request.status === 'pending_provider_quote';
+          // Sent back for more information is still quotable (submit_quote
+          // accepts it), so it opens the quote screen too.
+          const quotable = awaitingProvider || request.status === 'awaiting_customer_info';
+          const waitingLabel = awaitingProvider
+            ? 'Needs a quote'
+            : request.status === 'awaiting_customer_info'
+              ? 'Sent back — waiting on the customer'
+              : 'Waiting on the customer to approve';
           const vehicle = request.vehicles;
           return (
             <Pressable
               key={request.id}
               onPress={() =>
-                awaitingProvider
+                quotable
                   ? handleQuotePress(request.id)
                   : handleJobPress(request.id)
               }
               accessibilityRole="button"
               accessibilityLabel={
-                awaitingProvider
+                quotable
                   ? `Send a quote for ${vehicle?.make ?? 'this request'}`
                   : `View request for ${vehicle?.make ?? 'this booking'}`
               }
@@ -336,9 +345,7 @@ export default function ProviderJobsScreen(): React.ReactElement {
                   : 'Vehicle'}
               </Text>
               <Text variant="caption" color="midGray">
-                {awaitingProvider
-                  ? 'Needs a quote'
-                  : 'Waiting on the customer to approve'}
+                {waitingLabel}
               </Text>
             </Pressable>
           );

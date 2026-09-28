@@ -15,6 +15,12 @@
  * the ANON key as the seeded customer and fires the exact payload
  * handleConfirm() sends, then asserts the row comes back correctly priced.
  *
+ * Since the quote-first rewrite (Phase 3) that payload is an UNPRICED request:
+ * status 'pending_provider_quote', both ends of the arrival window, and
+ * scheduled_at standing in from the window start until submit_quote places
+ * the real one. The derived amounts on it are the advertised price, which
+ * accept_quote later replaces with the quoted one.
+ *
  * The anon key is the whole point. derive_booking_amounts() early-returns for
  * any role outside ('authenticated','anon'), and the INSERT column grants only
  * bind `authenticated`. A service_role script would bypass both layers and
@@ -23,11 +29,15 @@
  * and deleting the rows this script creates.
  *
  * COVERS   client payload → column privileges → trigger → returned row,
- *          the forged-price rejections, and the abandon path
- *          (pending → cancelled) against enforce_booking_status_transition.
- * DOES NOT COVER   Stripe. No create_deposit_intent, no PaymentSheet, no
- *          stripe-events promotion to pending_provider_approval. Those need a
- *          simulator run — see Blueprint/quote_first_booking_handoff.md §4.
+ *          the forged-price and forged-quote rejections, the add-on rule, the
+ *          revoked client reschedule, and the abandon path
+ *          (pending_provider_quote → cancelled, when the card is not saved)
+ *          against enforce_booking_status_transition.
+ * DOES NOT COVER   Stripe or the Edge Function actions. No SetupIntent, no
+ *          submit_quote / accept_quote, no off-session deposit, no
+ *          stripe-events promotion. scripts/verify-quote-flow.mjs drives the
+ *          actions; the card itself still needs a simulator run — see
+ *          Blueprint/quote_first_booking_handoff.md §4.
  *
  * Requirements (carApp/.env.local or the environment):
  *   EXPO_PUBLIC_SUPABASE_URL
@@ -98,6 +108,7 @@ const ID = {
   vehicle: 'e2e00000-0000-4000-8000-000000000002',
   pkgFull: 'e2e00000-0000-4000-8000-000000000010',
   pkgExpress: 'e2e00000-0000-4000-8000-000000000011',
+  pkgCeramic: 'e2e00000-0000-4000-8000-000000000012', // add-on to pkgFull
 }
 const CUSTOMER_EMAIL = 'test@carapp.dev'
 
@@ -216,18 +227,32 @@ async function signInAsCustomer() {
 // app/(tabs)/search/book/[providerId].tsx. If that screen's payload changes,
 // change it here too — a divergence is precisely the bug this script exists to
 // catch, so do not "fix" a failure by loosening this.
+// A week out, 12:00–16:00 UTC — the shape ArrivalWindowPicker emits.
+const WINDOW_START = (() => {
+  const d = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  d.setUTCHours(12, 0, 0, 0)
+  return d.toISOString()
+})()
+const WINDOW_END = new Date(new Date(WINDOW_START).getTime() + 4 * 60 * 60 * 1000).toISOString()
+
 function clientPayload(customerId, packageIds, overrides = {}) {
   return {
     customer_id: customerId,
     provider_id: ID.providerProfile,
     vehicle_id: ID.vehicle,
     services: packageIds.map((id) => ({ id })),
-    status: 'pending',
+    // Quote-first: an unpriced request. The provider prices it (submit_quote)
+    // and nothing is charged until the customer approves.
+    status: 'pending_provider_quote',
     service_address: '1600 Tysons Blvd, McLean, VA 22102',
     location_lat: 38.9243,
     location_lng: -77.2247,
     notes: 'verify-checkout.mjs',
-    scheduled_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    // NOT NULL, and the real start is unknown until the quote places it, so
+    // the window start stands in — exactly as handleConfirm does.
+    scheduled_at: WINDOW_START,
+    requested_window_start: WINDOW_START,
+    requested_window_end: WINDOW_END,
     // Phase 2. Facts, not conclusions: the client states what the car is and
     // what condition it is in, and trg_derive_booking_suggestion turns those
     // into suggested_duration_mins server-side.
@@ -340,23 +365,13 @@ async function main() {
     assertEqualCents(booking.provider_payout, expected.provider_payout, 'provider_payout')
   })
 
-  // The headline: the review screen renders `Pay ${centsToDisplay(deposit)}
-  // Deposit` from the local draft, but the Edge Function charges
-  // booking.deposit_amount off the row. These disagreeing means the customer is
-  // shown one number and charged another.
-  await check('deposit shown on the review screen == deposit stored on the row', () => {
+  // The advertised deposit, derived the same way the draft store computes its
+  // estimate. Nothing charges this figure any more — accept_quote re-derives
+  // the deposit from the quoted total — but the trigger still computes it, and
+  // a mismatch would mean the pricing trigger and money.ts have drifted.
+  await check('deposit_amount derived server-side (advertised, 15% floored)', () => {
     assertEqualCents(booking.deposit_amount, expected.deposit_amount, 'deposit_amount')
     return `$${(expected.deposit_amount / 100).toFixed(2)}`
-  })
-
-  // handleConfirm reads `booking.deposit_amount ?? 0`. A null or absent column
-  // silently becomes a $0 intent instead of an error, so assert it landed.
-  await check('deposit_amount round-trips non-zero through .select()', () => {
-    assert(
-      booking.deposit_amount !== null && booking.deposit_amount !== undefined,
-      'deposit_amount came back null — the `?? 0` fallback in handleConfirm would mask this as a $0 intent',
-    )
-    assert(toCents(booking.deposit_amount) > 0, 'deposit_amount is zero')
   })
 
   await check('estimated_duration_mins derived from the same rows (Phase 0)', () => {
@@ -423,8 +438,30 @@ async function main() {
     }
   })
 
-  await check('status opens at pending', () => {
-    assert(booking.status === 'pending', `expected 'pending', got '${booking.status}'`)
+  await check('status opens at pending_provider_quote', () => {
+    assert(
+      booking.status === 'pending_provider_quote',
+      `expected 'pending_provider_quote', got '${booking.status}'`,
+    )
+  })
+
+  await check('both ends of the arrival window are stored as sent', () => {
+    assert(
+      new Date(booking.requested_window_start).getTime() === new Date(WINDOW_START).getTime() &&
+        new Date(booking.requested_window_end).getTime() === new Date(WINDOW_END).getTime(),
+      `window came back as ${booking.requested_window_start} – ${booking.requested_window_end}`,
+    )
+    assert(
+      new Date(booking.scheduled_at).getTime() === new Date(WINDOW_START).getTime(),
+      `scheduled_at should stand in from the window start, got ${booking.scheduled_at}`,
+    )
+  })
+
+  await check('nothing is quoted yet', () => {
+    assert(
+      booking.quoted_total_amount === null && booking.quote_line_items === null,
+      'a fresh request carries a quote — only submit_quote may write one',
+    )
   })
 
   // ── Rejections ───────────────────────────────────────────────────────────
@@ -539,6 +576,69 @@ async function main() {
     return `[${errCode(error)}]`
   })
 
+  await check('stating quote line items is refused', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      quote_line_items: [{ label: 'Discount', amount_cents: -10000 }],
+    })
+    assert(error, 'the insert was accepted')
+    assert(errCode(error) === '42501', `expected 42501, got [${errCode(error)}] ${error.message}`)
+    return `[${errCode(error)}]`
+  })
+
+  // accept_quote charges the deposit to the card this names. A client that
+  // could state it could point the charge at a card of its choosing.
+  await check('stating a SetupIntent is refused', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      stripe_setup_intent_id: 'seti_forged',
+    })
+    assert(error, 'the insert was accepted')
+    assert(errCode(error) === '42501', `expected 42501, got [${errCode(error)}] ${error.message}`)
+    return `[${errCode(error)}]`
+  })
+
+  // bookings_requested_window_check: a half-stated window is a missing one.
+  await check('a half-stated arrival window is refused (23514)', async () => {
+    const { error } = await insertAsClient({
+      ...clientPayload(customerId, [ID.pkgFull]),
+      requested_window_end: null,
+    })
+    assert(error, 'the insert was accepted')
+    assert(errCode(error) === '23514', `expected 23514, got [${errCode(error)}] ${error.message}`)
+    return `[${errCode(error)}]`
+  })
+
+  // Phase 3 add-ons (20260822000000). Needs the seeded add-on; skipped with a
+  // pointer to the seed when it is not there.
+  const { data: addOn } = await app
+    .from('service_packages')
+    .select('id, parent_package_id, base_price')
+    .eq('id', ID.pkgCeramic)
+    .maybeSingle()
+
+  if (addOn?.parent_package_id === ID.pkgFull) {
+    await check('an add-on booked without its main service is refused (23514)', async () => {
+      const { error } = await insertAsClient(clientPayload(customerId, [ID.pkgCeramic]))
+      assert(error, 'an orphaned add-on was accepted — trg_validate_booking_addons is not firing')
+      assert(errCode(error) === '23514', `expected 23514, got [${errCode(error)}] ${error.message}`)
+      return `[${errCode(error)}]`
+    })
+
+    await check('an add-on booked with its main service is priced with it', async () => {
+      const { data: withAddOn, error } = await insertAsClient(
+        clientPayload(customerId, [ID.pkgFull, ID.pkgCeramic]),
+      )
+      assert(!error, `insert failed: [${errCode(error)}] ${error?.message}`)
+      const full = both.find((p) => p.id === ID.pkgFull)
+      const priced = priceLocally([full, { base_price: addOn.base_price, duration_mins: 0 }], feeRate)
+      assertEqualCents(withAddOn.total_amount, priced.total_amount, 'total_amount')
+      return `$${(priced.total_amount / 100).toFixed(2)}`
+    })
+  } else {
+    console.log('  – skipped: add-on fixture missing — run `npm run seed:e2e` to add it')
+  }
+
   await check('an unknown package is refused (23503)', async () => {
     const { error } = await insertAsClient(clientPayload(customerId, [randomUUID()]))
     assert(error, 'insert referencing a nonexistent package succeeded')
@@ -580,13 +680,12 @@ async function main() {
   }
 
   // ── The abandon path ─────────────────────────────────────────────────────
-  // handleConfirm calls abandonBooking() when the intent fails, the card
-  // declines, or the sheet is dismissed. It has to clear
-  // enforce_booking_status_transition as the customer, or a dismissed
-  // PaymentSheet leaves an orphan `pending` booking with no payment behind it.
-  console.log('\nabandon path — what runs when the PaymentSheet is dismissed')
+  // handleConfirm cancels the request when the card-setup sheet is dismissed or
+  // fails (abandonRequest). It has to clear enforce_booking_status_transition
+  // as the customer, or an abandoned request with no saved card lingers.
+  console.log('\nabandon path — what runs when the card is not saved')
 
-  await check('customer can move pending → cancelled', async () => {
+  await check('customer can move pending_provider_quote → cancelled', async () => {
     const { data: toAbandon } = await insertAsClient(clientPayload(customerId, [ID.pkgExpress]))
     assert(toAbandon?.id, 'could not create a booking to abandon')
     const { data: cancelled, error } = await app
@@ -597,8 +696,8 @@ async function main() {
       .single()
     assert(
       !error,
-      `abandonBooking would fail: [${errCode(error)}] ${error?.message}\n` +
-        '      Every dismissed PaymentSheet would leave an unpaid pending booking behind.',
+      `abandonRequest would fail: [${errCode(error)}] ${error?.message}\n` +
+        '      Every dismissed card sheet would leave a request with no card behind.',
     )
     assert(cancelled.status === 'cancelled', `status is '${cancelled.status}'`)
   })
@@ -618,6 +717,37 @@ async function main() {
       `expected the status-transition trigger, got [${errCode(error)}] ${error.message}`,
     )
     return `[${errCode(error)}] trigger`
+  })
+
+  // 20260822000000 took scheduled_at out of the UPDATE allowlist: a confirmed
+  // start is the provider's day too, so it moves by propose_reschedule /
+  // respond_reschedule. Column privileges are checked before any row, so a
+  // pending request is as good a target as a confirmed booking.
+  await check('customer cannot move the start directly', async () => {
+    const { error } = await app
+      .from('bookings')
+      .update({ scheduled_at: WINDOW_END })
+      .eq('id', booking.id)
+    assert(error, 'customer rewrote scheduled_at — the UPDATE grant list is too wide')
+    assert(
+      errCode(error) === '42501' || /permission denied/i.test(error.message),
+      `expected 42501 permission denied, got [${errCode(error)}] ${error.message}`,
+    )
+    return `[${errCode(error)}]`
+  })
+
+  // …but the window is still theirs: a provider who sends a request back for
+  // another day gets it by the customer changing this.
+  await check('customer can still change their requested window', async () => {
+    const later = new Date(new Date(WINDOW_START).getTime() + 24 * 60 * 60 * 1000)
+    const { error } = await app
+      .from('bookings')
+      .update({
+        requested_window_start: later.toISOString(),
+        requested_window_end: new Date(later.getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      })
+      .eq('id', booking.id)
+    assert(!error, `window update refused: [${errCode(error)}] ${error?.message}`)
   })
 
   await check('customer cannot rewrite a price after insert', async () => {
@@ -660,19 +790,19 @@ async function finish() {
     console.log('\nfailed:')
     for (const f of failed) console.log(`  ✖ ${f.name}`)
     console.log(
-      '\nNote: this script does not touch Stripe. A green run does NOT mean\n' +
-        'checkout works end to end — create_deposit_intent, the PaymentSheet,\n' +
-        'and the stripe-events promotion to pending_provider_approval still\n' +
-        'need a simulator run.\n',
+      '\nNote: this script does not touch Stripe or the Edge Functions. A green\n' +
+        'run does NOT mean the quote flow works end to end — see\n' +
+        'scripts/verify-quote-flow.mjs, and a simulator run for the card.\n',
     )
     process.exit(1)
   }
 
   console.log(
     '\nThe client payload → column privileges → trigger → row seam is sound.\n' +
-      'Still unverified: Stripe. create_deposit_intent, the PaymentSheet, and the\n' +
-      'stripe-events promotion pending → pending_provider_approval need a real\n' +
-      'simulator run — see Blueprint/quote_first_booking_handoff.md §4.\n',
+      'Not covered here: the Edge Function actions (scripts/verify-quote-flow.mjs)\n' +
+      'and Stripe itself — the SetupIntent sheet, the off-session deposit and the\n' +
+      'stripe-events promotion need a real simulator run — see\n' +
+      'Blueprint/quote_first_booking_handoff.md §4.\n',
   )
 }
 

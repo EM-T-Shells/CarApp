@@ -163,6 +163,57 @@ describe('quote approval', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  // Spec §5: the card saved at request time is charged off-session, so the
+  // common case opens no sheet at all.
+  it('opens no sheet when the saved card was charged', async () => {
+    mockAcceptQuote.mockResolvedValue({
+      data: { ok: true, next: 'deposit_processing', total_cents: 17500, deposit_cents: 2625 },
+      error: null,
+    });
+    await renderAndApprove();
+    expect(calls).toEqual(['acceptQuote']);
+    // Sent to the booking to watch it confirm — not told it is confirmed.
+    expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1');
+  });
+
+  it('opens no sheet when a deposit was already paid', async () => {
+    mockAcceptQuote.mockResolvedValue({ data: { ok: true, next: 'none' }, error: null });
+    await renderAndApprove();
+    expect(calls).toEqual(['acceptQuote']);
+    expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1');
+  });
+
+  it('explains a refused saved card before falling back to the sheet', async () => {
+    mockAcceptQuote.mockResolvedValue({
+      data: {
+        ok: true,
+        next: 'requires_deposit',
+        deposit_cents: 2625,
+        charge_error: 'Your bank needs you to confirm this payment.',
+      },
+      error: null,
+    });
+    await renderAndApprove();
+
+    // Nothing is opened until the customer has read why.
+    expect(calls).toEqual(['acceptQuote']);
+    const [title, message, buttons] = mockAlert.mock.calls[0] as [
+      string,
+      string,
+      { text: string; onPress: () => void }[],
+    ];
+    expect(title).toBe('Card not charged');
+    expect(message).toContain('Your bank needs you to confirm this payment.');
+
+    await act(async () => {
+      buttons[0].onPress();
+    });
+    await waitFor(() =>
+      expect(calls).toEqual(['acceptQuote', 'createDepositPaymentIntent', 'presentDepositPaymentSheet']),
+    );
+    expect(mockCreateIntent).toHaveBeenCalledWith('book-1', 2625);
+  });
+
   it('refuses to render an approve button for a quote not awaiting approval', async () => {
     mockGetBookingById.mockResolvedValue({
       data: { ...BOOKING, status: 'confirmed' },

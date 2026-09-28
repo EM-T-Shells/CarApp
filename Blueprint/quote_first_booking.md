@@ -1,8 +1,8 @@
 # Quote-First Booking — Design Spec & Implementation Plan
 
-**Status:** design closed, implementation started
+**Status:** Phases 0–3 implemented and live-verified (except a real card); Phase 4 not started
 **Branch:** `feature/quote-first-booking` (off `dev`)
-**Last updated:** 2026-08-18
+**Last updated:** 2026-09-28
 
 ---
 
@@ -597,7 +597,35 @@ policy are in place; no UI writes an `'intake'` row yet), and package
 tiers/ranges (`duration_min_mins`, `duration_max_mins`, `tier`,
 `parent_package_id` from §4), which belong with `PackageSelector` in Phase 3.
 
-### Phase 3 — foundation applied, flow not built
+### Phase 3 — complete (2026-09-28)
+
+Everything below "Still to build in Phase 3" is now built, deployed and
+verified against the live project — `verify:checkout` 38/38,
+`verify:quote-flow` 22/22 — except a real card (the setup sheet, the
+off-session deposit and the `stripe-events` confirmation need a simulator).
+`20260822000000_quote_flow_completion.sql` supplied the last schema: the
+`pending_adjustment_approval` status (inside the overlap guard), server-only
+columns for the saved card, the more-info note, reschedule proposals and
+adjustments, the revoked client UPDATE on `scheduled_at`, and package tiers,
+duration ranges and add-ons as child packages (the `'addon'` category retired).
+Decisions taken with the user, and the full map of what was built, are in
+`quote_first_booking_handoff.md` (top, and §6). In brief:
+
+- **§5 payment resequencing, as specified.** SetupIntent at request;
+  `accept_quote` charges the deposit off-session; the PaymentSheet is only the
+  fallback for no saved card, a decline or 3-D Secure.
+- **`adjust_job_duration`** from `confirmed` only; the customer approves
+  (deposit kept as charged, balance grows) or declines (cancelled, full refund,
+  no fee); either side may cancel penalty-free while it is open.
+- **`propose_reschedule` / `respond_reschedule`** for either party on a
+  confirmed booking; only the other party accepts.
+- **`request_more_photos` / `provide_customer_info`** park and return an
+  unpriced request.
+- **§6 UI:** `PackageSelector` (tiers, price range, add-ons),
+  `IntakePhotoUploader`, the quote review screen, `QuoteBuilder` pre-filled from
+  `delta_price`, and the adjustment / reschedule controls on both sides.
+
+### Phase 3 — foundation (as first applied)
 
 `20260821000000_quote_statuses_and_arrival_windows.sql`, applied, with
 `__tests__/quote_statuses_and_arrival_windows.test.sql` (21 checks) green.

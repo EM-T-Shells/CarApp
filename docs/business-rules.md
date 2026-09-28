@@ -58,22 +58,47 @@ accounts ever see either control.
 
 ## Payments
 
-The deposit is 15% at booking. The remaining balance is charged on completion.
+The deposit is 15% of the approved total. The remaining balance is charged on
+completion.
 
-PaymentSheet collects the card. The deposit PaymentIntent sets `customer` and
-`setup_future_usage: "off_session"` so the remaining balance can be charged
-later.
+Quote-first bookings (the booking flow since Phase 3):
 
-A booking must exist before deposit intent creation. If payment fails or is
-abandoned, cancel the unpaid booking. Only the signed Stripe event handler may
-transition a paid booking to `pending_provider_approval`.
+- Sending a request saves a card (SetupIntent: no hold, no charge) and charges
+  nothing. If the card is not saved, the request is cancelled.
+- The provider prices the request. Nothing is charged until the customer
+  approves the final price.
+- On approval the deposit is charged off-session to the saved card. If there
+  is no saved card, or the bank refuses (decline or 3-D Secure), the approval
+  stands and the customer pays the deposit through PaymentSheet instead.
+- The booking is confirmed only when the signed Stripe event says the deposit
+  succeeded. A deposit that lands after the customer cancelled is refunded in
+  full.
+
+Deposit-first bookings still in flight: PaymentSheet collects the card, the
+deposit PaymentIntent sets `customer` and `setup_future_usage: "off_session"`
+so the balance can be charged later, and only the signed Stripe event handler
+may transition a paid booking to `pending_provider_approval`.
+
+A booking must exist before deposit or setup intent creation. If payment fails
+or is abandoned, cancel the unpaid booking.
+
+After confirmation, neither side changes the booking alone:
+
+- A new start is proposed by either party and takes effect only when the other
+  accepts.
+- A longer or dearer job is proposed by the provider and takes effect only when
+  the customer approves. The deposit already paid stays as paid; the difference
+  goes on the balance. Declining cancels the booking with a full refund.
 
 Provider platform fees are 3%. The first 100 approved Founding Providers pay
 0% for 90 days and then convert to 3%. Customers pay 2% at checkout.
 
 ## Cancellation and Disputes
 
-The server determines all cancellation fees and refunds.
+The server determines all cancellation fees and refunds. Late-cancel fees and
+penalties apply only to committed bookings (awaiting provider approval,
+confirmed, en route): cancelling an unpriced request is free for either side,
+and so is walking away while a provider's proposed change is unanswered.
 
 - Customer cancellation more than 24 hours before service: full refund
 - Customer cancellation within 24 hours: retain a $15 late-cancellation fee

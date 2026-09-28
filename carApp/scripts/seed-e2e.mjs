@@ -15,6 +15,7 @@
  *   Fixtures (keyed to the real auth UIDs)
  *     • customer vehicle (primary)
  *     • provider_profile (approved) + vetting set to approved + 2 service_packages
+ *       (Full Detail tiered with a range) + 1 add-on attached to Full Detail
  *     • upcoming CONFIRMED booking scheduled today  → customer "Upcoming" + provider "My Jobs"
  *     • past COMPLETED booking (−10d) + 4 before/after photos + paid payment & payout
  *     • message thread on the upcoming booking + a few messages
@@ -92,6 +93,9 @@ const ID = {
   vehicle: 'e2e00000-0000-4000-8000-000000000002',
   pkgFull: 'e2e00000-0000-4000-8000-000000000010',
   pkgExpress: 'e2e00000-0000-4000-8000-000000000011',
+  // Phase 3: an add-on attached to Full Detail. verify-checkout proves the
+  // database refuses it booked on its own.
+  pkgCeramic: 'e2e00000-0000-4000-8000-000000000012',
   bookingUpcoming: 'e2e00000-0000-4000-8000-000000000020',
   bookingPast: 'e2e00000-0000-4000-8000-000000000021',
   thread: 'e2e00000-0000-4000-8000-000000000030',
@@ -189,7 +193,9 @@ async function clean() {
     ['payments', [ID.payDeposit, ID.payBalance]],
     ['booking_photos', [ID.photoB1, ID.photoB2, ID.photoA1, ID.photoA2]],
     ['bookings', [ID.bookingUpcoming, ID.bookingPast]],
-    ['service_packages', [ID.pkgFull, ID.pkgExpress]],
+    // Add-on first: it references Full Detail (ON DELETE CASCADE would take
+    // it anyway, but explicit keeps the order deterministic).
+    ['service_packages', [ID.pkgCeramic, ID.pkgFull, ID.pkgExpress]],
   ]
   for (const [table, ids] of byId) {
     const { error } = await admin.from(table).delete().in('id', ids)
@@ -315,6 +321,11 @@ async function main() {
       category: 'detailing',
       base_price: 150.0,
       duration_mins: 180,
+      // Phase 3: a tiered main service advertising a range, so the
+      // PackageSelector has something to show.
+      tier: 'premium',
+      duration_min_mins: 150,
+      duration_max_mins: 210,
       is_active: true,
       is_approved: true,
       sort_order: 0,
@@ -331,6 +342,24 @@ async function main() {
       is_active: true,
       is_approved: true,
       sort_order: 1,
+    },
+  ])
+
+  // The add-on, after its main service exists: the hierarchy trigger
+  // (20260822000000) looks the parent up and refuses one it cannot find.
+  await upsert('service_packages', [
+    {
+      id: ID.pkgCeramic,
+      provider_id: ID.providerProfile,
+      parent_package_id: ID.pkgFull,
+      name: 'Ceramic Boost',
+      description: 'Spray ceramic sealant on top of a Full Detail.',
+      category: 'detailing',
+      base_price: 40.0,
+      duration_mins: 30,
+      is_active: true,
+      is_approved: true,
+      sort_order: 2,
     },
   ])
 

@@ -362,9 +362,20 @@ const ACTIVE_BOOKING_STATUSES = [
   'confirmed',
   'en_route',
   'in_progress',
+  // A confirmed job waiting on the customer's answer to a proposed change. Still
+  // committed — the overlap guard covers it — so it stays on both lists.
+  'pending_adjustment_approval',
 ] as const
 
 const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled', 'no_show'] as const
+
+// Rows waiting on somebody before any price is agreed. Matches
+// idx_bookings_provider_quote_queue from migration 20260821000000.
+const QUOTE_QUEUE_STATUSES = [
+  'pending_provider_quote',
+  'pending_customer_approval',
+  'awaiting_customer_info',
+] as const
 
 export function getBookingById(
   bookingId: string,
@@ -403,6 +414,10 @@ export function getProviderJobById(
   )
 }
 
+// The customer sees their unpriced requests alongside their jobs. Unlike the
+// provider's day, there is no timeline here for a placeholder scheduled_at to
+// mislead, and a request that vanished from the list the moment it was sent
+// would be a request the customer can never get back to.
 export function getUpcomingBookingsForCustomer(
   customerId: string,
 ): Promise<QueryResult<BookingSummary[]>> {
@@ -411,7 +426,7 @@ export function getUpcomingBookingsForCustomer(
       .from('bookings')
       .select(BOOKING_SUMMARY_SELECT)
       .eq('customer_id', customerId)
-      .in('status', [...ACTIVE_BOOKING_STATUSES])
+      .in('status', [...ACTIVE_BOOKING_STATUSES, ...QUOTE_QUEUE_STATUSES])
       .order('scheduled_at', { ascending: true })
       .returns<BookingSummary[]>(),
   )
@@ -449,16 +464,8 @@ export function getUpcomingBookingsForProvider(
 // first because the oldest request is the one most at risk of being abandoned.
 // These statuses are deliberately absent from ACTIVE_BOOKING_STATUSES — an
 // unpriced request is not a scheduled job, holds no slot (the overlap
-// constraint covers only confirmed/en_route/in_progress) and has no meaningful
-// scheduled_at yet, so it must not appear on the day timeline as work.
-//
-// Matches idx_bookings_provider_quote_queue from migration 20260821000000.
-const QUOTE_QUEUE_STATUSES = [
-  'pending_provider_quote',
-  'pending_customer_approval',
-  'awaiting_customer_info',
-] as const
-
+// constraint covers only committed jobs) and has no meaningful scheduled_at
+// yet, so it must not appear on the day timeline as work.
 export function getQuoteRequestsForProvider(
   providerId: string,
 ): Promise<QueryResult<BookingSummary[]>> {
@@ -769,6 +776,8 @@ const SCHEDULE_BOOKING_STATUSES = [
   'en_route',
   'in_progress',
   'completed',
+  // Still holds its slot while the customer considers the change.
+  'pending_adjustment_approval',
 ] as const
 
 /**

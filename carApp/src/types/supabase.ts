@@ -49,6 +49,10 @@ export type Database = {
       bookings: {
         Row: {
           actual_duration_mins: number | null
+          adjustment_duration_mins: number | null
+          adjustment_line_items: Json | null
+          adjustment_reason: string | null
+          adjustment_total_amount: number | null
           approval_expires_at: string | null
           buffer_after_mins: number | null
           buffer_before_mins: number | null
@@ -65,6 +69,7 @@ export type Database = {
           estimated_completion_at: string | null
           estimated_duration_mins: number | null
           id: string
+          info_request_note: string | null
           location_lat: number | null
           location_lng: number | null
           no_show_at: string | null
@@ -72,12 +77,14 @@ export type Database = {
           occupied_range: unknown
           package_id: string | null
           platform_fee: number | null
+          proposed_scheduled_at: string | null
           provider_id: string | null
           provider_payout: number | null
           quote_line_items: Json | null
           quoted_total_amount: number | null
           requested_window_end: string | null
           requested_window_start: string | null
+          reschedule_proposed_by: string | null
           scheduled_at: string
           service_address: string | null
           service_fee: number | null
@@ -85,6 +92,7 @@ export type Database = {
           services: Json
           started_at: string | null
           status: string
+          stripe_setup_intent_id: string | null
           suggested_duration_mins: number | null
           total_amount: number | null
           updated_at: string | null
@@ -93,6 +101,10 @@ export type Database = {
         }
         Insert: {
           actual_duration_mins?: number | null
+          adjustment_duration_mins?: number | null
+          adjustment_line_items?: Json | null
+          adjustment_reason?: string | null
+          adjustment_total_amount?: number | null
           approval_expires_at?: string | null
           buffer_after_mins?: number | null
           buffer_before_mins?: number | null
@@ -109,6 +121,7 @@ export type Database = {
           estimated_completion_at?: string | null
           estimated_duration_mins?: number | null
           id?: string
+          info_request_note?: string | null
           location_lat?: number | null
           location_lng?: number | null
           no_show_at?: string | null
@@ -116,12 +129,14 @@ export type Database = {
           occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
+          proposed_scheduled_at?: string | null
           provider_id?: string | null
           provider_payout?: number | null
           quote_line_items?: Json | null
           quoted_total_amount?: number | null
           requested_window_end?: string | null
           requested_window_start?: string | null
+          reschedule_proposed_by?: string | null
           scheduled_at: string
           service_address?: string | null
           service_fee?: number | null
@@ -129,6 +144,7 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          stripe_setup_intent_id?: string | null
           suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
@@ -137,6 +153,10 @@ export type Database = {
         }
         Update: {
           actual_duration_mins?: number | null
+          adjustment_duration_mins?: number | null
+          adjustment_line_items?: Json | null
+          adjustment_reason?: string | null
+          adjustment_total_amount?: number | null
           approval_expires_at?: string | null
           buffer_after_mins?: number | null
           buffer_before_mins?: number | null
@@ -153,6 +173,7 @@ export type Database = {
           estimated_completion_at?: string | null
           estimated_duration_mins?: number | null
           id?: string
+          info_request_note?: string | null
           location_lat?: number | null
           location_lng?: number | null
           no_show_at?: string | null
@@ -160,12 +181,14 @@ export type Database = {
           occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
+          proposed_scheduled_at?: string | null
           provider_id?: string | null
           provider_payout?: number | null
           quote_line_items?: Json | null
           quoted_total_amount?: number | null
           requested_window_end?: string | null
           requested_window_start?: string | null
+          reschedule_proposed_by?: string | null
           scheduled_at?: string
           service_address?: string | null
           service_fee?: number | null
@@ -173,6 +196,7 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          stripe_setup_intent_id?: string | null
           suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
@@ -1077,14 +1101,18 @@ export type Database = {
           category: string
           created_at: string | null
           description: string | null
+          duration_max_mins: number | null
+          duration_min_mins: number | null
           duration_mins: number | null
           id: string
           is_active: boolean | null
           is_approved: boolean | null
           is_custom: boolean | null
           name: string
+          parent_package_id: string | null
           provider_id: string | null
           sort_order: number | null
+          tier: string | null
         }
         Insert: {
           base_price?: number | null
@@ -1092,14 +1120,18 @@ export type Database = {
           category: string
           created_at?: string | null
           description?: string | null
+          duration_max_mins?: number | null
+          duration_min_mins?: number | null
           duration_mins?: number | null
           id?: string
           is_active?: boolean | null
           is_approved?: boolean | null
           is_custom?: boolean | null
           name: string
+          parent_package_id?: string | null
           provider_id?: string | null
           sort_order?: number | null
+          tier?: string | null
         }
         Update: {
           base_price?: number | null
@@ -1107,14 +1139,18 @@ export type Database = {
           category?: string
           created_at?: string | null
           description?: string | null
+          duration_max_mins?: number | null
+          duration_min_mins?: number | null
           duration_mins?: number | null
           id?: string
           is_active?: boolean | null
           is_approved?: boolean | null
           is_custom?: boolean | null
           name?: string
+          parent_package_id?: string | null
           provider_id?: string | null
           sort_order?: number | null
+          tier?: string | null
         }
         Relationships: [
           {
@@ -1122,6 +1158,13 @@ export type Database = {
             columns: ["catalog_id"]
             isOneToOne: false
             referencedRelation: "service_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_packages_parent_package_id_fkey"
+            columns: ["parent_package_id"]
+            isOneToOne: false
+            referencedRelation: "service_packages"
             referencedColumns: ["id"]
           },
           {
@@ -1348,6 +1391,10 @@ export type Database = {
       }
     }
     Functions: {
+      assert_booking_line_items: {
+        Args: { column_name: string; items: Json }
+        Returns: undefined
+      }
       expire_founding_providers: { Args: never; Returns: number }
       is_admin: { Args: { uid: string }; Returns: boolean }
     }
@@ -1368,12 +1415,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1397,11 +1444,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1422,11 +1469,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1447,11 +1494,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1464,11 +1511,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

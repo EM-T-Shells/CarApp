@@ -206,6 +206,8 @@ async function onPaymentIntentSucceeded(
 
         if (awaiting && awaiting.length > 0) {
           await fireNotify('notify-booking-requested', { booking_id });
+        } else {
+          await refundIfCancelled(booking_id, paymentIntent);
         }
         return;
       }
@@ -214,6 +216,8 @@ async function onPaymentIntentSucceeded(
       // webhook deliveries don't double-send.
       if (confirmed && confirmed.length > 0) {
         await fireNotify('notify-booking-confirmed', { booking_id });
+      } else {
+        await refundIfCancelled(booking_id, paymentIntent);
       }
       return;
     }
@@ -234,8 +238,60 @@ async function onPaymentIntentSucceeded(
     // so retried webhook deliveries don't double-send.
     if (awaiting && awaiting.length > 0) {
       await fireNotify('notify-booking-requested', { booking_id });
+    } else {
+      await refundIfCancelled(booking_id, paymentIntent);
     }
   }
+}
+
+// A deposit that lands on a booking already cancelled is refunded in full.
+//
+// Reachable because the charge and the cancel race: accept_quote now charges
+// the deposit off-session, and a customer who cancels while that charge is
+// still processing reaches cancel_booking before any deposit has succeeded —
+// so its refund finds nothing to refund, and the promotion above then matches
+// nothing because the booking is no longer 'pending'. Without this the money
+// would be kept for a job that no longer exists. The same window always
+// existed for the PaymentSheet deposit; it was just much narrower.
+//
+// Idempotent across redeliveries: once the row is 'refunded' this returns, and
+// the refund itself carries an idempotency key.
+async function refundIfCancelled(
+  bookingId: string,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const { data: booking } = await supabase
+    .from('bookings')
+    .select('status')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (booking?.status !== 'cancelled') return;
+
+  const { data: payment } = await supabase
+    .from('payments')
+    .select('id, status, user_id')
+    .eq('stripe_payment_intent_id', paymentIntent.id)
+    .maybeSingle();
+  if (!payment || payment.status === 'refunded') return;
+
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: paymentIntent.id,
+      reason: 'requested_by_customer',
+      metadata: { booking_id: bookingId, reason: 'deposit_after_cancellation' },
+    },
+    { idempotencyKey: `deposit-after-cancel-${paymentIntent.id}` },
+  );
+
+  await supabase.from('payments').update({ status: 'refunded' }).eq('id', payment.id);
+  await supabase.from('payments').insert({
+    booking_id: bookingId,
+    user_id: payment.user_id,
+    stripe_payment_intent_id: paymentIntent.id,
+    payment_type: 'refund',
+    amount: paymentIntent.amount_received / 100, // DB stores dollars
+    status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
+  });
 }
 
 async function onPaymentIntentFailed(
