@@ -1,10 +1,12 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-09-23 (sixth session) · **Branch:** `feature/quote-first-booking`
-**Head:** `49ea09d` — working tree carries the sixth session's `config.toml`
-change (§4.5). `submit_quote`, `accept_quote`, `notify-quote-ready` and the
-`stripe-events` quote-first promotion are now **all deployed and compiled**.
-Every server-side piece of the quote flow is live; the UI is what is missing.
+**Updated:** 2026-09-28 (sixth session) · **Branch:** `feature/quote-first-booking`
+**Head:** `9af6dcc` — working tree clean. `submit_quote`, `accept_quote`,
+`notify-quote-ready` and the `stripe-events` quote-first promotion are **all
+deployed and compiled**, and the **customer → quote → approve → pay loop now
+exists in the app** (`9af6dcc`, 24 files, +2934). What is missing is everything
+around that loop, and the fact that none of it has ever run against the real
+server.
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
 §8 (phase plan), §9 (current state)
 
@@ -21,16 +23,21 @@ this does not duplicate them.
 > now carries path-scoped rules that only activate via the native Read tool —
 > not Bash `cat`/`head`/`sed`.
 
-> **One-line summary:** Phases 0, 1 and 2 are **applied and green**, and Phase
-> 3's *server* side is now **deployed** — eight migrations on the live project,
-> all SQL suites passing, Jest 83 suites / 1184 tests, `tsc` clean, and all
-> four quote-flow pieces live and compiled (§4.5). The quote UI still does not
-> exist, so nothing in the app can start a quote-first booking yet.
+> **One-line summary:** Phases 0, 1 and 2 are **applied and green**. Phase 3's
+> server side is **deployed** and its core UI loop is **built** — eight
+> migrations on the live project, all SQL suites passing, Jest **87 suites /
+> 1235 tests**, `tsc` clean. The app can now create an unpriced request, price
+> it, and approve and pay for it.
 >
-> **To resume: run §5 step 0 to confirm the state, then go straight to the UI
-> (§6 item 3).** The deploy that dominated the last two sessions is done. The
-> **UI is now the whole critical path**; the remaining Edge Function actions
-> are smaller than they look.
+> **But not one of those screens has ever talked to the real server.** Every
+> Jest suite mocks Supabase, so what is proven is that the payloads are shaped
+> correctly and the sequencing is right — not that Postgres accepts them or
+> that the Edge Function actions behave. The first real `submitQuote()` will be
+> the first exercise of the ownership checks and guarded updates.
+>
+> **To resume: run §5 step 0, then §5 step 1 — `verify:checkout` is stale and
+> must be fixed before it can vouch for anything** (§4.5). After that, the
+> remaining Phase 3 items in §6.
 >
 > **On a new machine, do §1 before §5.** The clone gives you the code and none
 > of the access — five gitignored credentials have to be recreated by hand.
@@ -49,13 +56,14 @@ green test count as "nearly done" and it is not:
 | **0** | Duration columns, backfill, ready-by display | ✅ complete |
 | **1** | Buffers, working hours, timezone, time-off, `EXCLUDE` constraint, RLS tightening | ✅ complete |
 | **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete, minus two pieces deliberately moved to Phase 3 |
-| **3** | Quote flow, payment resequencing, quote UI | 🟡 schema applied; **2 of ~6 Edge Function actions + the resequencing deployed and live**; UI not started |
+| **3** | Quote flow, payment resequencing, quote UI | 🟡 ~two-thirds; schema applied, **2 of ~6 actions + the resequencing deployed and live**, **core UI loop built**; see §6 for what is left |
 | **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ⬜ not started |
 
-**Phase 3 is roughly a fifth done, and the hard part is not the part that is
-done.** The payment resequencing (§6 item 2) is rated the highest-risk item in
-the entire plan and is untouched; the quote UI does not exist at all. Phase 4
-has not been begun.
+**Phase 3 is roughly two-thirds done.** The payment resequencing that spec §8
+rates highest-risk is written, deployed and wired into the approval screen —
+but it has never processed a real payment, so "done" here means "exists and
+type-checks", not "observed working". Phase 4 has not been begun at all: no
+live ETC, no overrun cascade, no early-finish, no calibration reporting.
 
 Independently of all of it: **Stripe has still never run end to end** — see
 §4, "NOT proven". The payment path Phase 3 is about to rewrite has never been
@@ -69,7 +77,7 @@ observed working in the first place.
 git clone git@github.com:EM-T-Shells/CarApp.git
 cd CarApp && git checkout feature/quote-first-booking
 cd carApp && npm ci
-npx tsc --noEmit && npm test          # expect 83 suites / 1184 tests, all green
+npx tsc --noEmit && npm test          # expect 87 suites / 1235 tests, all green
 ```
 
 If that is green, the JavaScript half of the project is fully restored.
@@ -323,7 +331,7 @@ Worth knowing before reading the numbers below, because the obvious reading of
 
 | System | Scope | How to run |
 |---|---|---|
-| **Jest** — 83 suites / 1184 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **Jest** — 87 suites / 1235 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
 | **`.test.sql`** — 7 files | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
 | **`verify-checkout.mjs`** — 30 checks | The real client payload against the real grants | `npm run verify:checkout` |
 | **Maestro** — `booking-flow.yaml` | The app in a simulator | needs macOS + simulator |
@@ -336,19 +344,35 @@ why adding checks there does not move the Jest count.
 
 ### Proven
 
-- **Jest: 83 suites / 1184 tests.** `npx tsc --noEmit` clean.
+- **Jest: 87 suites / 1235 tests.** `npx tsc --noEmit` clean. Logic only —
+  every suite mocks Supabase, so this says nothing about the live project.
 - **All seven SQL suites green against the live project.**
-- **`npm run verify:checkout` — 30/30 against the live project.** Signs in as
-  the seeded customer with the **anon** key and fires the exact payload
-  `handleConfirm()` sends, including the Phase 2 intake fields: client payload →
-  column privileges → trigger → row, the forged-price rejections, and the
-  abandon path. It now also proves `suggested_duration_mins` comes back derived
-  (so `trg_derive_booking_suggestion` ran and read the *rebuilt* services
-  snapshot — a broken trigger order would show up here as a null), and that
-  stating a suggested duration, a quoted total, an unknown size class, an
-  invalid condition answer or an unknown condition key are all refused.
-  **Re-run it after any change to the booking screen's payload or the INSERT
-  grant list.**
+- **The four deployed Edge Function pieces compile.** Verified by downloading
+  each live bundle and diffing it against the working tree (§4.5).
+
+⚠️ **`npm run verify:checkout` is STALE and its 30/30 no longer means what it
+says.** It still fires `status: 'pending'` with no `requested_window_*` —
+`scripts/verify-checkout.mjs:225`. That was the exact payload `handleConfirm()`
+sent before the sixth session rewrote the booking screen quote-first, so the
+script now verifies a payload the app no longer sends. **A green run would be
+misleading, not reassuring.**
+
+Updating it is §5 step 2 and the highest-value next task, because it is the
+only check that puts a real client payload through the real column privileges
+and triggers. What it should now prove: that a `pending_provider_quote` insert
+carrying `requested_window_start`/`requested_window_end` is accepted with the
+anon key, that `scheduled_at` standing in from the window start is accepted,
+and that stating `quoted_total_amount` or `quote_line_items` from the client is
+still refused. The existing forged-price and intake assertions should survive
+unchanged.
+
+Historically it proved: client payload → column privileges → trigger → row, the
+forged-price rejections, the abandon path, that `suggested_duration_mins` comes
+back derived (a broken trigger order shows up here as a null), and that stating
+a suggested duration, a quoted total, an unknown size class, an invalid
+condition answer or an unknown condition key are all refused. **Re-run it after
+any change to the booking screen's payload or the INSERT grant list** — which
+is exactly the rule the sixth session broke.
 
 ### ⚠️ NOT proven
 
@@ -371,8 +395,23 @@ unresolvable zone falls back to the device offset — but "graceful" means
 *silently wrong for a provider in another zone*, so check it on the first
 simulator run.
 
-**4. Nothing in the UI has been seen running.** Every screen change this session
-is verified by Jest and `tsc` only.
+**4. Nothing in the UI has been seen running — and there is now much more of
+it.** The sixth session added five screens/components on the quote path
+(`ArrivalWindowPicker`, `QuoteBuilder`, the provider quote screen, the customer
+approval screen, the provider request queue) plus the rewritten booking screen.
+All are verified by Jest and `tsc` only, and every one of those Jest suites
+mocks Supabase, so what is proven is payload shape and call sequencing — not
+that any of it works.
+
+Two specific unknowns, both first-run risks:
+
+- **The booking screen no longer collects payment.** If the
+  `pending_provider_quote` insert is refused for any reason, the customer gets
+  a failure where they previously got a PaymentSheet. `verify:checkout` is the
+  check that would catch this and it is currently stale (see below).
+- **The approval screen is the only path to a deposit now.** Nothing else in
+  the app charges a card on a quote-first booking, so a bug there is a bug in
+  the entire revenue path — not in a secondary flow.
 
 **5. The quote flow is deployed, but has still never been *exercised*.** All
 four pieces compiled and are live as of 2026-09-23. Verified by downloading each
@@ -451,39 +490,54 @@ server-side.
    distinguishes "something drifted" from "something broke":
 
    ```bash
-   cd CarApp && git log --oneline -1        # expect 49ea09d or later
+   cd CarApp && git log --oneline -1        # expect 9af6dcc or later
    git status --short                       # expect empty
-   cd carApp && npx tsc --noEmit && npm test # expect 83 suites / 1184 tests
-   npm run verify:checkout                  # expect 30/30 against the live project
+   cd carApp && npx tsc --noEmit && npm test # expect 87 suites / 1235 tests
    supabase migration list --linked --workdir "$PWD"   # expect 15 aligned rows
    ```
 
-   `verify:checkout` is the one worth running every time: it is the only check
+   ⚠️ **`npm run verify:checkout` is deliberately not in that list any more.**
+   It is stale (§4) — it still sends the pre-quote-first payload, so whatever
+   it reports is about a payload the app no longer builds. Fix it first (§5
+   step 2), then put it back in this checklist.
+
+   `verify:checkout` is still the one worth running every time once repaired:
+   it is the only check
    that exercises the real client payload against the real grants, so it catches
    a booking-screen change that no Jest test can (they all mock Supabase).
 
    **Everything is committed, so a clean tree is the healthy state.** The quote
-   flow spans two commits: `d0768db` (`submit_quote`, `_shared/quote.ts`, the
-   `submitQuote()` wrapper) and `49ea09d` (`accept_quote`,
+   flow spans three commits: `d0768db` (`submit_quote`, `_shared/quote.ts`, the
+   `submitQuote()` wrapper), `49ea09d` (`accept_quote`,
    `computeAcceptedAmounts`, `notify-quote-ready`, the `stripe-events`
-   quote-first promotion, `acceptQuote()`). Run `git show --stat 49ea09d` if a
-   fresh clone looks wrong.
+   quote-first promotion, `acceptQuote()`) and `9af6dcc` (the whole UI loop,
+   the `config.toml` `verify_jwt` blocks, 24 files). Run
+   `git show --stat 9af6dcc` if a fresh clone looks wrong; `npm test` returning
+   83 suites instead of 87 means it predates that commit.
 
-   **Committed is not deployed, and that gap is the whole of step 1** (§4.5).
    `.claude/rules/edge-functions.md` is the canonical description of what each
    action does; prefer it over this file wherever the two disagree, because it
    is updated alongside the code and this one is not.
 
 1. ~~Deploy~~ **Done 2026-09-23** (§4.5). All four pieces are live and
    byte-verified against HEAD. Nothing to deploy unless you change a function.
-2. **The UI — this is now the critical path, and it is the whole job.**
-   *Nothing in the app can start a quote-first booking* (§6 item 3). Every
-   server piece below it is live and waiting for a caller.
-3. **The remaining Edge Function actions** — `request_more_photos`,
+2. ⚠️ **Fix `scripts/verify-checkout.mjs` — it is stale and currently lies.**
+   It still sends `status: 'pending'` with no `requested_window_*`, which is
+   the payload the booking screen sent *before* the quote-first rewrite. Until
+   it is updated it proves nothing about what the app now does, and a green
+   30/30 from it would be actively misleading. This is the single most valuable
+   next step: it is the only check that exercises a real payload against the
+   real grants, and it is the first thing that would tell you whether the
+   quote-first insert is accepted at all.
+3. **Exercise the loop against the real project.** Nothing built in the sixth
+   session has ever talked to Supabase. Create a request, quote it, approve it.
+   Expect the first failures here, in the Edge Function plumbing that no Jest
+   test covers: the ownership checks, the guarded updates, the selects.
+4. **The remaining Edge Function actions** — `request_more_photos`,
    `adjust_job_duration`, `propose_reschedule` / `respond_reschedule` (§6).
    Smaller than they look; they follow a pattern that now has two worked
-   examples in the same file. These can follow the UI rather than precede it.
-4. **On a Mac:** `brew install maestro`, boot a simulator,
+   examples in the same file.
+5. **On a Mac:** `brew install maestro`, boot a simulator,
    `./e2e/run-e2e.sh --flow e2e/booking-flow.yaml`. Two seed failure modes are
    intended: an inactive/unapproved package now fails the booking at insert, and
    seeded bookings occupy real ranges with buffers, so two committed jobs close
@@ -491,19 +545,19 @@ server-side.
 
 ---
 
-## 6. Phase 3 — server side nearly done, UI not started
+## 6. Phase 3 — server deployed, core UI built, nothing exercised
 
-Rated highest-risk in spec §8. It resequences payments on top of the pricing
-trigger, and the fifth session wrote the server half of that resequencing —
-still entirely unrun, like everything else here.
+Rated highest-risk in spec §8. The fifth session wrote the payment
+resequencing, the sixth deployed it and built the UI that reaches it. All of it
+remains unrun against the real project.
 
 **The additive half is already applied** (`20260821000000`, 21/21): the two
 quote statuses plus `awaiting_customer_info`, `requested_window_start/end`,
 `quote_line_items` / `quoted_total_amount`, and one new client transition —
 either party cancelling an *unpriced* request. It changes no existing behaviour,
-and **no row has yet taken any of the new statuses** — the actions that would
-write them are not deployed, and no screen calls them. That was the point of
-splitting it this way: the risky half gets written and reverted against a
+and **no row has yet taken any of the new statuses** — the actions are deployed
+and the screens now call them, but nobody has run the flow. That was the point
+of splitting it this way: the risky half gets written and reverted against a
 schema already in place and tested.
 
 **What is written and now deployed** — live as of 2026-09-23, but never yet
@@ -552,11 +606,31 @@ older actions in that file still do not do this.**
    following the guarded-transition pattern (`.eq('status', …)` + 409 on
    mismatch) that `acceptBooking`, `submit_quote` and `accept_quote` all now
    use.
-3. **The UI — the critical path, and untouched.** `ArrivalWindowPicker`
-   replacing `DateTimePicker`; `PackageSelector` with tiers and ranges;
-   `QuoteBuilder`; the customer quote-review screen calling `acceptQuote()`.
-   No screen can create an unpriced request today, so the entire server flow
-   above is currently unreachable from the app.
+3. ~~The UI~~ — **the core loop was built in the sixth session** and landed in
+   `9af6dcc`. Jest 87 suites / 1235 tests, `tsc` clean:
+
+   | Piece | Where |
+   |---|---|
+   | `ArrivalWindowPicker` | `src/components/booking/ArrivalWindowPicker.tsx` |
+   | Quote-first request creation | `app/(tabs)/search/book/[providerId].tsx` |
+   | `QuoteBuilder` | `src/components/provider/QuoteBuilder.tsx` |
+   | Provider quote screen | `app/(provider-tabs)/jobs/quote/[bookingId].tsx` |
+   | Customer approval screen | `app/(tabs)/bookings/quote/[bookingId].tsx` |
+   | Provider request queue | `getQuoteRequestsForProvider` + Requests section in `jobs/index.tsx` |
+
+   Three design points worth not re-deriving. **The booking screen charges
+   nothing** — it inserts `pending_provider_quote` and stops; the deposit is
+   collected on the approval screen after `acceptQuote()` returns
+   `next: 'requires_deposit'`. **`scheduled_at` is NOT NULL**, so the request
+   stands it up from the window start and `submit_quote` overwrites it.
+   **Start and duration controls are bounded by the server's own constants**,
+   imported from `_shared/quote.ts` rather than restated, so a control cannot
+   offer a value `prepareQuote` will reject.
+
+   Still missing from the UI: `PackageSelector` with tiers and ranges (below),
+   the intake photo uploader (below), and the `delta_price` pre-fill —
+   `QuoteBuilder` starts with empty surcharges, so that column is still applied
+   to nothing.
 4. The intake photo uploader.
 5. `quote-flow.yaml` alongside `booking-flow.yaml`.
 
