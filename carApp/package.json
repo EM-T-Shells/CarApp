@@ -11,7 +11,8 @@
     "seed:e2e": "node scripts/seed-e2e.mjs",
     "seed:e2e:clean": "node scripts/seed-e2e.mjs --clean",
     "verify:checkout": "node scripts/verify-checkout.mjs",
-    "verify:quote-flow": "node scripts/verify-quote-flow.mjs"
+    "verify:quote-flow": "node scripts/verify-quote-flow.mjs",
+    "verify:job-day": "node scripts/verify-job-day.mjs"
   },
   "jest": {
     "preset": "jest-expo",

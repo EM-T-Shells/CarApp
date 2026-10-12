@@ -6,6 +6,7 @@ import {
   isPackageTier,
   modifierSurchargeRangeCents,
   organizePackages,
+  quoteAboveAdvertised,
 } from '../packages';
 import type { ServicePackage } from '../../types/models';
 
@@ -138,5 +139,38 @@ describe('advertisedPriceRangeCents', () => {
 
   it('is a single price with no surcharging modifiers', () => {
     expect(advertisedPriceRangeCents(500, [])).toEqual({ minCents: 500, maxCents: 500 });
+  });
+});
+
+describe('quoteAboveAdvertised', () => {
+  const modifiers = [
+    { factor_type: 'size', delta_price: 30 },
+    { factor_type: 'size', delta_price: 15 },
+    { factor_type: 'soil', delta_price: 25 },
+  ];
+
+  it('is null for a quote inside the advertised range', () => {
+    // $180 base, up to $30 (size) + $25 (soil) on top: $180–$235.
+    expect(quoteAboveAdvertised(23500, 18000, modifiers)).toBeNull();
+    expect(quoteAboveAdvertised(18000, 18000, modifiers)).toBeNull();
+  });
+
+  it('says how far above the top of the range a quote is', () => {
+    expect(quoteAboveAdvertised(26000, 18000, modifiers)).toEqual({
+      range: { minCents: 18000, maxCents: 23500 },
+      overCents: 2500,
+    });
+  });
+
+  it('with no modifiers, the range is the base price', () => {
+    expect(quoteAboveAdvertised(20000, 18000, [])).toEqual({
+      range: { minCents: 18000, maxCents: 18000 },
+      overCents: 2000,
+    });
+  });
+
+  it('says nothing without a usable base price', () => {
+    expect(quoteAboveAdvertised(20000, 0, modifiers)).toBeNull();
+    expect(quoteAboveAdvertised(Number.NaN, 18000, modifiers)).toBeNull();
   });
 });

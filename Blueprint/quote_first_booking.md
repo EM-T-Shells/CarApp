@@ -1,8 +1,8 @@
 # Quote-First Booking — Design Spec & Implementation Plan
 
-**Status:** Phases 0–3 implemented and live-verified (except a real card); Phase 4 not started
+**Status:** Phases 0–4 implemented and live-verified (except a real card and anything needing a simulator)
 **Branch:** `feature/quote-first-booking` (off `dev`)
-**Last updated:** 2026-09-28
+**Last updated:** 2026-10-12
 
 ---
 
@@ -698,9 +698,9 @@ It quotes from `awaiting_customer_info` as well as `pending_provider_quote`:
 §7 parks a rescued request there and nothing yet moves it back, so the
 narrower list would strand every request the provider saved that way.
 
-⚠️ It fires `notify-quote-ready`, which **does not exist yet** (§5 lists it).
-`fireNotify` swallows the failure, so today that is an inert log warning rather
-than a broken quote — but the customer is not told their quote arrived.
+⚠️ It fires `notify-quote-ready`, which did not exist when this was written
+(§5 lists it). It was deployed on 2026-09-23, so the customer is told their
+quote arrived.
 
 **Still to build in Phase 3:**
 
@@ -720,6 +720,49 @@ than a broken quote — but the customer is not told their quote arrived.
 
 Everything Phase 3 assumes about the client's write surface — that a price or a
 duration has to go through an Edge Function — is now true and tested.
+
+### Phase 4 — complete (2026-10-12)
+
+`20260823000000_live_eta_and_calibration.sql`, applied, with
+`__tests__/live_eta_and_calibration.test.sql` (23 checks) green;
+`stripe-webhook` v27 and the new `notify-eta-changed` deployed;
+`verify:job-day` 20/20 against the live project. Defaults taken with the user
+("build it fully; tweaks after"): a delay moves the ETA and not the slot, a
+later customer is told rather than moved, and calibration is shown both to
+admins and to each provider for themselves.
+
+- **Live ETC.** `report_delay` sets `running_late_mins` (absolute, 0–720, five-
+  minute steps); `estimated_completion_at` is generated from it, and
+  `trg_reset_running_late_on_start` clears it when the job starts so a late
+  arrival is counted once. `occupied_range` does not move — §1's "overruns are
+  Phase 4's cascade, not the constraint's business" held. The customer's
+  booking screen follows its row over Realtime (`bookings` joined the
+  `supabase_realtime` publication) and shows a running-late card.
+- **`notify-eta-changed`** (§5): pushed when the ETA moves ≥15 min from what the
+  customer was last told (materiality), at most once per 10 min unless it moved
+  ≥30 (dedupe), with `eta_notified_*` claimed by a guarded write.
+- **Overrun cascade** (§2): `report_delay` returns the provider's later jobs in
+  the next 24 h whose customers would now be told the wrong time, with the
+  delay each needs. The provider chooses per job: shift (report that delay —
+  the customer is pushed), reschedule (propose a new time), or shorten (leave
+  it and make the time up). Nothing moves on its own.
+- **Early finish** (§7): after Complete Job the app looks at the next job today
+  and either corrects a delay its customer was told or, with ≥15 min to gain,
+  offers an earlier start as a reschedule proposal. Never auto-moved.
+- **Calibration reporting** (§2, §8): `get_duration_calibration()` — suggested
+  vs quoted vs actual duration, over/under/within 15 min, late starts, and
+  quote markup over the advertised price. Providers see their own on More →
+  Manage, admins everyone on the admin panel's Calibration page; the customer's
+  approval screen says when a quote is above the provider's advertised range
+  (§7 "bait pricing").
+
+The arithmetic is in `supabase/functions/_shared/eta.ts` (pure, Jest-tested,
+imported by both the Edge Function and the app). Also closed in the same pass,
+because they sat on the job-day path: ownership checks on every remaining
+`stripe-webhook` booking and Connect action; `capture_balance` only from
+`in_progress`; the two list screens showing dollars as cents; and the
+`pg_timezone_names` scan in `trg_validate_provider_schedule` (835 ms healthy,
+17–100+ s starved) replaced with `AT TIME ZONE` plus an IANA-shape check.
 
 ### Environment notes
 - `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` must be exported in the

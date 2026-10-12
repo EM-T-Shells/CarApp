@@ -89,6 +89,7 @@ jest.mock('../../../../src/utils/money', () => ({
 }));
 
 jest.mock('../../../../src/utils/date', () => ({
+  ...jest.requireActual('../../../../src/utils/date'),
   formatShortDate: () => 'Mon, Apr 28',
   formatTime: () => '10:00 AM',
 }));
@@ -101,7 +102,8 @@ const makeBooking = (overrides: Record<string, unknown> = {}) => ({
   provider_id: 'provider-profile-1',
   scheduled_at: '2026-04-28T10:00:00Z',
   status: 'confirmed',
-  total_amount: 15000,
+  // bookings.total_amount is NUMERIC(10,2) dollars, as the rows really are.
+  total_amount: 150,
   service_address: '123 Main St',
   services: [],
   provider_profiles: {
@@ -183,6 +185,24 @@ describe('BookingsScreen', () => {
       render(<BookingsScreen />);
       fireEvent.press(await screen.findByText('Past'));
       expect(mockPush).toHaveBeenCalledWith('/bookings/past');
+    });
+
+    it('says when the provider is running late', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({
+        data: [makeBooking({ status: 'en_route', running_late_mins: 20 })],
+        error: null,
+      });
+      render(<BookingsScreen />);
+      expect(await screen.findByTestId('booking-card-lateness')).toBeTruthy();
+      // formatTime is stubbed here; duration.test.ts checks the real arrival time.
+      expect(screen.getByText(/^Running about 20 min late · arriving around/)).toBeTruthy();
+    });
+
+    it('says nothing about lateness on an on-time booking', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({ data: [makeBooking()], error: null });
+      render(<BookingsScreen />);
+      await screen.findByText('Alex Smith');
+      expect(screen.queryByTestId('booking-card-lateness')).toBeNull();
     });
 
     it('shows correct status label for en_route booking', async () => {

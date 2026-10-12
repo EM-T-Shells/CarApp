@@ -111,7 +111,7 @@ export async function createDepositPaymentIntent(
     );
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Stripe Edge Function error') };
+      return { data: null, error: await readFunctionError(error, 'Stripe Edge Function error') };
     }
 
     const response = data as CreatePaymentIntentResponse;
@@ -234,7 +234,7 @@ export async function captureBalance(
     if (error) {
       return {
         data: null,
-        error: new Error(error.message ?? 'Balance capture failed'),
+        error: await readFunctionError(error, 'Balance capture failed'),
       };
     }
 
@@ -282,7 +282,7 @@ export async function refundDeposit(
     );
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Refund failed') };
+      return { data: null, error: await readFunctionError(error, 'Refund failed') };
     }
 
     return { data: data as RefundDepositResponse, error: null };
@@ -328,7 +328,7 @@ export async function cancelBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+      return { data: null, error: await readFunctionError(error, 'Cancellation failed') };
     }
 
     const response = data as CancelBookingResponse;
@@ -358,7 +358,7 @@ export async function providerCancelBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+      return { data: null, error: await readFunctionError(error, 'Cancellation failed') };
     }
 
     const response = data as CancelBookingResponse;
@@ -392,7 +392,7 @@ export async function markNoShow(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Failed to mark no-show') };
+      return { data: null, error: await readFunctionError(error, 'Failed to mark no-show') };
     }
 
     const response = data as MarkNoShowResponse;
@@ -474,7 +474,7 @@ export async function declineBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Decline failed') };
+      return { data: null, error: await readFunctionError(error, 'Decline failed') };
     }
 
     const response = data as DeclineBookingResponse;
@@ -912,5 +912,45 @@ export function respondReschedule(
   return invokeAction<RespondRescheduleResponse>(
     { action: 'respond_reschedule', booking_id: bookingId, accept },
     'Could not answer the proposed time',
+  );
+}
+
+// ── Running late (Phase 4 — spec §2 "Overruns", §3 "Job day") ─────────
+
+/** A later job the delay reaches, as report_delay planned it. */
+export interface DelayKnockOn {
+  booking_id: string;
+  customer_name: string | null;
+  scheduled_at: string;
+  /** When that job can now start, given this delay and the buffers between. */
+  projected_start_at: string;
+  /** The delay that job should carry for its customer to be told the truth. */
+  required_delay_mins: number;
+  /** The delay it carries now. */
+  current_delay_mins: number;
+}
+
+export interface ReportDelayResponse {
+  ok: boolean;
+  running_late_mins?: number;
+  estimated_completion_at?: string | null;
+  /** Whether the customer was pushed. False inside the dedupe window. */
+  notified?: boolean;
+  affected?: DelayKnockOn[];
+}
+
+/**
+ * Provider says how far behind plan a job is, as an absolute figure (0 is
+ * "back on time"). The server moves the ready-by time, pushes the customer when
+ * it matters, and returns the later jobs the delay now reaches. Nothing about
+ * the provider's committed slots changes.
+ */
+export function reportDelay(
+  bookingId: string,
+  delayMins: number,
+): Promise<StripeResult<ReportDelayResponse>> {
+  return invokeAction<ReportDelayResponse>(
+    { action: 'report_delay', booking_id: bookingId, delay_mins: delayMins },
+    'Could not update the delay',
   );
 }

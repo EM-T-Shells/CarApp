@@ -31,6 +31,11 @@ describe('resolvePushRoute', () => {
     expect(resolvePushRoute({ type: 'adjustment_proposed', bookingId: 'b1' })).toBe('/bookings/b1');
   });
 
+  it('sends an ETA change to the booking, where the new time is live', () => {
+    expect(resolvePushRoute({ type: 'eta_changed', bookingId: 'b1' })).toBe('/bookings/b1');
+    expect(resolvePushRoute({ type: 'eta_changed' })).toBeNull();
+  });
+
   it('sends the provider to the quote screen or the job', () => {
     expect(resolvePushRoute({ type: 'quote_requested', bookingId: 'b1' })).toBe(
       '/(provider-tabs)/jobs/quote/b1',

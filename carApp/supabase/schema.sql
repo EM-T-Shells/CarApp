@@ -275,14 +275,23 @@ CREATE TABLE bookings (
   estimated_duration_mins INT CHECK (estimated_duration_mins IS NULL OR estimated_duration_mins > 0),
   actual_duration_mins    INT CHECK (actual_duration_mins IS NULL OR actual_duration_mins >= 0),
   -- Ready-by time. Keys off started_at once the job begins, so a late start
-  -- reports a late finish. NULL without a duration — an ETC equal to the start
+  -- reports a late finish, and includes the provider's reported delay
+  -- (20260823000000). NULL without a duration — an ETC equal to the start
   -- would read as "ready immediately".
   estimated_completion_at TIMESTAMPTZ GENERATED ALWAYS AS (
     CASE WHEN estimated_duration_mins IS NULL THEN NULL
          ELSE timezone('UTC', timezone('UTC', COALESCE(started_at, scheduled_at))
-                              + make_interval(mins => estimated_duration_mins))
+                              + make_interval(mins => estimated_duration_mins + running_late_mins))
     END
   ) STORED,
+
+  -- Live ETC (20260823000000). How far behind plan the provider says the job
+  -- is, written only by stripe-webhook's report_delay; cleared by
+  -- trg_reset_running_late_on_start when started_at is set. eta_notified_* is
+  -- what the customer was last pushed, for the materiality / dedupe rules.
+  running_late_mins          INT NOT NULL DEFAULT 0 CHECK (running_late_mins BETWEEN 0 AND 720),
+  eta_notified_at            TIMESTAMPTZ,
+  eta_notified_completion_at TIMESTAMPTZ,
 
   -- Scheduling buffers + occupancy (20260818000000). Buffers are snapshotted
   -- from the provider's defaults by trg_snapshot_booking_buffers; legacy rows
@@ -322,7 +331,12 @@ CREATE TABLE bookings (
 --   trg_enforce_booking_status_transition  pins clients to three transitions
 --   trg_snapshot_booking_buffers      copies the provider's buffers onto a row
 --   trg_stamp_actual_duration         stamps actual_duration_mins on completion
+--   trg_reset_running_late_on_start   clears the reported delay when the job starts
 -- The client can state who/what/when/where and never an amount or a buffer.
+-- Phase 2–4 columns and grants (intake, quotes, adjustments, live ETC) are
+-- defined in their migrations, which are the source of truth for them; see
+-- 20260820000000 through 20260823000000. bookings is published to Realtime
+-- (supabase_realtime) so the customer's screen follows its own row.
 REVOKE INSERT, UPDATE ON bookings FROM anon, authenticated;
 GRANT INSERT (id, customer_id, provider_id, vehicle_id, package_id, services,
               status, scheduled_at, service_address, location_lat, location_lng,

@@ -147,3 +147,34 @@ export function advertisedPriceRangeCents(
     maxCents: Math.max(basePriceCents + maxCents, 0),
   };
 }
+
+// ── Quote above the advertised range (§7 "bait pricing") ──────────────
+
+export interface AboveAdvertised {
+  /** What the provider's menu advertised for this job. */
+  range: CentsRange;
+  /** How far the quote is above the top of it. */
+  overCents: number;
+}
+
+/**
+ * Whether a quote came in above what the provider advertises for the job.
+ *
+ * §2 dropped the price cap; §7 replaced it with telling the customer when the
+ * quote is above the range the provider lists, so they approve knowing it.
+ * The advertised range is the one PackageSelector showed: the job's base price
+ * (the quote less its itemised surcharges) up to what the provider's own
+ * modifiers could add. Null when the quote is inside it.
+ */
+export function quoteAboveAdvertised(
+  quotedCents: number,
+  baseCents: number,
+  modifiers: Pick<ServiceDurationModifier, 'factor_type' | 'delta_price'>[],
+): AboveAdvertised | null {
+  if (!Number.isFinite(quotedCents) || !Number.isFinite(baseCents) || baseCents <= 0) {
+    return null;
+  }
+  const range = advertisedPriceRangeCents(baseCents, modifiers);
+  const overCents = Math.round(quotedCents) - range.maxCents;
+  return overCents > 0 ? { range, overCents } : null;
+}

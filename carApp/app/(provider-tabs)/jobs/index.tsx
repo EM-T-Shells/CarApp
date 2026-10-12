@@ -142,7 +142,7 @@ function JobCard({ booking, onPress, palette }: JobCardProps): React.ReactElemen
       <View style={cardStyles.row}>
         {booking.total_amount != null && (
           <Text variant="price" color="charcoal">
-            {centsToDisplay(booking.total_amount)}
+            {centsToDisplay(Math.round(booking.total_amount * 100))}
           </Text>
         )}
         <Spacer flex />

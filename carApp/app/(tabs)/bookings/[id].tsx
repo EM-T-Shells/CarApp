@@ -19,6 +19,12 @@
 //   - Rescheduling by proposal: a confirmed start moves only when the other
 //     party accepts (propose_reschedule / respond_reschedule). The direct
 //     scheduled_at write this screen used to make was revoked in 20260822000000.
+//
+// Job day (Phase 4): the screen follows its own row over Realtime while the
+// booking is live, so when the provider reports a delay, starts or finishes,
+// the new arrival and ready-by times appear without a refresh. A delay shows
+// as a "running late" card; the ready-by line already includes it, because
+// estimated_completion_at is generated from it.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -44,6 +50,7 @@ import {
   AlertTriangle,
   Star,
   Flag,
+  Clock,
 } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
@@ -78,6 +85,7 @@ import {
   getBookingPhotos,
   getRatingByBooking,
   getThreadByBooking,
+  subscribeToBookingChanges,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
 import {
@@ -110,6 +118,7 @@ import {
 import {
   formatBookingReadyBy,
   formatDuration,
+  formatLateness,
   resolveDurationMins,
 } from '../../../src/utils/duration';
 import type { BookingDetailParams } from '../../../src/types/navigation';
@@ -161,6 +170,9 @@ const CANCELLABLE_STATUSES: BookingStatus[] = [
 // Where the customer may still add intake photos: while the provider has not
 // priced the job, or has sent it back asking for more.
 const PHOTO_STATUSES: BookingStatus[] = ['pending_provider_quote', 'awaiting_customer_info'];
+
+// Nothing changes on these any more, so there is nothing to listen for.
+const SETTLED_STATUSES: BookingStatus[] = ['completed', 'cancelled', 'no_show'];
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
@@ -220,6 +232,19 @@ export default function BookingDetailScreen(): React.ReactElement {
     fetchBooking(true).finally(() => setIsRefreshing(false));
   }, [fetchBooking]);
 
+  // Follow the row while it can still change: a reported delay, the start,
+  // the finish, a proposal answered. Keyed on whether the booking is live, not
+  // on the row itself, so a refetch does not tear the channel down and rebuild
+  // it.
+  const isLive =
+    booking != null && !SETTLED_STATUSES.includes(booking.status as BookingStatus);
+  useEffect(() => {
+    if (!id || !isLive) return undefined;
+    return subscribeToBookingChanges(id, () => {
+      void fetchBooking(true);
+    });
+  }, [id, isLive, fetchBooking]);
+
   // ─── Derived ─────────────────────────────────────────────────────────
 
   const status = (booking?.status ?? 'pending') as BookingStatus;
@@ -235,6 +260,10 @@ export default function BookingDetailScreen(): React.ReactElement {
   );
   const readyBy = useMemo(
     () => (booking ? formatBookingReadyBy(booking) : ''),
+    [booking],
+  );
+  const lateness = useMemo(
+    () => (booking ? formatLateness(booking) : ''),
     [booking],
   );
 
@@ -791,6 +820,31 @@ export default function BookingDetailScreen(): React.ReactElement {
             </>
           )}
 
+          {lateness ? (
+            <>
+              <View testID="booking-lateness">
+                <Card>
+                  <View style={styles.latenessHeader}>
+                    <Clock size={16} color={palette.gearGold} strokeWidth={2.5} />
+                    <Text variant="label" style={{ color: palette.gearGold }}>
+                      {providerName} is running late
+                    </Text>
+                  </View>
+                  <Spacer size="xs" />
+                  <Text variant="body" color="charcoal">
+                    {lateness}
+                  </Text>
+                  {readyBy ? (
+                    <Text variant="caption" color="midGray">
+                      Now ready by {readyBy}
+                    </Text>
+                  ) : null}
+                </Card>
+              </View>
+              <Spacer size="lg" />
+            </>
+          ) : null}
+
           {booking.proposed_scheduled_at && status === 'confirmed' && (
             <>
               <RescheduleProposalCard
@@ -1234,6 +1288,11 @@ const styles = StyleSheet.create({
   },
   detailText: {
     flex: 1,
+    gap: spacing.xs,
+  },
+  latenessHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
   },
   bookingId: {

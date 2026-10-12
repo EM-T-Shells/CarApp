@@ -45,11 +45,14 @@ jest.mock('../../../../src/components/booking/IntakePhotoUploader', () => {
 
 const mockGetBooking = jest.fn();
 const mockGetPhotos = jest.fn();
+const mockUnsubscribe = jest.fn();
+const mockSubscribe = jest.fn();
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getBookingById: (...a: unknown[]) => mockGetBooking(...a),
   getBookingPhotos: (...a: unknown[]) => mockGetPhotos(...a),
   getRatingByBooking: jest.fn(async () => ({ data: null, error: null })),
   getThreadByBooking: jest.fn(async () => ({ data: null, error: null })),
+  subscribeToBookingChanges: (...a: unknown[]) => mockSubscribe(...a),
 }));
 
 const mockUpdateBooking = jest.fn();
@@ -118,6 +121,7 @@ beforeEach(() => {
   alertSpy.mockImplementation(() => {});
   withBooking({});
   mockGetPhotos.mockResolvedValue({ data: [], error: null });
+  mockSubscribe.mockReturnValue(mockUnsubscribe);
   for (const m of [mockCancel, mockPropose, mockProvideInfo, mockRespondAdjustment, mockRespondReschedule]) {
     m.mockResolvedValue({ data: { ok: true }, error: null });
   }
@@ -244,5 +248,48 @@ describe('an approved quote-first booking', () => {
     withBooking({ status: 'pending' });
     const view = render(<BookingDetailScreen />);
     await waitFor(() => view.getByText('Deposit processing'));
+  });
+});
+
+describe('job day (Phase 4)', () => {
+  it('tells the customer the provider is running late, with the new times', async () => {
+    // 13:00 booked, 30 min late, two hours of work: arriving 13:30, ready 15:30.
+    withBooking({ running_late_mins: 30, estimated_completion_at: '2026-10-14T15:30:00.000Z' });
+    const view = render(<BookingDetailScreen />);
+    await waitFor(() => view.getByTestId('booking-lateness'));
+    expect(view.getByText('Dana Rivers is running late')).toBeTruthy();
+    expect(view.getByText('Running about 30 min late · arriving around 1:30 PM')).toBeTruthy();
+    expect(view.getByText('Now ready by ~3:30 PM')).toBeTruthy();
+  });
+
+  it('shows nothing about lateness when the job is on time', async () => {
+    withBooking({ running_late_mins: 0 });
+    const view = render(<BookingDetailScreen />);
+    await waitFor(() => view.getByText('Reschedule'));
+    expect(view.queryByTestId('booking-lateness')).toBeNull();
+  });
+
+  it('follows its own row live and refetches when it changes', async () => {
+    const view = render(<BookingDetailScreen />);
+    await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('book-1', expect.any(Function)));
+    const calls = mockGetBooking.mock.calls.length;
+
+    const onChange = mockSubscribe.mock.calls[0][1] as () => void;
+    await act(async () => {
+      onChange();
+    });
+    expect(mockGetBooking.mock.calls.length).toBe(calls + 1);
+
+    view.unmount();
+    expect(mockUnsubscribe).toHaveBeenCalled();
+  });
+
+  it('stops listening once the booking is settled', async () => {
+    withBooking({ status: 'completed' });
+    const view = render(<BookingDetailScreen />);
+    await waitFor(() => expect(mockGetBooking).toHaveBeenCalled());
+    await act(async () => {});
+    expect(mockSubscribe).not.toHaveBeenCalled();
+    view.unmount();
   });
 });

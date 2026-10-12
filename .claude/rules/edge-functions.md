@@ -17,11 +17,16 @@ paths:
 
 Canonical responsibilities:
 
-- `stripe-webhook`: JWT-authenticated app payment actions
+- `stripe-webhook`: JWT-authenticated app payment actions. Every booking
+  action resolves the caller and checks which side of the booking they are on
+  (`requireParty`, or `requireBookingProvider` / `requireProfileOwner`) before
+  any service-role write; only the `expire_pending_approvals` sweep, which
+  pg_cron calls with the service-role key, does not
   - `create_deposit_intent`: creates the deposit PaymentIntent, records a
     pending payment row, returns the customer id and an ephemeral key. Since
     Phase 3 this is the fallback for a quote approval with no usable saved
-    card; the normal quote-first deposit is charged by `accept_quote`
+    card; the normal quote-first deposit is charged by `accept_quote`.
+    Customer only
   - `create_setup_intent`: the customer saves a card for an unpriced request
     (SetupIntent, `usage: off_session`, cards only — no hold, no charge) and
     records it on `bookings.stripe_setup_intent_id`. Customer only
@@ -29,8 +34,13 @@ Canonical responsibilities:
     the client's sheet closing is not proof — and only then fires
     `notify-quote-requested`. Customer only
   - `capture_balance`: charges the remaining balance, completes the job, and
-    transfers the provider payout to their Connect account
-  - `refund_deposit`: refunds the deposit on a non-forfeit cancellation
+    transfers the provider payout to their Connect account. Provider only, and
+    only from `in_progress` (or an idempotent re-run on `completed`): a job
+    that never started has no `started_at` to stamp `actual_duration_mins`
+    from
+  - `refund_deposit`: the retry for a cancellation whose refund failed.
+    Customer only, only on a `cancelled` booking owed its whole deposit (not
+    `deposit_forfeited`)
   - `cancel_booking`: customer cancellation. Resolves the caller and refuses
     anyone but the booking's customer. Accepts the unpriced quote states and
     `pending_adjustment_approval` too; the $15 late fee applies only to
@@ -38,11 +48,12 @@ Canonical responsibilities:
   - `provider_cancel_booking`: provider cancellation, including declining an
     unpriced request. Provider only; the $25 penalty follows the same rule, and
     `refund_cents: 0` tells the customer nothing was charged
-  - `mark_no_show`: provider marks a no-show; the booking moves to `no_show`
+  - `mark_no_show`: provider marks a no-show; the booking moves to `no_show`.
+    Provider only
   - `accept_booking`: provider accepts inside the two-hour window;
-    `pending_provider_approval` becomes `confirmed`
+    `pending_provider_approval` becomes `confirmed`. Provider only
   - `decline_booking`: provider declines; the booking is cancelled and the
-    deposit refunded
+    deposit refunded. Provider only
   - `submit_quote`: the assigned provider prices an unpriced request — sets the
     start inside the customer's arrival window, commits
     `estimated_duration_mins`, records `quote_line_items` and the derived
@@ -100,12 +111,27 @@ Canonical responsibilities:
   - `respond_reschedule`: the other party accepts (the start moves; `23P01` is
     a 409) or declines; the proposer may only withdraw. Guarded on the exact
     proposal read. Fires `notify-reschedule-resolved` to the proposer
+  - `report_delay`: the provider states how far behind plan a committed job
+    is, as an absolute `delay_mins` (0–720, five-minute steps; 0 is back on
+    time) — before the start it delays the arrival, after it the finish.
+    Writes `running_late_mins` only; the generated `estimated_completion_at`
+    follows it and `occupied_range` does not move. Allowed on `confirmed` /
+    `en_route` / `in_progress` / `pending_adjustment_approval`, and before the
+    start only within 24 hours of it. Pushes the customer
+    (`notify-eta-changed`) when the ETA moved ≥15 min from what they were last
+    told, at most once per 10 minutes unless it moved ≥30 (claimed by a guarded
+    write to `eta_notified_*`). Returns `affected`: the provider's later jobs
+    in the next 24 hours whose customers would now be told the wrong time,
+    with the delay each needs — the provider tells them (`report_delay` on
+    that job), proposes a new time, or leaves it. Provider only. Rules and
+    arithmetic in `_shared/eta.ts`
   - `expire_pending_approvals`: pg_cron sweep that auto-cancels and refunds
     approvals still pending past their two-hour deadline
   - `connect_onboarding`: creates or reuses the provider Express account and
-    returns a hosted onboarding link
+    returns a hosted onboarding link. Only the profile's owner
   - `connect_status`: re-checks onboarding after the provider returns and
-    drains payouts stranded before the account became payable
+    drains payouts stranded before the account became payable. Only the
+    profile's owner
 - `stripe-events`: signature-authenticated Stripe events. On deposit success
   it confirms a quote-first booking outright (or falls back to the approval
   window on `23P01`) and promotes a deposit-first one to
@@ -139,6 +165,9 @@ One notification function per event:
   A decline is reported by `notify-booking-cancelled`
 - `notify-reschedule-proposed`: pushes whoever did not propose the new time
 - `notify-reschedule-resolved`: tells the proposer whether it was accepted
+- `notify-eta-changed`: the provider's arrival or ready-by time moved
+  materially (`report_delay` decides; this only composes and sends). Pushes
+  the customer the new time on the provider's own clock. Customer only
 - `notify-booking-confirmed`: booking becomes `confirmed`; pushes customer and
   provider
 - `notify-booking-declined`: booking declined or expired; pushes the customer

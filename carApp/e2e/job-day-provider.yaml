@@ -1,0 +1,80 @@
+# job-day-provider.yaml
+#
+# Phase 4 job day, provider side (Blueprint/quote_first_booking.md §2, §3):
+#   Jobs → today's confirmed job → "Running late?" +15 → the card says so and
+#   whether the customer was pushed → back on time
+#
+# The knock-on panel needs a second job later the same day and the early-finish
+# offer needs a completed job (a real balance charge), so both are covered by
+# app/(provider-tabs)/jobs/__tests__/job-day.test.tsx and, against the live
+# project, scripts/verify-job-day.mjs — not here.
+#
+# Preconditions:
+#   • Provider session for provider@carapp.dev
+#   • The seeded confirmed job (seed-e2e.mjs bookingUpcoming, today +4h) — a
+#     delay can only be reported within a day of the start
+#
+# Ends where it started: the delay is taken back, so the seed is unchanged
+# apart from the two ETA notifications sent to test@carapp.dev.
+#
+# Run: maestro test e2e/job-day-provider.yaml
+
+appId: com.emre.carapp
+tags:
+  - provider
+  - jobs
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Jobs"
+    timeout: 10000
+
+- tapOn:
+    text: "Jobs"
+
+- extendedWaitUntil:
+    visible:
+      text: "Job on .*"
+    timeout: 10000
+
+- tapOn:
+    text: "Job on .*"
+    index: 0
+
+# ── The control is offered on a job starting today ────────────────────
+
+- extendedWaitUntil:
+    visible:
+      id: "running-late-card"
+    timeout: 8000
+
+- assertVisible: "On schedule"
+- assertVisible: "Running late?"
+
+# ── +15: the customer's arrival time moves, and they are told ─────────
+
+- tapOn:
+    id: "delay-plus-15"
+
+- extendedWaitUntil:
+    visible:
+      text: "Running 15 min late"
+    timeout: 10000
+
+- assertVisible:
+    id: "running-late-notice"
+
+- assertVisible: ".*expects you around.*"
+
+# ── Back on time, leaving the seed as it was ──────────────────────────
+
+- tapOn:
+    id: "delay-on-time"
+
+- extendedWaitUntil:
+    visible:
+      text: "On schedule"
+    timeout: 10000

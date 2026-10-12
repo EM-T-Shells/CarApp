@@ -68,6 +68,8 @@ export type Database = {
           deposit_forfeited: boolean | null
           estimated_completion_at: string | null
           estimated_duration_mins: number | null
+          eta_notified_at: string | null
+          eta_notified_completion_at: string | null
           id: string
           info_request_note: string | null
           location_lat: number | null
@@ -85,6 +87,7 @@ export type Database = {
           requested_window_end: string | null
           requested_window_start: string | null
           reschedule_proposed_by: string | null
+          running_late_mins: number
           scheduled_at: string
           service_address: string | null
           service_fee: number | null
@@ -120,6 +123,8 @@ export type Database = {
           deposit_forfeited?: boolean | null
           estimated_completion_at?: string | null
           estimated_duration_mins?: number | null
+          eta_notified_at?: string | null
+          eta_notified_completion_at?: string | null
           id?: string
           info_request_note?: string | null
           location_lat?: number | null
@@ -137,6 +142,7 @@ export type Database = {
           requested_window_end?: string | null
           requested_window_start?: string | null
           reschedule_proposed_by?: string | null
+          running_late_mins?: number
           scheduled_at: string
           service_address?: string | null
           service_fee?: number | null
@@ -172,6 +178,8 @@ export type Database = {
           deposit_forfeited?: boolean | null
           estimated_completion_at?: string | null
           estimated_duration_mins?: number | null
+          eta_notified_at?: string | null
+          eta_notified_completion_at?: string | null
           id?: string
           info_request_note?: string | null
           location_lat?: number | null
@@ -189,6 +197,7 @@ export type Database = {
           requested_window_end?: string | null
           requested_window_start?: string | null
           reschedule_proposed_by?: string | null
+          running_late_mins?: number
           scheduled_at?: string
           service_address?: string | null
           service_fee?: number | null
@@ -1396,6 +1405,28 @@ export type Database = {
         Returns: undefined
       }
       expire_founding_providers: { Args: never; Returns: number }
+      get_duration_calibration: {
+        Args: { p_since?: string }
+        Returns: {
+          avg_actual_mins: number
+          avg_estimated_mins: number
+          avg_overrun_mins: number
+          avg_quote_markup_pct: number
+          avg_start_delay_mins: number
+          avg_suggested_mins: number
+          completed_jobs: number
+          late_start_jobs: number
+          max_quote_markup_pct: number
+          over_estimate_jobs: number
+          provider_id: string
+          provider_name: string
+          quoted_jobs: number
+          surcharged_jobs: number
+          timed_jobs: number
+          under_estimate_jobs: number
+          within_estimate_jobs: number
+        }[]
+      }
       is_admin: { Args: { uid: string }; Returns: boolean }
     }
     Enums: {

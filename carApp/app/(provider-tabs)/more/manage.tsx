@@ -11,6 +11,9 @@
 // availability column is still written, derived from the hours on save, because
 // other readers have not migrated yet — deriving it rather than editing it is
 // what keeps the two from disagreeing.
+// Phase 4: "How your estimates hold up" (EstimateAccuracyCard) sits above the
+// job length adjustments — duration calibration from completed jobs, which is
+// what tells a provider those adjustments need changing.
 // Unlike the vetting step, it does not recompute profile_completeness or route
 // back into the vetting stack — it's a standalone editable screen with explicit
 // Save.
@@ -37,6 +40,7 @@ import { WorkingHoursEditor } from '../../../src/components/provider/WorkingHour
 import { TimeOffEditor } from '../../../src/components/provider/TimeOffEditor';
 import { TimezoneField } from '../../../src/components/provider/TimezoneField';
 import { DurationModifierEditor } from '../../../src/components/provider/DurationModifierEditor';
+import { EstimateAccuracyCard } from '../../../src/components/provider/EstimateAccuracyCard';
 import {
   DEFAULT_TIMEZONE,
   DEFAULT_WORKING_HOURS,
@@ -419,6 +423,9 @@ export default function ProviderManageScreen(): React.ReactElement {
           maxLength={2}
           hint="Leave blank for no limit."
         />
+
+        <Spacer size="lg" />
+        <EstimateAccuracyCard />
 
         <Spacer size="lg" />
         <Text variant="label" color="charcoal">

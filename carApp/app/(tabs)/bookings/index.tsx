@@ -34,6 +34,7 @@ import {
 } from '../../../src/lib/supabase/queries';
 import { centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
+import { formatLateness } from '../../../src/utils/duration';
 
 // ── Status config ──────────────────────────────────────────────────────
 
@@ -84,6 +85,8 @@ function BookingCard({
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  // The provider's own report of how far behind they are (Phase 4).
+  const lateness = formatLateness(booking);
 
   return (
     <Card
@@ -131,6 +134,15 @@ function BookingCard({
         </Text>
       </View>
 
+      {lateness ? (
+        <>
+          <Spacer size="xs" />
+          <Text variant="caption" style={{ color: palette.gearGold }} testID="booking-card-lateness">
+            {lateness}
+          </Text>
+        </>
+      ) : null}
+
       {/* Vehicle */}
       {vehicleLabel && (
         <>
@@ -157,7 +169,7 @@ function BookingCard({
         ) : (
           booking.total_amount != null && (
             <Text variant="price" color="charcoal">
-              {centsToDisplay(booking.total_amount)}
+              {centsToDisplay(Math.round(booking.total_amount * 100))}
             </Text>
           )
         )}

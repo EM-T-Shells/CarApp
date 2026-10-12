@@ -1,5 +1,6 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase } from './client'
+import type { Database } from '../../types/supabase'
 import {
   DEFAULT_TIMEZONE,
   localDayRange,
@@ -912,5 +913,62 @@ export function getServiceDurationModifiers(
       .eq('provider_id', providerId)
       .order('factor_type', { ascending: true })
       .order('factor_value', { ascending: true }),
+  )
+}
+
+// ── Live booking updates (Phase 4) ─────────────────────────────────────
+
+/**
+ * Calls `onChange` whenever this booking's row changes — the provider reports
+ * a delay, starts, finishes, or answers a proposal — so a screen showing it can
+ * refetch instead of waiting for a pull-to-refresh. Channel `booking:{id}`, per
+ * the realtime rule; migration 20260823000000 publishes bookings, and RLS
+ * ("bookings: read own") decides who hears about which row.
+ *
+ * Returns the unsubscribe, for the effect's cleanup.
+ */
+export function subscribeToBookingChanges(
+  bookingId: string,
+  onChange: () => void,
+): () => void {
+  const channel = supabase
+    .channel(`booking:${bookingId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `id=eq.${bookingId}`,
+      },
+      () => onChange(),
+    )
+    .subscribe()
+
+  return () => {
+    void supabase.removeChannel(channel)
+  }
+}
+
+// ── Duration calibration (Phase 4) ─────────────────────────────────────
+
+/**
+ * One provider's row of get_duration_calibration(): what the suggestion engine
+ * proposed, what they committed to and what jobs took, how often they start
+ * late, and how far their quotes run above their advertised prices.
+ */
+export type DurationCalibration =
+  Database['public']['Functions']['get_duration_calibration']['Returns'][number]
+
+/**
+ * The calibration report over jobs scheduled since `since`. The function
+ * decides visibility, not the caller: a provider gets their own row, an admin
+ * gets every provider's, anyone else gets nothing.
+ */
+export function getDurationCalibration(
+  since: Date,
+): Promise<QueryResult<DurationCalibration[]>> {
+  return runList<DurationCalibration>(
+    supabase.rpc('get_duration_calibration', { p_since: since.toISOString() }),
   )
 }

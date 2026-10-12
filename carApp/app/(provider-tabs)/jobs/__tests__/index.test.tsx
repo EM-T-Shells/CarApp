@@ -104,7 +104,8 @@ const makeJob = (overrides: Record<string, unknown> = {}) => ({
   provider_id: 'provider-profile-1',
   scheduled_at: '2026-04-28T10:00:00Z',
   status: 'confirmed',
-  total_amount: 15000,
+  // bookings.total_amount is NUMERIC(10,2) dollars, as the rows really are.
+  total_amount: 150,
   vehicles: { id: 'v1', year: 2022, make: 'Honda', model: 'Civic', color: 'Blue' },
   ...overrides,
 });

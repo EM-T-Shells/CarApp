@@ -37,12 +37,12 @@ CarApp/                                   # Git repo root
 ├── .claudeignore
 ├── admin/                               # Desktop web admin panel (Blocker #9) — Vite + React SPA
 │   ├── src/
-│   │   ├── pages/                       # Login, Queue, ProviderDetail
+│   │   ├── pages/                       # Login, Queue, ProviderDetail, Calibration (duration + quote-markup report)
 │   │   ├── lib/                         # supabase.ts (anon key), api.ts (queue + reviewProvider)
 │   │   ├── auth.tsx                     # AuthProvider: session + is_admin gate
 │   │   ├── types.ts                     # type-imports carApp/src/types/supabase.ts (single source)
 │   │   └── App.tsx                      # RequireAdmin routes
-│   └── e2e/vetting.spec.ts             # Playwright (hermetic)
+│   └── e2e/                            # Playwright (hermetic): vetting.spec.ts, calibration.spec.ts
 └── carApp/                               # Expo app root
     ├── app/ 
     │   ├── _layout.tsx                   # Root auth gate 
@@ -81,8 +81,8 @@ CarApp/                                   # Git repo root
     │       ├── bookings/                 # Customer bookings only (provider jobs live in (provider-tabs)) 
     │       │   ├── index.tsx 
     │       │   ├── past.tsx 
-    │       │   ├── [id].tsx                # Customer booking detail + cancel; quote approval entry, more-info hand-back, adjustment review, reschedule by proposal 
-    │       │   ├── quote/[bookingId].tsx   # Customer reviews the provider's quote → acceptQuote (deposit off-session to the saved card; PaymentSheet fallback) 
+    │       │   ├── [id].tsx                # Customer booking detail + cancel; quote approval entry, more-info hand-back, adjustment review, reschedule by proposal; live (Realtime) running-late card + ready-by 
+    │       │   ├── quote/[bookingId].tsx   # Customer reviews the provider's quote → acceptQuote (deposit off-session to the saved card; PaymentSheet fallback); flags a quote above the advertised range 
     │       │   └── tracking/[bookingId].tsx 
     │       ├── inbox/ 
     │       │   ├── index.tsx 
@@ -99,14 +99,14 @@ CarApp/                                   # Git repo root
     │       │   ├── index.tsx              # Active job queue + quote Requests section 
     │       │   ├── past.tsx               # Past jobs history 
     │       │   ├── quote/[bookingId].tsx  # Provider prices an unpriced request → submit_quote (intake photos, pre-filled surcharges, ask for more, decline) 
-    │       │   └── [bookingId].tsx        # Provider active-job lifecycle (accept/decline, photos, complete, no-show, adjust job, reschedule by proposal) 
+    │       │   └── [bookingId].tsx        # Provider active-job lifecycle (accept/decline, photos, complete, no-show, adjust job, reschedule by proposal; running late + knock-on for later jobs; early-finish offer after Complete) 
     │       ├── inbox/ 
     │       │   └── index.tsx              # Provider thread list → shared (tabs)/inbox/[threadId] detail 
     │       ├── earnings/ 
     │       │   └── index.tsx              # Earnings + payout list + kudos 
     │       └── more/ 
     │           ├── index.tsx              # Provider hub + "Switch to Customer Dashboard" control 
-    │           └── manage.tsx             # Manage services + availability 
+    │           └── manage.tsx             # Manage services + availability; "How your estimates hold up" calibration card 
     ├── src/ 
     │   ├── lib/ 
     │   │   ├── supabase/ 
@@ -152,7 +152,7 @@ CarApp/                                   # Git repo root
     │   │   ├── search/                   # LocationSearchBar, LocationSuggestionRow, ProviderCarousel, ProviderCard, ProvidersMap, FiltersSheet 
     │   │   ├── booking/                  # DateTimePicker, ArrivalWindowPicker, AddressPicker, PriceBreakdown, DepositSummary, StatusTimeline, ReviewSheet, BookingPhotoGallery, VehicleConditionForm, PackageSelector, IntakePhotoUploader, AdjustmentReviewCard, RescheduleProposal (sheet + card) 
     │   │   ├── tracking/                 # LiveMap, JobStatusBar, ETADisplay 
-    │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, VettingUploadStep, VettingActionStep, ServiceMenuEditor, EarningsDashboard, JobPhotoCapture, DayTimeline, QuoteBuilder 
+    │   │   ├── provider/                 # CredentialUpload, AvailabilityCalendar, VettingStepIndicator, VettingUploadStep, VettingActionStep, ServiceMenuEditor, EarningsDashboard, JobPhotoCapture, DayTimeline, QuoteBuilder, RunningLateCard, DelayKnockOn, EstimateAccuracyCard 
     │   │   ├── kudos/                    # KudosBadgeSelector, KudosDisplay 
     │   │   ├── lug/                      # LugBubble, LugThread 
     │   │   └── auth/                     # StepIndicator, OnboardingHeader, RoleSelector, ServicePicker, VehicleForm 
@@ -161,9 +161,9 @@ CarApp/                                   # Git repo root
     │       ├── tokens.ts                 # All color, spacing, radius tokens — source of truth 
     │       └── typography.ts 
     ├── supabase/ 
-    │   └── functions/                    # Edge Functions (Deno runtime — not Node) — 22 total 
-    │       ├── _shared/                   # fcm.ts, email.ts (Resend), webhookSignature.ts (HMAC verify), quote.ts (quote/adjustment/reschedule grammar + totals), bookingPolicy.ts (cancellable + fee-bearing statuses, deposit plan) 
-    │       ├── stripe-webhook/            # Payment engine (app-invoked, verify_jwt: true): intents, SetupIntents, capture, refunds, accept/decline, quote/approve, more-info, adjustments, reschedule, cancel, no-show, Connect, payouts
+    │   └── functions/                    # Edge Functions (Deno runtime — not Node) — 23 total 
+    │       ├── _shared/                   # fcm.ts, email.ts (Resend), webhookSignature.ts (HMAC verify), quote.ts (quote/adjustment/reschedule grammar + totals), bookingPolicy.ts (cancellable + fee-bearing statuses, deposit plan), eta.ts (running late, ETA push rules, overrun cascade, early finish) 
+    │       ├── stripe-webhook/            # Payment engine (app-invoked, verify_jwt: true): intents, SetupIntents, capture, refunds, accept/decline, quote/approve, more-info, adjustments, reschedule, running late, cancel, no-show, Connect, payouts
     │       ├── stripe-events/             # Stripe webhook receiver (verify_jwt: false, Stripe-Signature auth): payment_intent.succeeded/failed; refunds a deposit that lands on a cancelled booking 
     │       ├── admin-review-provider/     # Service-role provider approve/reject + Resend email 
     │       ├── checkr-webhook/            # STUB (awaits CHECKR_API_KEY) — HMAC signature verified via _shared/webhookSignature.ts 
@@ -183,10 +183,11 @@ CarApp/                                   # Git repo root
     │       ├── notify-adjustment-approved/ # Provider: the customer approved it 
     │       ├── notify-reschedule-proposed/ # The other party: a new start was proposed 
     │       ├── notify-reschedule-resolved/ # The proposer: accepted or declined 
+    │       ├── notify-eta-changed/        # Customer: the provider is running late / ahead (report_delay decides when) 
     │       ├── update-provider-location/  # Provider GPS write path → provider_location_cache (Flow 5.4) 
     │       └── lug-ai/                     # Anthropic Claude proxy (503 until ANTHROPIC_API_KEY) 
-    ├── e2e/                              # Maestro E2E flows (quote-flow.yaml + quote-flow-provider.yaml for Phase 3) 
-    ├── scripts/                          # seed-e2e.mjs; verify-checkout.mjs (client payload vs real grants); verify-quote-flow.mjs (Phase 3 actions as the real parties) 
+    ├── e2e/                              # Maestro E2E flows (quote-flow.yaml + quote-flow-provider.yaml for Phase 3; job-day-provider.yaml for Phase 4) 
+    ├── scripts/                          # seed-e2e.mjs; verify-checkout.mjs (client payload vs real grants); verify-quote-flow.mjs (Phase 3 actions as the real parties); verify-job-day.mjs (Phase 4 running late, knock-on, owner checks, calibration) 
     └── assets/ 
         ├── fonts/ 
         └── images/ 
@@ -286,9 +287,13 @@ app/_layout.tsx — onAuthStateChange
 
 - **Add-ons are child packages.** `service_packages.parent_package_id` attaches an add-on to one of the same provider's main services, one level deep, untiered, inheriting its category (`trg_validate_service_package_hierarchy`). The `'addon'` category is retired. A booking that carries an add-on without its main service is refused (`trg_validate_booking_addons`, which runs after `trg_derive_booking_amounts` rebuilds the services snapshot — alphabetical trigger order is load-bearing again). `PackageSelector` only offers an add-on once its parent is chosen, and the draft store drops add-ons with their parent.
 
+- **Job day: a delay is news, not a new slot (Phase 4).** The provider reports how far behind plan a job is through `report_delay` — an absolute `running_late_mins`, server-only like every column that moves the provider's day. `estimated_completion_at` is generated from it (`(started_at, else scheduled_at) + duration + running_late_mins`), so both booking screens and every notify function follow it without being told; `trg_reset_running_late_on_start` clears it when `started_at` is set, because the real start then carries the delay and would otherwise count it twice. `occupied_range` deliberately does **not** move: reporting a delay can never fail on the overlap guard, and nothing the provider committed to changes. The knock-on is planned, not written — `report_delay` returns the later jobs whose customers would now be told the wrong time and the delay each needs, and the provider chooses per job (§2): tell them (`report_delay` on that job), propose a new time, or leave it and make the time up. Customers are pushed (`notify-eta-changed`) only when their ETA moves ≥15 min from what they were last told, at most once per 10 minutes unless it moved ≥30; `eta_notified_*` records what they were told and is claimed by a guarded write so racing reports send one push. Finishing early never moves anyone either (§7): after Complete Job the app checks the next job today and either corrects a delay its customer was told or offers an earlier start as a reschedule proposal. The customer's booking screen follows its own row over Realtime (`booking:{id}`; `bookings` joined the `supabase_realtime` publication in `20260823000000`), so none of this needs a refresh. All the rules live in `_shared/eta.ts`, which the app imports alongside `_shared/quote.ts`.
+
+- **Calibration reporting (Phase 4).** `get_duration_calibration(p_since)` (SECURITY DEFINER, its own `is_admin` / owner filter) reports per provider: suggested vs quoted vs actual duration, how often jobs run 15+ min over or start late, and how far quotes run above the provider's advertised price (the quote less its itemised surcharges is the menu price). Providers see their own row on More → Manage; admins see everyone on the admin panel's Calibration page, sorted by largest markup — the monitoring that replaced the price cap (§2). The customer's approval screen also says when a quote is above the provider's advertised range (§7).
+
 - **The app imports validation bounds from `supabase/functions/_shared/quote.ts`.** `QuoteBuilder` takes `MIN_QUOTE_DURATION_MINS`, `MAX_QUOTE_DURATION_MINS`, `MAX_QUOTE_LINE_ITEMS` and `MAX_LINE_ITEM_LABEL_LENGTH` from the Edge Function's own module rather than restating them, so a control cannot offer a value `prepareQuote` will reject. This is the one place app code reaches into `supabase/functions/`, and it works because `_shared/quote.ts` carries no remote imports — which is also why `tsconfig.json` leaves it outside the exclude list and Jest can test the shipping code directly. Keep it that way: adding a Deno or `https://` import to that module would break both the app build and its tests.
 
-- **Stripe webhook auth split**: Stripe deliveries land on **`stripe-events`**, not `stripe-webhook`. The two callers need opposite auth models: app invocations carry a Supabase JWT and rely on `verify_jwt: true`, while Stripe cannot attach one, so a JWT-verified endpoint rejects every delivery with 401 before the handler runs. `stripe-events` therefore runs with `verify_jwt = false` and authenticates by verifying `Stripe-Signature` against `STRIPE_WEBHOOK_SECRET`, refusing any request without a signature. Both Stripe functions declare their flag in `carApp/supabase/config.toml` (`[functions.stripe-webhook] verify_jwt = true`, `[functions.stripe-events] verify_jwt = false`) rather than relying on `--no-verify-jwt` being passed at deploy time; the flag is a property of the endpoint's auth model, so leaving it to a remembered command-line argument means one forgetful redeploy silently 401s every live Stripe delivery. `stripe-webhook` keeps `verify_jwt: true` and holds no webhook code — important, because most of its actions perform service-role writes with no in-code caller authentication of their own: `verify_jwt` proves *a* valid user called, never *which* one, so `accept_booking` and its siblings are reachable with any authenticated user's token. `submit_quote` was the first action to close that gap for itself, resolving the caller via `auth.getUser(token)` and refusing anyone who does not own the booking's provider profile (the `update-provider-location` pattern) — necessary because it sets a price, which is the one thing the booking write surface exists to keep away from clients. Every Phase 3 action since, and `cancel_booking` / `provider_cancel_booking`, resolve which side of the booking the caller is on through the shared `requireParty` helper. `accept_booking`, `decline_booking`, `mark_no_show`, `capture_balance`, `refund_deposit` and the Connect actions still need the same treatment. Deposit → `pending_provider_approval` and the `payments.status` transitions only ever happen in `stripe-events`; the client never asserts paid state.
+- **Stripe webhook auth split**: Stripe deliveries land on **`stripe-events`**, not `stripe-webhook`. The two callers need opposite auth models: app invocations carry a Supabase JWT and rely on `verify_jwt: true`, while Stripe cannot attach one, so a JWT-verified endpoint rejects every delivery with 401 before the handler runs. `stripe-events` therefore runs with `verify_jwt = false` and authenticates by verifying `Stripe-Signature` against `STRIPE_WEBHOOK_SECRET`, refusing any request without a signature. Both Stripe functions declare their flag in `carApp/supabase/config.toml` (`[functions.stripe-webhook] verify_jwt = true`, `[functions.stripe-events] verify_jwt = false`) rather than relying on `--no-verify-jwt` being passed at deploy time; the flag is a property of the endpoint's auth model, so leaving it to a remembered command-line argument means one forgetful redeploy silently 401s every live Stripe delivery. `stripe-webhook` keeps `verify_jwt: true` and holds no webhook code — important, because most of its actions perform service-role writes with no in-code caller authentication of their own: `verify_jwt` proves *a* valid user called, never *which* one, so `accept_booking` and its siblings are reachable with any authenticated user's token. `submit_quote` was the first action to close that gap for itself, resolving the caller via `auth.getUser(token)` and refusing anyone who does not own the booking's provider profile (the `update-provider-location` pattern) — necessary because it sets a price, which is the one thing the booking write surface exists to keep away from clients. Every Phase 3 action since, and `cancel_booking` / `provider_cancel_booking`, resolve which side of the booking the caller is on through the shared `requireParty` helper, and since Phase 4 so do `accept_booking`, `decline_booking`, `mark_no_show`, `capture_balance`, `refund_deposit` and `create_deposit_intent`; the Connect actions check the caller owns the provider profile they name (`requireProfileOwner`). Only `expire_pending_approvals`, which pg_cron calls with the service-role key, is open — it cancels nothing the sweep would not. Deposit → `pending_provider_approval` and the `payments.status` transitions only ever happen in `stripe-events`; the client never asserts paid state.
 - **Deposit checkout (PaymentSheet)**: The card is collected in Stripe's native **PaymentSheet**, not a `CardField` — the app renders no card inputs of its own. `create_deposit_intent` returns the client secret plus the Stripe `customerId` and an ephemeral key; the client passes the customer pair only when the server sends both, so the sheet still opens against older function versions (it just loses the saved-card list). The PaymentIntent carries `customer` + `setup_future_usage: 'off_session'` server-side, which is what lets `capture_balance` charge the saved card later without the customer present. **Booking rows are created before payment** because the Edge Function needs a `booking_id` to attach the intent to — so the booking screen cancels the row if the intent fails, the card is declined, or the customer dismisses the sheet. Nothing but a successful `payment_intent.succeeded` webhook moves a booking to `pending_provider_approval`.
 - **Cancellation policy** (server-enforced in the `stripe-webhook` Edge Function — the client never decides the refund amount): customer cancels ≤24h before scheduled time → `$15` flat late-cancel fee retained, remainder of the deposit refunded (>24h → full refund); provider cancels ≤24h → full customer refund + `$25` penalty recorded on the booking (ops deducts from a future payout); customer no-show → provider marks No Show, customer forfeits the full amount. Columns: `cancellation_fee`, `cancelled_by`, `no_show_at`; `no_show` is a `bookings.status` value.
 - **Fee structure**: Provider platform fee is **3%** (`platform_fee_rate` default `0.030`). Founding Providers — the first 100 approved, controlled by `is_founding_provider` — pay **0% for 90 days** (`founding_provider_expires_at`), then auto-convert to 3% via a daily `pg_cron` sweep. Enrollment is a DB trigger on the transition to `verification_status = 'approved'` under an advisory lock (100-provider cap, race-safe). Customer service fee is 2% added at checkout.

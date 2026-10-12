@@ -20,6 +20,13 @@
 // The amounts come from the server, never recomputed here: on a re-quote the
 // deposit is NOT 15% of the new total, because an already-succeeded deposit is
 // kept as recorded so the balance still sums to what was agreed.
+//
+// §7 "bait pricing": there is no price cap, so when the quote comes in above
+// the range the provider advertises for the job, the screen says so — "This is
+// $25.00 above the $180.00–$235.00 Dana lists" — and the customer approves
+// knowing it. The range is PackageSelector's (base price up to what the
+// provider's own modifiers could add), rebuilt from the quote and the
+// provider's published modifiers.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -37,7 +44,10 @@ import { Button } from '../../../../src/components/ui/Button';
 import { Card } from '../../../../src/components/ui/Card';
 import { Spacer } from '../../../../src/components/ui/Spacer';
 import { colors, spacing } from '../../../../src/design/tokens';
-import { getBookingById } from '../../../../src/lib/supabase/queries';
+import {
+  getBookingById,
+  getServiceDurationModifiers,
+} from '../../../../src/lib/supabase/queries';
 import {
   acceptQuote,
   createDepositPaymentIntent,
@@ -48,6 +58,8 @@ import type { BookingTrackingParams } from '../../../../src/types/navigation';
 import { centsToDisplay } from '../../../../src/utils/money';
 import { formatDate, formatTime } from '../../../../src/utils/date';
 import { formatDuration } from '../../../../src/utils/duration';
+import { quoteAboveAdvertised } from '../../../../src/utils/packages';
+import type { ServiceDurationModifier } from '../../../../src/types/models';
 
 /** A line as submit_quote stored it. Cents, per the JSONB grammar. */
 interface StoredLineItem {
@@ -63,6 +75,9 @@ export default function QuoteApprovalScreen(): React.ReactElement {
   const palette = isDark ? colors.dark : colors.light;
 
   const [booking, setBooking] = useState<BookingSummary | null>(null);
+  // null until read: comparing against the bare base price would call a quote
+  // inside the real range "above" it.
+  const [modifiers, setModifiers] = useState<ServiceDurationModifier[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [isApproving, setIsApproving] = useState(false);
@@ -75,6 +90,12 @@ export default function QuoteApprovalScreen(): React.ReactElement {
       setLoadError(result.error);
     } else {
       setBooking(result.data);
+      // Only for the "above advertised" note. A failure costs the note, not
+      // the approval, so it is not an error state.
+      if (result.data.provider_id) {
+        const published = await getServiceDurationModifiers(result.data.provider_id);
+        setModifiers(published.error ? null : published.data);
+      }
     }
     setIsLoading(false);
   }, [bookingId]);
@@ -221,6 +242,12 @@ export default function QuoteApprovalScreen(): React.ReactElement {
   const surcharges = lineItems.reduce((sum, l) => sum + l.amount_cents, 0);
   const baseCents = quotedCents - surcharges;
   const providerName = booking.provider_profiles?.users?.full_name ?? 'Your provider';
+  const above = modifiers ? quoteAboveAdvertised(quotedCents, baseCents, modifiers) : null;
+  const advertised = above
+    ? above.range.minCents === above.range.maxCents
+      ? centsToDisplay(above.range.maxCents)
+      : `${centsToDisplay(above.range.minCents)}–${centsToDisplay(above.range.maxCents)}`
+    : '';
 
   return (
     <SafeAreaView
@@ -288,6 +315,20 @@ export default function QuoteApprovalScreen(): React.ReactElement {
               {centsToDisplay(quotedCents)}
             </Text>
           </View>
+          {above && (
+            <>
+              <Spacer size="sm" />
+              <Text
+                variant="caption"
+                style={{ color: palette.gearGold }}
+                testID="quote-above-advertised"
+              >
+                This is {centsToDisplay(above.overCents)} above the {advertised}{' '}
+                {providerName} lists for this job. The itemised lines above show
+                why.
+              </Text>
+            </>
+          )}
         </Card>
 
         <Spacer size="md" />

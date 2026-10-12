@@ -1,49 +1,50 @@
 # Quote-First Booking — Session Handoff
 
-**Updated:** 2026-09-28 (seventh session) · **Branch:** `feature/quote-first-booking`
-**Head:** `44df6bb` + this session's uncommitted work (nothing committed — the
-user has not asked for a commit). **Phase 3 is complete in code and verified
-against the live project**, everything except a real card: migration
-`20260822000000` applied, nine Edge Functions deployed, both live verifiers
-green, Jest **99 suites / 1378 tests**, `tsc` clean.
+**Updated:** 2026-10-12 (eighth session) · **Branch:** `feature/quote-first-booking`
+**Head:** `afe2b4b` ("phase 3 booking done") + this session's uncommitted work
+(nothing committed — the user has not asked for a commit). **Phase 4 is
+complete in code and verified against the live project**: migration
+`20260823000000` applied, `stripe-webhook` v27 + `notify-eta-changed` v1
+deployed, all three live verifiers green, Jest **105 suites / 1480 tests**,
+`tsc` clean, admin Playwright **6/6**.
 **Design spec:** [`quote_first_booking.md`](quote_first_booking.md) — §4 (security),
-§8 (phase plan), §9 (current state)
+§8 (phase plan), §9 (current state, including "Phase 4 — complete")
 
 This is the *operational* handoff: environment, what is proven versus merely
 written, and what to do first. The design and per-phase state live in the spec;
 this does not duplicate them.
 
-> **One-line summary:** Phases 0–3 are **applied, deployed and green**. The
-> quote-first loop now runs end to end against the real project as the real
-> parties — request → card saved → more info → quote → approve, plus
-> reschedule-by-proposal and adjust-and-approve on confirmed jobs —
-> `verify:checkout` **38/38**, `verify:quote-flow` **22/22**, SQL **8 suites /
-> 156 checks**. What has still never run is **a real card**: the SetupIntent
-> sheet, the off-session deposit and the `stripe-events` promotion need a
-> simulator.
+> **One-line summary:** Phases 0–4 are **applied, deployed and green**. The
+> provider can report running late (+15/+30/+60, back down), the customer's
+> arrival / ready-by time follows live and they are pushed when it moves
+> materially, later jobs the delay reaches are listed for the provider to
+> tell / reschedule / leave, finishing early offers the next customer an
+> earlier start, and calibration is reported to providers and admins —
+> `verify:job-day` **20/20**, `verify:quote-flow` **22/22**, `verify:checkout`
+> **38/38**, SQL **9 suites / 179 checks**. What has still never run is
+> **anything on a device**: a real card, and every screen (Phase 4's included).
 >
-> **To resume: §5.** On a new machine, §1 first — and see §2 for the service
-> key, which was stale again this session.
+> **To resume: §5.** On a new machine, §1 first.
 
-### Decisions made this session (by the user — do not re-litigate)
+### Decisions made in session 8 (by the user: "build it fully; tweaks after")
 
-1. **Payment resequencing: the spec's approach.** Card saved by SetupIntent at
-   request (no hold, no charge); deposit charged **off-session** at approval.
-   PaymentSheet remains only as the fallback (no saved card, decline, 3-D Secure).
-2. **Adjustment (`adjust_job_duration`): from `confirmed` only, a new status
-   (`pending_adjustment_approval`), and either side can cancel.** Implemented
-   as: declining cancels with a full refund and no fee; either side may cancel
-   penalty-free while it is open.
-3. **Reschedule: both parties, `confirmed` only, "you decide" on the rest.**
-   Decided: it replaces the customer's direct `scheduled_at` edit, whose UPDATE
-   grant was revoked. The proposer may withdraw; only the other party accepts.
-4. **Add-ons: child packages per spec.** `parent_package_id`, one level deep;
-   the `'addon'` category is retired (the 3 live rows became `detailing`).
-   Tiers are `basic` / `standard` / `premium` (the spec named none).
+The defaults recommended at the start of the session were taken:
 
-`request_more_photos` was built as proposed (note → `awaiting_customer_info` →
-customer adds photos / changes window → `provide_customer_info`); the user did
-not object.
+1. **A delay moves the ETA, not the slot.** `running_late_mins` feeds the
+   generated `estimated_completion_at`; `occupied_range` is untouched, so a
+   report can never fail on the overlap guard.
+2. **A later customer is told, not moved.** The cascade is a list for the
+   provider (tell / propose a new time / leave it); early finish offers an
+   earlier start as a proposal.
+3. **Calibration for both audiences.** Providers see their own (More →
+   Manage), admins everyone (admin panel → Calibration).
+4. **Dedupe window 10 min** (not in the spec), bypassed by a ≥30 min change;
+   materiality 15 min as the spec says. Both constants are in
+   `_shared/eta.ts` and easy to tune.
+
+Also fixed in the same pass, because the user asked for the booking feature to
+be fully functional: §4 open issues #2 (timezone check), #3 (money units on
+the list screens) and #4 (ownership checks on the older actions).
 
 ### Where the whole plan stands
 
@@ -53,7 +54,7 @@ not object.
 | **1** | Buffers, working hours, timezone, time-off, `EXCLUDE` constraint, RLS tightening | ✅ complete |
 | **2** | Vehicle size, condition questions, modifier table, suggestion engine | ✅ complete |
 | **3** | Quote flow, payment resequencing, quote UI | ✅ complete in code, live-verified except a real card (§4) |
-| **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ⬜ not started |
+| **4** | Live ETC, overrun cascade, early-finish, calibration reporting | ✅ complete, live-verified except on a device (§4) |
 
 ---
 
@@ -63,7 +64,7 @@ not object.
 git clone git@github.com:EM-T-Shells/CarApp.git
 cd CarApp && git checkout feature/quote-first-booking
 cd carApp && npm ci
-npx tsc --noEmit && npm test          # expect 99 suites / 1378 tests, all green
+npx tsc --noEmit && npm test          # expect 105 suites / 1480 tests, all green
 ```
 
 If that is green, the JavaScript half of the project is fully restored.
@@ -73,7 +74,7 @@ If that is green, the JavaScript half of the project is fully restored.
 | # | Thing | Why | How to check |
 |---|---|---|---|
 | 1 | `carApp/.env.local` | gitignored, recreated by hand | `npm run verify:checkout` fails loudly without it |
-| 2 | `admin/.env.local` | **easy to forget** — the admin panel is a separate Vite app with its own env file | `cd admin && npm run dev` |
+| 2 | `admin/.env.local` | **easy to forget** — the admin panel is a separate Vite app with its own env file. **Missing on the WSL2 box as of 2026-10-12**; only `npm run dev` against the live project needs it — `npm run test:e2e` brings its own dummy env | `cd admin && npm run dev` |
 | 3 | `.mcp.json` (repo root) | the hosted Supabase MCP | `/mcp` in an interactive session |
 | 4 | `SUPABASE_ACCESS_TOKEN` | every CLI command that talks to the API | `supabase projects list` |
 | 5 | `SUPABASE_DB_PASSWORD` | applying migrations | `supabase db push` |
@@ -132,21 +133,23 @@ runs `--read-only`.
 
 ### Machines this has run on
 
-Sessions 1–5 have all run on the same Windows/WSL2 box, re-measured there on
-2026-09-22. The macOS column is from a machine that has not been used since:
+Sessions 1–8 have all run on the same Windows/WSL2 box, last confirmed
+working there on 2026-10-12. The macOS column is from a machine that has not
+been used since:
 
-| | Windows/WSL2 box (sessions 1–5) | macOS box |
+| | Windows/WSL2 box (sessions 1–8) | macOS box |
 |---|---|---|
 | Node | v20.20.0 (npm 11.12.0) | v24.15.0 |
-| Supabase CLI | 2.90.0 — **token expired**, see above | 2.107.0, not logged in |
-| Docker / `psql` | neither | neither |
+| Supabase CLI | 2.90.0 — token and DB password both working (2026-10-12) | 2.107.0, not logged in |
+| Docker / `psql` / Deno | none | none |
 | Maestro + simulator | unavailable | not installed |
-| DB access | ✅ `db push` worked until the token died | ✗ IPv6-only route |
+| DB access | ✅ `db push`, `db query`, `gen types` all worked 2026-10-12 | ✗ IPv6-only route |
+| Playwright (admin) | ✅ Chromium headless shell installed 2026-10-12; `admin/node_modules` via `npm ci` | — |
 
-**Everything gated on macOS is still gated** (§4, "NOT proven"): Stripe end to
-end, the real-409 path, and `Intl` under Hermes. No session has yet run on a
-machine with macOS *and* a booted simulator *and* Maestro at the same time, and
-CLI 2.117.0 is now current if you are installing fresh.
+**Everything gated on macOS is still gated** (§4, "NOT proven"): a real card
+through the quote flow, the real-409 path, and `Intl` under Hermes. No session
+has yet run on a machine with macOS *and* a booted simulator *and* Maestro at
+the same time, and CLI 2.118.0 is now current if you are installing fresh.
 
 ### Establish these five facts on the new box before trusting anything below
 
@@ -157,7 +160,7 @@ column above once you know them.
 node -v && supabase --version && supabase projects list   # logged in?
 docker info >/dev/null 2>&1 && echo docker || echo "no docker → deploy needs --use-api"
 cd carApp && supabase migration list --linked --workdir "$PWD"   # DB route works?
-command -v maestro || echo "no maestro → §5 step 3 stays blocked"
+command -v maestro || echo "no maestro → §5 step 2 stays blocked"
 ```
 
 1. **Supabase CLI logged in?** `supabase login` if not. Separate from
@@ -169,16 +172,16 @@ command -v maestro || echo "no maestro → §5 step 3 stays blocked"
    an IPv6-only route, which is why `db push` never ran from it. If
    `migration list --linked` aligns, the route is fine.
 4. **macOS + booted simulator + Maestro?** All three together are what §4's
-   "NOT proven" list has been waiting on since the beginning — Stripe end to
-   end, the 409 → provider UI path, and `Intl` under Hermes. If the new box has
-   them, that backlog opens up and is worth doing before more of Phase 3 is
-   written on top of an unobserved payment path.
-5. **Node major version.** Sessions 1–5 were on Node 20. Nothing is known to
+   "NOT proven" list has been waiting on since the beginning — a real card
+   through the quote flow, the 409 → provider UI path, `Intl` under Hermes,
+   and now every Phase 4 screen and the first Realtime event. If the new box
+   has them, that is the most valuable thing to do (§5 step 2).
+5. **Node major version.** Sessions 1–8 were on Node 20. Nothing is known to
    need it; if the new box is on 22/24 and something odd appears in Jest, this
    is the variable that changed.
 
 The IPv4 DNS pin (`scripts/lib/ipv4-dns.mjs`, §2) is committed and imported by
-both Node scripts. It is a no-op on machines without the WSL2 resolver
+all three Node scripts (`seed-e2e`, `verify-checkout`, `verify-quote-flow`). It is a no-op on machines without the WSL2 resolver
 behaviour, so leave it in place regardless of where you land.
 
 ---
@@ -205,13 +208,15 @@ publishable key (`EXPO_PUBLIC_SUPABASE_KEY`) was migrated at the same time, but
 401 {"message":"Legacy API keys are disabled", "hint":"…disabled on 2026-06-24…"}
 ```
 
-**Resolved** — a new `sb_secret_…` key is in `.env.local` and
-`verify:checkout` is 30/30 again.
+**Resolved on 2026-09-23** — a new `sb_secret_…` key went into `.env.local`
+(then `verify:checkout` 30/30). That key was itself gone from the project by
+2026-09-28 (the box at the top of this section); a fresh one is in place and
+`verify:checkout` is 38/38.
 
 Worth knowing if it recurs:
 
-- The symptom is confined to `verify:checkout` and `seed:e2e`, the only two
-  things that use the service role locally. **Deployed Edge Functions are
+- The symptom is confined to `seed:e2e`, `verify:checkout` and
+  `verify:quote-flow`, the only things that use the service role locally. **Deployed Edge Functions are
   unaffected** — Supabase rotates the value it injects into them, and a
   `SUPABASE_SECRET_KEYS` secret is present alongside it.
 - **A secret key cannot be recovered.** Supabase shows it once at creation;
@@ -258,7 +263,9 @@ token does not revoke the old one*, they coexist) and reset the database
 password under Project Settings → Database.
 
 > ⚠️ Unrelated to the above and easy to conflate: the **service role key** WAS
-> rotated this session, because it was disabled, not because it leaked.
+> replaced on 2026-09-23 (legacy keys disabled) and again on 2026-09-28 (the
+> stored key had been deleted from the project) — neither time because it
+> leaked.
 
 ### The DNS trap that cost an hour — already fixed, don't rediscover it
 
@@ -285,10 +292,10 @@ scripts. Node-side only; React Native has its own networking stack.
 
 ## 3. State of the database
 
-All nine Phase 0–3 migrations applied; `supabase migration list --linked`
-aligns on every row (16 rows in total, including the four that predate this
-work). Eight of the nine carry a `.test.sql` suite, all green on 2026-09-28
-(156 checks).
+All ten Phase 0–4 migrations applied; `supabase migration list --linked`
+aligns on every row (17 rows in total, including the seven that predate this
+work). Nine of the ten carry a `.test.sql` suite, all green on 2026-10-12
+(179 checks).
 
 | Migration | SQL test | Checks |
 |---|---|---|
@@ -301,6 +308,19 @@ work). Eight of the nine carry a `.test.sql` suite, all green on 2026-09-28
 | `20260820000000_intake_vehicle_size_and_modifiers` | ✅ | 25/25 |
 | `20260821000000_quote_statuses_and_arrival_windows` | ✅ | 21/21 |
 | `20260822000000_quote_flow_completion` | ✅ | 29/29 |
+| `20260823000000_live_eta_and_calibration` | ✅ | 23/23 |
+
+`20260823000000` (Phase 4) adds `running_late_mins` (0–720) and
+`eta_notified_at` / `eta_notified_completion_at` (both-or-neither), all
+server-only; redefines `estimated_completion_at` to add `running_late_mins`
+(PG 17 `SET EXPRESSION`); adds `trg_reset_running_late_on_start`; adds
+`bookings` to the `supabase_realtime` publication; adds
+`get_duration_calibration(p_since)` (SECURITY DEFINER, `authenticated` only);
+and replaces the `pg_timezone_names` scan in `validate_provider_schedule()`.
+It was dry-run first (migration + suite in one rolled-back transaction with
+`lock_timeout`/`statement_timeout`), then pushed: the whole thing took about a
+second on a healthy instance.
+
 
 `20260822000000` adds `pending_adjustment_approval` (inside the overlap guard),
 eight server-only booking columns (`stripe_setup_intent_id`,
@@ -318,70 +338,68 @@ cd carApp
 for f in bookings_update_column_guard bookings_server_derived_pricing \
          booking_buffers_and_overlap_guard provider_profiles_column_guard \
          provider_working_hours_and_time_off intake_vehicle_size_and_modifiers \
-         quote_statuses_and_arrival_windows quote_flow_completion; do
+         quote_statuses_and_arrival_windows quote_flow_completion \
+         live_eta_and_calibration; do
   supabase db query --linked -f supabase/migrations/__tests__/$f.test.sql
 done
 # expect every row's pass = t
 ```
 
-`quote_flow_completion.test.sql` borrows two existing provider profiles rather
-than inserting one — see §7 on `pg_timezone_names` for why.
+`quote_flow_completion.test.sql` and `live_eta_and_calibration.test.sql` borrow
+two existing provider profiles rather than inserting one — see §7 on
+`pg_timezone_names` for why. (That trigger is fast now, but the suites were not
+rewritten.)
 
-`carApp/supabase/schema.sql` has not been updated for any Phase 0–3 migration
-(it predates them); the migrations are the source of truth for this work.
+`carApp/supabase/schema.sql` carries the Phase 0, 1 and 4 booking columns and
+says so; the Phase 2–3 columns and grants are only in their migrations, which
+are the source of truth for this work.
 
 ---
 
 ## 4. What is proven, and what is not
 
-### Five test systems, and they do not substitute for each other
+### Seven test systems, and they do not substitute for each other
 
 Worth knowing before reading the numbers below, because the obvious reading of
 "Jest is green" is wrong:
 
 | System | Scope | How to run |
 |---|---|---|
-| **Jest** — 99 suites / 1378 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
-| **`.test.sql`** — 8 files, 156 checks | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
+| **Jest** — 105 suites / 1480 tests | Logic only. **Every test mocks Supabase.** | `npm test` (runs all) |
+| **`.test.sql`** — 9 files, 179 checks | Triggers, constraints, grants, against the live DB | `supabase db query --linked -f …` |
 | **`verify-checkout.mjs`** — 38 checks | The real client payload against the real grants | `npm run verify:checkout` |
 | **`verify-quote-flow.mjs`** — 22 checks | The Phase 3 Edge Function actions, called as the real customer and provider | `npm run verify:quote-flow` |
-| **Maestro** — `quote-flow.yaml` + `quote-flow-provider.yaml` | The app in a simulator | needs macOS + simulator |
+| **`verify-job-day.mjs`** — 20 checks | Phase 4: running late, the ETA push and its dedupe, the knock-on, start/overrun, the older actions' owner checks, the calibration report's visibility | `npm run verify:job-day` |
+| **Admin Playwright** — 6 specs | The admin panel, hermetic (every Supabase call intercepted) | `cd admin && npm run test:e2e` |
+| **Maestro** — `quote-flow*.yaml`, `job-day-provider.yaml` | The app in a simulator | needs macOS + simulator |
 
 A Jest test **cannot** prove that Postgres refuses a forged column, or that an
 Edge Function refuses the wrong party: `supabase` is a mock. That is why the
 guard assertions live in the SQL suites and the two verifiers.
 
-### Proven (2026-09-28)
+### Proven (2026-10-12)
 
-- **Jest 99 / 1378, `tsc` clean.** New suites cover the shared server grammar
-  (`_shared/__tests__/quoteActions.test.ts`, `bookingPolicy.test.ts` — the
-  shipping modules, not re-implementations), the Stripe wrappers, the new
-  components, and all four quote-path screens.
-- **SQL: 8 suites / 156 checks green** against the live project, including
-  `quote_flow_completion` (29).
-- **`verify:checkout` 38/38.** No longer stale: it sends the quote-first
-  payload (`pending_provider_quote`, both window ends, `scheduled_at` from the
-  window start) and additionally proves that stating quote line items or a
-  SetupIntent is refused, a half window is refused, an add-on without its main
-  service is refused (and priced with it), the client can no longer move
-  `scheduled_at` but can still change its window, and the abandon path
-  (`pending_provider_quote → cancelled`) works.
-- **`verify:quote-flow` 22/22 — the first time any Phase 3 action ran for
-  real.** Every ownership refusal (customer quoting, provider approving, either
-  party accepting their own proposal, customer adjusting…), the unpriced loop
-  request → more info → hand back → quote → approve → cancel, reschedule by
-  proposal, adjustment approve (deposit kept as charged; balance correct) and
-  decline (cancelled, no fee), a TEST-mode SetupIntent recorded on the row, and
-  that `stripe-webhook` actually reaches the notify functions (an in-app
-  notification row appears).
-- **Nine Edge Functions deployed** with `--use-api`: `stripe-webhook` v26,
-  `stripe-events` v10, `notify-booking-cancelled` v12, and six new notify
-  functions at v1. `verify_jwt` confirmed via `mcp__supabase__list_edge_functions`:
-  `stripe-events` false, everything else true.
-- **The Edge Function bodies type-check** under a scratch shim
-  (real `@supabase/supabase-js` types, stubbed `Deno`/Stripe/std). Not a
-  committed gate — see §7 — but it caught one real bug (a concatenated select
-  string supabase-js cannot parse).
+- **Jest 105 / 1480, `tsc` clean.** New: `_shared/__tests__/eta.test.ts` (41 —
+  the shipping cascade, dedupe, early-finish and message code), the job-day
+  wrappers, the Realtime/calibration queries, `RunningLateCard` /
+  `DelayKnockOn` / `EstimateAccuracyCard`, and the job, booking, list and
+  approval screens' Phase 4 behaviour.
+- **SQL: 9 suites / 179 checks green**, including `live_eta_and_calibration`
+  (23): a delay moves the ready-by and not the slot, a start clears it, neither
+  party can write it, the report shows each party only what it should, the
+  timezone check refuses what the catalog scan refused in well under a second.
+- **`verify:job-day` 20/20 — the first live run of every Phase 4 action**, plus
+  `verify:checkout` 38/38 and `verify:quote-flow` 22/22 still green after the
+  deploy (so the new owner checks broke nothing on the Phase 3 path).
+- **Deployed** with `--use-api`: `stripe-webhook` v27, `notify-eta-changed` v1,
+  both `verify_jwt: true` (`stripe-events` untouched, still `false`). Source
+  mtimes confirm nothing was edited after the deploy.
+- **The Edge Function bodies type-check** under the scratch shim (§7),
+  including `stripe-webhook`, `stripe-events` and `notify-eta-changed`.
+- **Admin Playwright 6/6** (3 new calibration specs, 3 existing vetting specs).
+
+Still true from 2026-09-28: the Phase 3 bullets (SetupIntent recorded,
+`stripe-webhook` reaches the notify functions, and so on).
 
 ### ⚠️ NOT proven
 
@@ -397,12 +415,39 @@ card 4242…, and 4000 0027 6000 3184 for the 3-D Secure fallback.
 **2. The 409 → provider UI path, and `Intl` under Hermes.** Unchanged from
 earlier sessions.
 
-**3. No screen has been seen running.** Everything UI is Jest + `tsc` only.
+**3. No screen has been seen running.** Everything UI is Jest + `tsc` only,
+including all of Phase 4's: the running-late card, the knock-on panel, the
+early-finish alert, the customer's running-late card and its live update, the
+accuracy card and the above-advertised note.
+
+**3a. Realtime has never delivered an event to a device.** The publication is
+proven (SQL suite) and the subscription's shape is unit-tested, but no client
+has received a `postgres_changes` event yet. Until it has, assume the
+customer's screen updates on pull-to-refresh and on the push.
+
+**3b. No push has been seen on a device.** The in-app `notifications` rows prove
+each notify function ran; FCM delivery needs a device with a token.
 
 **4. The Maestro flows are written but have never run.** `booking-flow.yaml`
 and the reschedule step of `bookings-management.yaml` are **stale** — they drive
 the deposit-first screen and the direct reschedule that no longer exist (noted
 in `e2e/README.md`).
+
+### Open issues — each needs a decision
+
+1. **`service_packages` has no column allowlist** — a provider can very likely
+   set `is_approved` on their own package (§8). Unchanged; it needs a decision
+   on which columns an admin owns.
+2. **The inbox's Realtime subscription has never worked.** `supabase_realtime`
+   was empty until `20260823000000` added `bookings`; `messages` is still not
+   in it, so `inbox/[threadId].tsx`'s `thread:{id}` channel receives nothing
+   and new messages appear only on reload. One line (`ALTER PUBLICATION
+   supabase_realtime ADD TABLE public.messages`) — not done because it is
+   outside the booking feature.
+
+Fixed in session 8 (were #2–#4 here): the working-hours timeout (the
+`pg_timezone_names` scan is gone), the list screens showing dollars as cents,
+and the older `stripe-webhook` actions with no ownership check.
 
 ---
 
@@ -412,33 +457,74 @@ in `e2e/README.md`).
 
    ```bash
    cd CarApp && git status --short         # this session's work, uncommitted
-   cd carApp && npx tsc --noEmit && npm test   # expect 99 suites / 1378 tests
-   supabase migration list --linked --workdir "$PWD"   # expect 16 aligned rows
+   cd carApp && npx tsc --noEmit && npm test   # expect 105 suites / 1480 tests
+   supabase migration list --linked --workdir "$PWD"   # expect 17 aligned rows
    npm run verify:checkout                 # expect 38/38
    npm run verify:quote-flow               # expect 22/22
+   npm run verify:job-day                  # expect 20/20
    ```
 
    If a verifier fails at sign-in with `Unregistered API key` or `Legacy API
-   keys are disabled`, it is the service key again — §2.
+   keys are disabled`, it is the service key again — §2. `verify:job-day`
+   creates its jobs two hours out; a `23P01` on its fixtures means the seeded
+   provider already has a real job in that slot.
 
-1. **Commit**, when asked — nothing from this session is committed. It spans
-   the migration + tests, `stripe-webhook`/`stripe-events`/nine notify
-   functions, `_shared/bookingPolicy.ts`, the client wrappers, five new
-   components, four screens, two scripts, two Maestro flows and the docs.
-2. **On a Mac: the card.** `brew install maestro`, boot a simulator, then
-   `quote-flow.yaml` (first half) → `quote-flow-provider.yaml` →
-   `quote-flow.yaml` (second half). Watch for: the setup sheet saying "Save
-   card"; the provider getting `notify-quote-requested`; approval opening **no**
-   sheet and the booking going from "Deposit processing" to Confirmed when
-   `stripe-events` hears the charge. Then repeat with the 3-D Secure card to see
-   the fallback alert and PaymentSheet.
+1. **Commit**, when asked — nothing from session 8 is committed. It spans the
+   migration + its suite, `stripe-webhook` (report_delay + owner checks),
+   `notify-eta-changed`, `_shared/eta.ts`, the regenerated types, three new
+   provider components, five screens, the admin Calibration page + spec, a
+   verifier, a Maestro flow and the docs.
+2. **On a Mac: the card, and now the job day.** `brew install maestro`, boot a
+   simulator, then the Phase 3 sequence (`quote-flow.yaml` first half →
+   `quote-flow-provider.yaml` → second half, then the 3-D Secure card), then
+   `job-day-provider.yaml`. Watch for: the customer's booking screen updating
+   **without a refresh** when the provider taps +15 (that is the first time
+   Realtime will have delivered anything — §4 3a), the push arriving, and the
+   early-finish alert after Complete Job.
 3. **Rewrite the stale Maestro steps** (`booking-flow.yaml`, the reschedule
    step in `bookings-management.yaml`) against the quote-first screens.
-4. **Phase 4** (spec §8): live ETC, overrun cascade, early-finish, calibration.
+4. **Decide the two open issues** (§4): the `service_packages` allowlist, and
+   whether to publish `messages` to Realtime.
+5. **Tweaks the user deferred**: the dedupe window and thresholds
+   (`_shared/eta.ts`), the calibration flag thresholds
+   (`admin/src/pages/Calibration.tsx`), and copy.
 
----
+## 6. What was built
 
-## 6. Phase 3 — what was built
+### Phase 4 (session 8)
+
+| Piece | Where |
+|---|---|
+| Rules: delay grammar, horizon, ETA push materiality + dedupe, cascade, early finish, push copy | `supabase/functions/_shared/eta.ts` (+ `__tests__/eta.test.ts`) |
+| `report_delay` action; owner checks on every older action; `capture_balance` from `in_progress` only | `supabase/functions/stripe-webhook/index.ts` |
+| Push to the customer, times on the provider's clock | `supabase/functions/notify-eta-changed/index.ts` |
+| Schema, trigger, Realtime, calibration report, timezone check | `supabase/migrations/20260823000000_live_eta_and_calibration.sql` |
+| `reportDelay` wrapper; older wrappers now surface the server's reason | `src/lib/stripe/index.ts` |
+| `subscribeToBookingChanges` (channel `booking:{id}`), `getDurationCalibration` | `src/lib/supabase/queries.ts` |
+| Lateness wording: `resolveRunningLateMins`, `resolveExpectedArrival`, `formatLateness` | `src/utils/duration.ts` |
+| `quoteAboveAdvertised` | `src/utils/packages.ts` |
+| Running late (+15/+30/+60, −15, back on time), knock-on panel + its reschedule sheet, ready-by line, early-finish alert | `app/(provider-tabs)/jobs/[bookingId].tsx`, `RunningLateCard`, `DelayKnockOn` |
+| Running-late card, live via Realtime | `app/(tabs)/bookings/[id].tsx` |
+| Lateness line on the customer's list; dollars-as-cents fixed on both lists | `app/(tabs)/bookings/index.tsx`, `app/(provider-tabs)/jobs/index.tsx` |
+| "Above the $X–$Y Dana lists" note | `app/(tabs)/bookings/quote/[bookingId].tsx` |
+| Provider's own estimate accuracy | `EstimateAccuracyCard` on `app/(provider-tabs)/more/manage.tsx` |
+| Admin calibration report (largest markup first, flags) | `admin/src/pages/Calibration.tsx`, `/calibration`, link from the queue |
+| `eta_changed` → `/bookings/[id]` | `src/lib/notifications/push.ts` |
+
+Three design points worth not re-deriving:
+
+- **A delay is absolute, not an increment.** The client sends current + 15, so
+  a retried request restates the same delay instead of stacking another 15.
+- **The ETA push is decided by `report_delay`, not by the notify function.**
+  The baseline is what the customer was last *told*
+  (`eta_notified_completion_at`, or the plan), so drift that was held back by
+  the dedupe window accumulates until it is material; the claim on
+  `eta_notified_at` is a guarded write so two racing reports push once.
+- **The early-finish planner only looks at today.** Offering to pull
+  tomorrow's first job forward to this afternoon is not an early finish, so the
+  job screen filters the day schedule to the provider's local day.
+
+### Phase 3
 
 The spec's Phase 3 list is done. Canonical per-action behaviour is
 `.claude/rules/edge-functions.md`; this is the map.
@@ -500,26 +586,54 @@ Three design points worth not re-deriving:
 
 ## 7. Traps already paid for — don't rediscover these
 
+**The Realtime publication was empty.** `supabase_realtime` existed with no
+tables in it, so `postgres_changes` subscriptions (the inbox's included)
+received nothing, silently. `20260823000000` added `bookings`. Check
+`pg_publication_tables` before assuming a subscription works.
+
+**PG 17 can change a generated column in place.** `ALTER COLUMN … SET
+EXPRESSION` keeps the column and its dependants and rewrites the table; check
+`pg_depend` first (only its own `pg_attrdef` depended on
+`estimated_completion_at`). Guard a re-run by reading `pg_get_expr` of the
+`pg_attrdef`, or it rewrites the table every time.
+
+**A count-based SQL assertion over "the future" is fragile.** There is a real
+cancelled booking dated 2035 (another provider), so "admin sees 2 providers
+since 2031" saw 3. Assert on the fixture rows, not on totals.
+
+**`supabase db push --yes`** answers the confirmation prompt; `--dry-run`
+lists what would be pushed. Both work non-interactively from Claude Code.
+
+**Test files that mock `src/utils/date` must keep `parseISO`.** The lateness
+helpers in `utils/duration.ts` call it, and a mock returning only the two
+formatters crashes the card with "unmounted component". Spread
+`jest.requireActual` and override the formatters.
+
+**The admin panel runs React StrictMode in dev**, so a mount effect fires
+twice and Playwright sees the initial request twice. Assert on the request you
+expect to appear, not on a count or an order.
+
 **A schema change can take the REST API down on a starved instance.**
 On 2026-09-28 the project was already I/O-starved (`pg_cron` had logged "job
 startup timeout" every few minutes since ~13:40 UTC; counting `pg_class` took
 ~4s). Applying the migration made PostgREST reload its schema cache, the reload
 query hit the `authenticator` role's 8s `statement_timeout`, and every REST call
-returned `503 PGRST002` until the user restarted the project. After the restart
-the same catalog query took 26ms. Before DDL, time a trivial catalog query; if
+returned `503 PGRST002` — from about 17:30 to 18:11 UTC — until the user
+restarted the project. After the restart the same catalog query took 26ms. Before DDL, time a trivial catalog query; if
 it is slow, restart first. Diagnose with `mcp__supabase__query_logs` on
 `postgrest_logs` / `postgres_logs`.
 
-**`pg_timezone_names` is extremely slow on the hosted project** — anything
-from ~17s to over 100s per lookup on the starved instance.
-`trg_validate_provider_schedule` scans it on every `provider_profiles` insert
-and on timezone / working-hours updates, so a SQL suite that inserts two
-provider profiles blew past the management API's 100s gateway limit (`HTTP
-524`, output lost, the transaction still running server-side holding its locks).
-`quote_flow_completion.test.sql` therefore borrows existing providers. The same
-trigger fires when a provider saves working hours in the app — worth replacing
-the view scan with a cheap check (e.g. `now() AT TIME ZONE NEW.timezone` in an
-exception block) before real providers hit it.
+**`pg_timezone_names` is extremely slow on the hosted project** — 835 ms on a
+healthy instance, ~17s to over 100s on the starved one. It reads every zone
+file on disk. `trg_validate_provider_schedule` used to scan it on every
+`provider_profiles` insert and timezone / working-hours update, which pushed a
+SQL suite past the management API's 100s gateway limit (`HTTP 524`, output
+lost, the transaction still running server-side holding its locks) and could
+time out a provider saving working hours. **Fixed in `20260823000000`**: the
+trigger now resolves the one zone with `AT TIME ZONE` (22023 if unknown) behind
+an IANA `Area/Location` shape check, because `AT TIME ZONE` alone also accepts
+abbreviations (`PDT`) and POSIX offsets (`+05`) that ignore DST. Don't put the
+catalog scan back.
 
 **Dry-run a migration with timeouts.** `BEGIN; SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s'; <migration>; <test body>; ROLLBACK;` via
@@ -535,12 +649,27 @@ fix states `IS NOT NULL` explicitly.
 `graphql_public` schema the committed file never had. The remaining diff is
 the generator parenthesising its helper types — cosmetic.
 
+**Type-checking the Edge Functions without Deno.** `tsconfig.json` excludes
+`supabase/functions/*/index.ts` (remote imports), so `npx tsc` says nothing
+about the action bodies. A throwaway check that worked: a scratch `tsconfig`
+with `moduleResolution: bundler`, `allowImportingTsExtensions`, `noEmit`, and a
+`shims.d.ts` that declares `Deno.env.get`, re-exports
+`'https://esm.sh/@supabase/supabase-js@2'` from the installed
+`@supabase/supabase-js`, and stubs the Stripe and `std/http/server.ts` modules
+(Stripe as `any` plus the handful of `Stripe.*` types the files name). Rows come
+back untyped (no generated DB types in Deno), so it catches syntax, local types
+and select strings, not column names. It is not committed; rebuild it in the
+scratchpad when a function changes.
+
+**Build a supabase-js select list as ONE string literal.** Concatenating it
+(`'a, b, ' + 'c'`) makes the type-level parser give up and every row types as
+`GenericStringError` — invisible in Deno, which does not type-check the deploy.
+
 **`Card` takes no `testID`.** Wrap it in a `View` when a test needs to find it.
 
 **A `jest.mock` factory runs before the test's `const mock… = jest.fn()`.**
 Referencing the mock inside the factory body at definition time captures
 `undefined`; read it lazily (`() => mockX`) instead.
-
 
 **`verify_jwt` lived only in a command-line flag, and now lives in
 `config.toml`.** `stripe-events` must stay `verify_jwt: false` or every live
@@ -587,11 +716,12 @@ are triggers for that reason.
 client sees, which is why `insertProviderTimeOff` validates ordering
 client-side.
 
-**Trigger ordering is load-bearing.** `trg_derive_booking_suggestion` must run
-after `trg_derive_booking_amounts`, which rebuilds `NEW.services`. Postgres
-fires same-timing triggers alphabetically and `'amounts' < 'suggestion'`.
-Renaming either would silently compute the suggestion from the client's
-unvalidated array.
+**Trigger ordering is load-bearing.** `trg_derive_booking_suggestion` and
+`trg_validate_booking_addons` must both run after `trg_derive_booking_amounts`,
+which rebuilds `NEW.services`. Postgres fires same-timing triggers
+alphabetically: `'trg_derive_booking_amounts' < 'trg_derive_booking_suggestion'
+< 'trg_validate_booking_addons'`. Renaming any of them could silently read the
+client's unvalidated array.
 
 **Trigger functions here must be SECURITY INVOKER.** They read `current_user` to
 decide whether the caller is a client. As `SECURITY DEFINER` that always reads
@@ -621,8 +751,13 @@ aims for the target's *midday*); and "not today" does not mean "yesterday" (so
 
 **`supabase.functions.invoke` throws away Edge Function error bodies.** Every
 non-2xx collapses to "Edge Function returned a non-2xx status code"; the real
-message sits on `error.context`, a `Response`. Only `acceptBooking` reads it
-back out — the other wrappers still surface the generic string.
+message sits on `error.context`, a `Response`. `readFunctionError` reads it back
+out, and `acceptBooking`, `submitQuote`, `acceptQuote`, `createSetupIntent` and
+every Phase 3 wrapper (through `invokeAction`) use it, and since session 8 so
+do the older wrappers (`cancelBooking`, `providerCancelBooking`,
+`captureBalance`, `declineBooking`, `markNoShow`, `refundDeposit`,
+`createDepositPaymentIntent`) — without it the new 403/409 reasons would read
+as "non-2xx status code".
 
 **`id` must be in an INSERT grant list.** Postgres reports INSERT column denials
 at *table* level (`permission denied for table bookings`), so a single ungranted
@@ -632,8 +767,10 @@ column looks like a blanket failure. Cost an hour.
 `platform_fee_rate` to 0% for the first 100 approved providers, overriding
 whatever a test fixture seeds. Set the rate *after* insert.
 
-**`service_packages.category`** is `CHECK IN ('detailing','mechanical','addon')`
-— not free text. A fixture using `'interior'` fails with 23514.
+**`service_packages.category`** is `CHECK IN ('detailing','mechanical')` since
+`20260822000000` — `'addon'` is retired (add-ons are `parent_package_id` now)
+and not free text either. A fixture using `'interior'` or `'addon'` fails with
+23514.
 
 **Only TypeScript `type` aliases get an implicit index signature, not
 `interface`.** `TimeWindow` had to become a type alias so `WorkingHours` could
@@ -679,13 +816,23 @@ The client's entire write surface on `bookings`:
   `pending` / `pending_provider_approval`
 
 **It cannot state a price, a duration, how much of a provider's day it takes,
-which card is charged, or a proposal.** Outside both grant lists:
+which card is charged, a proposal, or a delay.** Outside both grant lists:
 `buffer_before_mins`, `buffer_after_mins`, `occupied_range`,
 `estimated_duration_mins`, `suggested_duration_mins`, every money column,
 `quote_line_items`, `quoted_total_amount`, `stripe_setup_intent_id`,
-`info_request_note`, `proposed_scheduled_at`, `reschedule_proposed_by` and the
-four `adjustment_*` columns. `quote_flow_completion.test.sql` asserts none of the
-new ones is ever granted.
+`info_request_note`, `proposed_scheduled_at`, `reschedule_proposed_by`, the
+four `adjustment_*` columns, `running_late_mins`, `eta_notified_at` and
+`eta_notified_completion_at`. `quote_flow_completion.test.sql` and
+`live_eta_and_calibration.test.sql` assert none of them is ever granted. The
+one way a client write changes `running_late_mins` is indirect and intended:
+setting `started_at` clears it (`trg_reset_running_late_on_start`).
+
+Every `stripe-webhook` action that touches a booking or a provider profile now
+checks the caller (`requireParty`, `requireBookingProvider`,
+`requireProfileOwner`); `verify:job-day` checks the wrong party is refused on
+each of the older ones. `get_duration_calibration` is SECURITY DEFINER and
+filters to the caller's own provider profile unless `is_admin`; `anon` has no
+EXECUTE.
 
 On `provider_profiles`: INSERT `id`, `user_id`, `provider_type_id`; UPDATE
 `bio`, `coverage_area`, `mile_radius`, `base_lat`, `base_lng`, `availability`,

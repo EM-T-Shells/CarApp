@@ -209,6 +209,8 @@ export function resolvePushRoute(
       return payload.bookingId ? `/bookings/quote/${payload.bookingId}` : null;
     case 'photos_requested':
     case 'adjustment_proposed':
+    // Phase 4: the provider is running late or finishing early.
+    case 'eta_changed':
       return payload.bookingId ? `/bookings/${payload.bookingId}` : null;
     case 'quote_requested':
       return payload.bookingId

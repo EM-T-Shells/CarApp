@@ -6,6 +6,9 @@ import {
   resolveCompletionAt,
   formatReadyBy,
   formatBookingReadyBy,
+  formatLateness,
+  resolveExpectedArrival,
+  resolveRunningLateMins,
 } from '../duration';
 
 // Tests run under TZ=UTC (see jest config), so local-time formatting is
@@ -281,5 +284,64 @@ describe('formatBookingReadyBy', () => {
   it('returns an empty string when no duration is known', () => {
     expect(formatBookingReadyBy({ scheduled_at: START_ISO })).toBe('');
     expect(formatBookingReadyBy({})).toBe('');
+  });
+});
+
+// ── Running late (Phase 4) ────────────────────────────────────────────
+
+describe('resolveRunningLateMins', () => {
+  it('reads the reported delay on a committed job', () => {
+    expect(resolveRunningLateMins({ status: 'confirmed', running_late_mins: 30 })).toBe(30);
+    expect(resolveRunningLateMins({ status: 'in_progress', running_late_mins: 15 })).toBe(15);
+  });
+
+  it('is zero when on time, missing, or the job is over', () => {
+    expect(resolveRunningLateMins({ status: 'confirmed', running_late_mins: 0 })).toBe(0);
+    expect(resolveRunningLateMins({ status: 'confirmed' })).toBe(0);
+    expect(resolveRunningLateMins({ status: 'completed', running_late_mins: 30 })).toBe(0);
+    expect(resolveRunningLateMins({ status: 'pending_provider_quote', running_late_mins: 30 })).toBe(0);
+  });
+});
+
+describe('resolveExpectedArrival', () => {
+  it('adds the delay to the booked start', () => {
+    expect(
+      resolveExpectedArrival({ status: 'en_route', scheduled_at: START_ISO, running_late_mins: 25 }),
+    ).toBe('2026-04-09T14:55:00.000Z');
+  });
+
+  it('has nothing to say once the job has started, or when on time', () => {
+    expect(
+      resolveExpectedArrival({
+        status: 'in_progress',
+        scheduled_at: START_ISO,
+        started_at: START_ISO,
+        running_late_mins: 25,
+      }),
+    ).toBeNull();
+    expect(resolveExpectedArrival({ status: 'confirmed', scheduled_at: START_ISO })).toBeNull();
+  });
+});
+
+describe('formatLateness', () => {
+  it('gives a waiting customer the new arrival time', () => {
+    expect(
+      formatLateness({ status: 'confirmed', scheduled_at: START_ISO, running_late_mins: 30 }),
+    ).toBe('Running about 30 min late · arriving around 3:00 PM');
+  });
+
+  it('says how far behind a job under way is', () => {
+    expect(
+      formatLateness({
+        status: 'in_progress',
+        scheduled_at: START_ISO,
+        started_at: START_ISO,
+        running_late_mins: 75,
+      }),
+    ).toBe('Running about 1 hr 15 min behind');
+  });
+
+  it('says nothing when on time', () => {
+    expect(formatLateness({ status: 'confirmed', scheduled_at: START_ISO, running_late_mins: 0 })).toBe('');
   });
 });

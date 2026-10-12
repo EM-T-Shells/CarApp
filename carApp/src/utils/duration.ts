@@ -173,3 +173,59 @@ export function formatBookingReadyBy(booking: BookingDurationFields): string {
 
   return formatReadyBy(completion, booking.started_at ?? booking.scheduled_at);
 }
+
+// ── Running late (Phase 4) ────────────────────────────────────────────
+//
+// bookings.running_late_mins is the provider's own report of how far behind
+// plan a job is (report_delay). The ready-by time above already includes it —
+// estimated_completion_at is generated from it — so these helpers only say it
+// in words. The arithmetic itself lives in supabase/functions/_shared/eta.ts.
+
+/** The booking fields the lateness helpers read. */
+export type BookingLatenessFields = {
+  status?: string | null;
+  scheduled_at?: string | null;
+  started_at?: string | null;
+  running_late_mins?: number | null;
+};
+
+// A delay means something only on a committed job that has not finished.
+const LATENESS_STATUSES = ['confirmed', 'en_route', 'in_progress', 'pending_adjustment_approval'];
+
+/** The reported delay in whole minutes; 0 when on time or not applicable. */
+export function resolveRunningLateMins(booking: BookingLatenessFields): number {
+  if (!booking.status || !LATENESS_STATUSES.includes(booking.status)) return 0;
+  const mins = booking.running_late_mins;
+  return mins != null && Number.isFinite(mins) && mins > 0 ? Math.round(mins) : 0;
+}
+
+/**
+ * When the provider is now expected, as an ISO string: the booked start plus a
+ * delay reported on the way. Null once the job has started, or when on time.
+ */
+export function resolveExpectedArrival(booking: BookingLatenessFields): string | null {
+  if (booking.started_at || !booking.scheduled_at) return null;
+  const late = resolveRunningLateMins(booking);
+  if (late === 0) return null;
+  const start = parseISO(booking.scheduled_at);
+  if (!start) return null;
+  return new Date(start.getTime() + late * MILLIS_PER_MINUTE).toISOString();
+}
+
+/**
+ * The customer's lateness line, or '' when there is nothing to say:
+ *   before the start — "Running about 30 min late · arriving around 2:30 PM"
+ *   during the job   — "Running about 15 min behind"
+ */
+export function formatLateness(booking: BookingLatenessFields): string {
+  const late = resolveRunningLateMins(booking);
+  if (late === 0) return '';
+
+  if (booking.started_at) return `Running about ${formatDuration(late)} behind`;
+
+  const arrival = resolveExpectedArrival(booking);
+  const time = arrival ? formatTime(arrival) : '';
+  return time
+    ? `Running about ${formatDuration(late)} late · arriving around ${time}`
+    : `Running about ${formatDuration(late)} late`;
+}

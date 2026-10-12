@@ -45,6 +45,10 @@
 //          with a full refund.
 //        • propose_reschedule / respond_reschedule — either party proposes a new
 //          start for a confirmed booking; only the other party can accept it.
+//        • report_delay — the provider says how far behind plan a job is; the
+//          customer's ready-by time follows it, they are pushed when it moves
+//          materially, and the provider gets back what it does to their later
+//          jobs.
 //        • expire_pending_approvals — pg_cron sweep that auto-cancels and
 //          refunds approvals still pending past their 2h deadline.
 //        • connect_onboarding — creates/reuses a provider's Express account and
@@ -75,6 +79,17 @@ import {
   describeOffSessionFailure,
   planDepositCollection,
 } from '../_shared/bookingPolicy.ts';
+import {
+  CASCADE_HORIZON_MINS,
+  CASCADE_STATUSES,
+  DELAY_REPORTABLE_STATUSES,
+  delayReportable,
+  etaNotificationDue,
+  planOverrunCascade,
+  projectedEtaMs,
+  validateDelayMins,
+  type JobTiming,
+} from '../_shared/eta.ts';
 
 // ── Clients ───────────────────────────────────────────────────────────
 
@@ -197,15 +212,20 @@ async function handleAppAction(req: Request): Promise<Response> {
     note?: unknown;
     approve?: unknown;
     accept?: unknown;
+    // report_delay. Validated in ../_shared/eta.ts.
+    delay_mins?: unknown;
   };
 
+  // Every booking action below resolves the caller and checks which side of
+  // the booking they are on before writing anything (requireParty). verify_jwt
+  // proves only that *some* user called; these all write with the service role.
   switch (body.action) {
     case 'create_deposit_intent':
-      return await createDepositIntent(body as { action: string; booking_id: string; amount?: number });
+      return await createDepositIntent(req, body as { action: string; booking_id: string; amount?: number });
     case 'capture_balance':
-      return await captureBalance(body as { action: string; booking_id: string });
+      return await captureBalance(req, body as { action: string; booking_id: string });
     case 'refund_deposit':
-      return await refundDeposit(body as { action: string; booking_id: string });
+      return await refundDeposit(req, body as { action: string; booking_id: string });
     case 'cancel_booking':
       // Passed the request so the caller can be checked against the booking:
       // these two now also cancel unpriced requests and pending adjustments,
@@ -214,11 +234,11 @@ async function handleAppAction(req: Request): Promise<Response> {
     case 'provider_cancel_booking':
       return await providerCancelBooking(req, body as { action: string; booking_id: string; reason?: string });
     case 'mark_no_show':
-      return await markNoShow(body as { action: string; booking_id: string });
+      return await markNoShow(req, body as { action: string; booking_id: string });
     case 'accept_booking':
-      return await acceptBooking(body as { action: string; booking_id: string });
+      return await acceptBooking(req, body as { action: string; booking_id: string });
     case 'decline_booking':
-      return await declineBooking(body as { action: string; booking_id: string; reason?: string });
+      return await declineBooking(req, body as { action: string; booking_id: string; reason?: string });
     case 'submit_quote':
       // Passed the request, not just the body: submit_quote is the first action
       // here that has to know *who* is calling. See submitQuote.
@@ -247,12 +267,17 @@ async function handleAppAction(req: Request): Promise<Response> {
       return await proposeReschedule(req, body);
     case 'respond_reschedule':
       return await respondReschedule(req, body);
+    case 'report_delay':
+      return await reportDelay(req, body);
     case 'expire_pending_approvals':
+      // pg_cron calls this with the service-role key, which has no user to
+      // resolve. It only ever cancels approvals already past their deadline,
+      // so a call from anyone else changes nothing the sweep would not.
       return await expirePendingApprovals();
     case 'connect_onboarding':
-      return await connectOnboarding(body as { action: string; provider_id: string });
+      return await connectOnboarding(req, body as { action: string; provider_id: string });
     case 'connect_status':
-      return await connectStatus(body as { action: string; provider_id: string });
+      return await connectStatus(req, body as { action: string; provider_id: string });
     default:
       return new Response(JSON.stringify({ error: `Unknown action: ${body.action}` }), {
         status: 400,
@@ -261,17 +286,20 @@ async function handleAppAction(req: Request): Promise<Response> {
   }
 }
 
-async function createDepositIntent(body: {
-  action: string;
-  booking_id: string;
-  amount?: number; // cents — ignored, see below
-}): Promise<Response> {
+async function createDepositIntent(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+    amount?: number; // cents — ignored, see below
+  },
+): Promise<Response> {
   const { booking_id } = body;
 
   // Fetch booking to verify it exists and get the customer ID and the deposit.
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, customer_id, status, deposit_amount')
+    .select('id, customer_id, provider_id, status, deposit_amount')
     .eq('id', booking_id)
     .single();
 
@@ -281,6 +309,12 @@ async function createDepositIntent(body: {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+
+  // The deposit is the customer's to pay. Anyone else starting it would put a
+  // PaymentIntent and an ephemeral key for the customer's saved cards in the
+  // caller's hands.
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
 
   if (booking.status !== 'pending') {
     return new Response(JSON.stringify({ error: 'Booking is not in a payable state' }), {
@@ -525,10 +559,38 @@ async function issueDepositRefund(
   };
 }
 
-async function refundDeposit(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
+// The retry for a cancellation whose refund failed (cancel_booking and
+// provider_cancel_booking return `cancelled: true` with the error in that case).
+// Only the booking's customer, only once it is cancelled, and only when the
+// whole deposit is owed back: a late cancel retained a fee from it
+// (deposit_forfeited), and refunding the full amount here would hand that fee
+// back too. A no-show is never cancelled, so it never qualifies.
+async function refundDeposit(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+  },
+): Promise<Response> {
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id, status, deposit_forfeited')
+    .eq('id', body.booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  const party = await requireParty(req, booking, 'customer');
+  if (!party.ok) return party.response;
+
+  if (booking.status !== 'cancelled' || booking.deposit_forfeited) {
+    return jsonResponse(
+      { error: 'Only a cancelled booking owed its full deposit can be refunded here' },
+      409,
+    );
+  }
+
   const result = await issueDepositRefund(body.booking_id);
   if (!result.ok) {
     return jsonResponse({ error: result.error }, result.status);
@@ -735,11 +797,19 @@ async function providerCancelBooking(
 // Customer no-show. The provider marks the job a no-show: the customer forfeits
 // the full booking amount (the deposit is kept, NO refund) and the booking
 // moves to the terminal no_show status. No provider penalty.
-async function markNoShow(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
+async function markNoShow(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+  },
+): Promise<Response> {
   const { booking_id } = body;
+
+  // Forfeits the customer's whole deposit, so only the provider who was
+  // stood up may say so.
+  const owner = await requireBookingProvider(req, booking_id);
+  if (!owner.ok) return owner.response;
 
   // A no-show only makes sense for a job that was confirmed/active but never
   // started. Guard against marking a completed/cancelled job.
@@ -781,11 +851,17 @@ async function markNoShow(body: {
 // All three guard on the current status so a retried call (or a sweep racing a
 // manual accept) is a safe no-op rather than a double transition.
 
-async function acceptBooking(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
+async function acceptBooking(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+  },
+): Promise<Response> {
   const { booking_id } = body;
+
+  const owner = await requireBookingProvider(req, booking_id);
+  if (!owner.ok) return owner.response;
 
   const { data: accepted, error } = await supabase
     .from('bookings')
@@ -829,12 +905,18 @@ async function acceptBooking(body: {
   return jsonResponse({ ok: true, status: 'confirmed' }, 200);
 }
 
-async function declineBooking(body: {
-  action: string;
-  booking_id: string;
-  reason?: string;
-}): Promise<Response> {
+async function declineBooking(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+    reason?: string;
+  },
+): Promise<Response> {
   const { booking_id, reason } = body;
+
+  const owner = await requireBookingProvider(req, booking_id);
+  if (!owner.ok) return owner.response;
 
   // Cancel first, guarded on the window so we only refund a booking we
   // actually transitioned out of pending_provider_approval.
@@ -936,6 +1018,63 @@ async function requireParty(
   }
 
   return { ok: true, party, userId: caller.userId };
+}
+
+// The provider-only actions that need nothing else from the booking up front
+// (accept, decline, no-show): load the two party columns and require the
+// caller to be the booking's provider. The status guard stays in each action's
+// own UPDATE, where it is race-free.
+async function requireBookingProvider(
+  req: Request,
+  bookingId: string | undefined,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  if (!bookingId) {
+    return { ok: false, response: jsonResponse({ error: 'booking_id is required' }, 400) };
+  }
+
+  const { data: booking, error } = await supabase
+    .from('bookings')
+    .select('id, customer_id, provider_id')
+    .eq('id', bookingId)
+    .maybeSingle();
+
+  if (error) return { ok: false, response: jsonResponse({ error: error.message }, 500) };
+  if (!booking) return { ok: false, response: jsonResponse({ error: 'Booking not found' }, 404) };
+
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party;
+  return { ok: true };
+}
+
+// The Connect actions name a provider profile rather than a booking. Only its
+// owner may start onboarding for it (which writes stripe_account_id, the
+// account their payouts are sent to) or re-check it.
+async function requireProfileOwner(
+  req: Request,
+  providerId: string | undefined,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  if (!providerId) {
+    return { ok: false, response: jsonResponse({ error: 'provider_id is required' }, 400) };
+  }
+
+  const caller = await requireCaller(req);
+  if (!caller.ok) return caller;
+
+  const { data: profile, error } = await supabase
+    .from('provider_profiles')
+    .select('user_id')
+    .eq('id', providerId)
+    .maybeSingle();
+
+  if (error) return { ok: false, response: jsonResponse({ error: error.message }, 500) };
+  if (!profile) return { ok: false, response: jsonResponse({ error: 'Provider not found' }, 404) };
+  if (profile.user_id !== caller.userId) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Not authorized to act for this provider' }, 403),
+    };
+  }
+  return { ok: true };
 }
 
 async function submitQuote(
@@ -1064,9 +1203,6 @@ async function submitQuote(
     return jsonResponse({ error: 'This request is no longer awaiting a quote' }, 409);
   }
 
-  // TODO(Phase 3): notify-quote-ready does not exist yet — spec §5 lists it
-  // alongside notify-eta-changed. fireNotify swallows the failure, so this is
-  // an inert warning rather than a broken quote until that function lands.
   await fireNotify('notify-quote-ready', { booking_id });
 
   return jsonResponse(
@@ -2088,6 +2224,217 @@ async function respondReschedule(
   );
 }
 
+// ── Running late (§2 "Overruns", §3 "Job day") ────────────────────────
+//
+// The provider says how far behind plan a job is — before it starts (late
+// arriving) or during it (overrunning). The figure is absolute, not an
+// increment, so a retried tap restates it rather than stacking another fifteen
+// minutes.
+//
+// Three things follow, none of which moves anybody's slot:
+//   1. estimated_completion_at includes running_late_mins (20260823000000), so
+//      both booking screens show the new ready-by at once; the customer's
+//      follows the row over Realtime.
+//   2. The customer is pushed (notify-eta-changed) when the ETA has moved
+//      materially since what they were last told, at most once per dedupe
+//      window unless the change is large (_shared/eta.ts).
+//   3. The provider gets back what the delay does to their later jobs that day
+//      — which customers would now be told the wrong time — and chooses for
+//      each: tell them (report_delay on that job), propose a new time
+//      (propose_reschedule), or make the time up and leave it.
+//
+// occupied_range stays as committed. A delay is news, not a new slot, so it
+// can never fail on the overlap guard; moving a job is still a proposal.
+
+// One literal, not a concatenation: supabase-js parses the select string at the
+// type level, and a built-up string types every row as an error.
+const DELAY_COLUMNS =
+  'id, customer_id, provider_id, status, scheduled_at, started_at, estimated_duration_mins, buffer_before_mins, buffer_after_mins, running_late_mins, eta_notified_at, eta_notified_completion_at';
+
+const CASCADE_COLUMNS =
+  'id, customer_id, status, scheduled_at, started_at, estimated_duration_mins, buffer_before_mins, buffer_after_mins, running_late_mins';
+
+function jobTiming(row: {
+  scheduled_at: string;
+  started_at: string | null;
+  estimated_duration_mins: number | null;
+  running_late_mins: number | null;
+  buffer_before_mins: number | null;
+  buffer_after_mins: number | null;
+}): JobTiming {
+  return {
+    scheduledAt: row.scheduled_at,
+    startedAt: row.started_at,
+    durationMins: row.estimated_duration_mins,
+    runningLateMins: row.running_late_mins ?? 0,
+    bufferBeforeMins: row.buffer_before_mins,
+    bufferAfterMins: row.buffer_after_mins,
+  };
+}
+
+function isoToMs(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+async function reportDelay(
+  req: Request,
+  body: { booking_id?: string; delay_mins?: unknown },
+): Promise<Response> {
+  const { booking_id } = body;
+  if (!booking_id) return jsonResponse({ error: 'booking_id is required' }, 400);
+
+  const delay = validateDelayMins(body.delay_mins);
+  if (!delay.ok) return jsonResponse({ error: delay.error }, 400);
+
+  const { data: booking, error: fetchErr } = await supabase
+    .from('bookings')
+    .select(DELAY_COLUMNS)
+    .eq('id', booking_id)
+    .maybeSingle();
+
+  if (fetchErr) return jsonResponse({ error: fetchErr.message }, 500);
+  if (!booking) return jsonResponse({ error: 'Booking not found' }, 404);
+
+  // The customer is told what the provider says about their own day. Nobody
+  // else may say it for them.
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
+  const nowMs = Date.now();
+  const reportable = delayReportable({
+    status: booking.status,
+    scheduledAt: booking.scheduled_at,
+    startedAt: booking.started_at,
+    nowMs,
+  });
+  if (!reportable.ok) return jsonResponse({ error: reportable.error }, 409);
+
+  const reportableStatuses: string[] = [...DELAY_REPORTABLE_STATUSES];
+  const nowIso = new Date(nowMs).toISOString();
+
+  // Guarded on the status, like every transition here: a job completed or
+  // cancelled between the read and now is not reported late.
+  const { data: updated, error: updateErr } = await supabase
+    .from('bookings')
+    .update({ running_late_mins: delay.value, updated_at: nowIso })
+    .eq('id', booking_id)
+    .in('status', reportableStatuses)
+    .select('running_late_mins, estimated_completion_at');
+
+  if (updateErr) return jsonResponse({ error: updateErr.message }, 500);
+  if (!updated || updated.length === 0) {
+    return jsonResponse({ error: 'This job is no longer running' }, 409);
+  }
+
+  // ── Tell the customer, if it matters ──
+  const before = jobTiming(booking);
+  const after: JobTiming = { ...before, runningLateMins: delay.value };
+  // What they were last told; until the first push, the plan they agreed to.
+  const baselineMs =
+    isoToMs(booking.eta_notified_completion_at) ??
+    projectedEtaMs({ ...before, runningLateMins: 0 });
+  const newEtaMs = projectedEtaMs(after);
+
+  let notified = false;
+  if (
+    baselineMs !== null &&
+    newEtaMs !== null &&
+    etaNotificationDue({
+      baselineMs,
+      newMs: newEtaMs,
+      lastNotifiedAtMs: isoToMs(booking.eta_notified_at),
+      nowMs,
+    })
+  ) {
+    // Claimed with a guard on the eta_notified_at just read, so two reports
+    // racing each other send one push, not two.
+    const claim = supabase
+      .from('bookings')
+      .update({
+        eta_notified_at: nowIso,
+        eta_notified_completion_at: new Date(newEtaMs).toISOString(),
+      })
+      .eq('id', booking_id);
+    const { data: claimed, error: claimErr } = await (booking.eta_notified_at === null
+      ? claim.is('eta_notified_at', null)
+      : claim.eq('eta_notified_at', booking.eta_notified_at)
+    ).select('id');
+
+    if (claimErr) {
+      console.warn(`report_delay: could not record the ETA push for ${booking_id}`, claimErr);
+    } else if (claimed && claimed.length > 0) {
+      notified = true;
+      await fireNotify('notify-eta-changed', {
+        booking_id,
+        previous_eta: new Date(baselineMs).toISOString(),
+      });
+    }
+  }
+
+  // ── What it does to the rest of the provider's day ──
+  const startMs = isoToMs(booking.scheduled_at) ?? nowMs;
+  const cascadeStatuses: string[] = [...CASCADE_STATUSES];
+  const { data: later, error: laterErr } = await supabase
+    .from('bookings')
+    .select(CASCADE_COLUMNS)
+    .eq('provider_id', booking.provider_id)
+    .in('status', cascadeStatuses)
+    .neq('id', booking_id)
+    .gt('scheduled_at', booking.scheduled_at)
+    .lte('scheduled_at', new Date(startMs + CASCADE_HORIZON_MINS * 60_000).toISOString())
+    .order('scheduled_at', { ascending: true })
+    .limit(10);
+
+  // The delay is recorded and the customer told either way; a failed read of
+  // the rest of the day only costs the provider the knock-on preview.
+  if (laterErr) {
+    console.warn(`report_delay: could not read later jobs for ${booking_id}`, laterErr);
+  }
+
+  const laterRows = later ?? [];
+  const entries = planOverrunCascade(
+    after,
+    laterRows.map((row) => ({ id: row.id, ...jobTiming(row) })),
+  );
+
+  const customerIds = entries
+    .map((entry) => laterRows.find((row) => row.id === entry.bookingId)?.customer_id)
+    .filter((id): id is string => typeof id === 'string');
+  const names = new Map<string, string | null>();
+  if (customerIds.length > 0) {
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, full_name')
+      .in('id', customerIds);
+    for (const user of users ?? []) names.set(user.id, user.full_name);
+  }
+
+  const affected = entries.map((entry) => {
+    const customerId = laterRows.find((row) => row.id === entry.bookingId)?.customer_id ?? null;
+    return {
+      booking_id: entry.bookingId,
+      customer_name: customerId ? names.get(customerId) ?? null : null,
+      scheduled_at: entry.scheduledAt,
+      projected_start_at: entry.projectedStartAt,
+      required_delay_mins: entry.requiredDelayMins,
+      current_delay_mins: entry.currentDelayMins,
+    };
+  });
+
+  return jsonResponse(
+    {
+      ok: true,
+      running_late_mins: updated[0].running_late_mins,
+      estimated_completion_at: updated[0].estimated_completion_at,
+      notified,
+      affected,
+    },
+    200,
+  );
+}
+
 // Auto-cancel sweep, invoked by pg_cron every minute (see migration
 // 0001_booking_provider_approval_model.sql). Cancels and refunds every
 // approval whose 2-hour window has elapsed. Per-booking failures are logged
@@ -2150,11 +2497,17 @@ async function expirePendingApprovals(): Promise<Response> {
 //     bank_status to approved once charges_enabled && payouts_enabled, and
 //     drains any payouts that were stranded pending before onboarding finished.
 
-async function connectOnboarding(body: {
-  action: string;
-  provider_id: string;
-}): Promise<Response> {
+async function connectOnboarding(
+  req: Request,
+  body: {
+    action: string;
+    provider_id: string;
+  },
+): Promise<Response> {
   const { provider_id } = body;
+
+  const owner = await requireProfileOwner(req, provider_id);
+  if (!owner.ok) return owner.response;
 
   const { data: provider, error: providerError } = await supabase
     .from('provider_profiles')
@@ -2221,11 +2574,17 @@ async function connectOnboarding(body: {
   return jsonResponse({ configured: true, url: link.url, account_id: accountId }, 200);
 }
 
-async function connectStatus(body: {
-  action: string;
-  provider_id: string;
-}): Promise<Response> {
+async function connectStatus(
+  req: Request,
+  body: {
+    action: string;
+    provider_id: string;
+  },
+): Promise<Response> {
   const { provider_id } = body;
+
+  const owner = await requireProfileOwner(req, provider_id);
+  if (!owner.ok) return owner.response;
 
   const { data: provider, error: providerError } = await supabase
     .from('provider_profiles')
@@ -2311,10 +2670,13 @@ async function drainPendingPayouts(
 // Idempotent: a second call after the balance already succeeded re-completes
 // the booking (if needed) and returns ok without double-charging.
 
-async function captureBalance(body: {
-  action: string;
-  booking_id: string;
-}): Promise<Response> {
+async function captureBalance(
+  req: Request,
+  body: {
+    action: string;
+    booking_id: string;
+  },
+): Promise<Response> {
   const { booking_id } = body;
 
   const { data: booking, error: bookingError } = await supabase
@@ -2327,6 +2689,11 @@ async function captureBalance(body: {
     return jsonResponse({ error: 'Booking not found' }, 404);
   }
 
+  // Charges the customer and pays the provider, so only the provider doing the
+  // job may say it is done.
+  const party = await requireParty(req, booking, 'provider');
+  if (!party.ok) return party.response;
+
   if (booking.status === 'cancelled') {
     return jsonResponse({ error: 'Booking is cancelled' }, 409);
   }
@@ -2337,6 +2704,17 @@ async function captureBalance(body: {
   if (booking.status === 'pending_adjustment_approval') {
     return jsonResponse(
       { error: 'The customer has not answered your proposed change yet' },
+      409,
+    );
+  }
+
+  // A job is completed from in_progress, or re-completed idempotently below.
+  // Completing anything earlier charged a balance for work that never started,
+  // and left no started_at for trg_stamp_actual_duration — so the job vanished
+  // from the duration calibration as well.
+  if (booking.status !== 'in_progress' && booking.status !== 'completed') {
+    return jsonResponse(
+      { error: `A booking in status ${booking.status} has not started, so it cannot be completed` },
       409,
     );
   }

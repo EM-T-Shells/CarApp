@@ -24,6 +24,8 @@ jest.mock('../../../../src/lib/supabase/queries', () => ({
   getProviderTimeOff: (...args: unknown[]) => mockGetProviderTimeOff(...args),
   getServiceDurationModifiers: (...args: unknown[]) =>
     mockGetServiceDurationModifiers(...args),
+  // EstimateAccuracyCard's report; its own suite covers what it shows.
+  getDurationCalibration: jest.fn(async () => ({ data: [], error: null })),
 }));
 
 // mutations.ts constructs the Supabase client at import time, and the tests

@@ -90,8 +90,35 @@ After confirmation, neither side changes the booking alone:
   the customer approves. The deposit already paid stays as paid; the difference
   goes on the balance. Declining cancels the booking with a full refund.
 
+Completing a job charges the balance, and only the provider may do it, only
+once the job has started (`in_progress`).
+
 Provider platform fees are 3%. The first 100 approved Founding Providers pay
 0% for 90 days and then convert to 3%. Customers pay 2% at checkout.
+
+## Job Day
+
+- **Running late.** Only the provider reports a delay on their own job, in
+  five-minute steps up to 12 hours, and before the start only within 24 hours
+  of it (further out, propose a new time). Before the start it moves the
+  customer's expected arrival; once started, the ready-by time. Starting the
+  job clears a delay reported on the way there. A delay never changes the
+  booking's time or the slot it holds, and never costs anyone a fee.
+- **Telling the customer.** The customer's booking screen always shows the
+  current arrival and ready-by time. They are pushed when it moves 15 minutes
+  or more from what they were last told — at most once every 10 minutes,
+  unless it moved 30 minutes or more.
+- **Later jobs.** When a delay reaches the provider's later jobs that day, the
+  provider decides for each: tell that customer (it gets its own delay and
+  push), propose a new time (the customer accepts or not), or leave it and
+  make the time up. Nothing is moved automatically.
+- **Finishing early.** After completing a job, the provider can correct a
+  delay the next customer was told, or offer them an earlier start as a
+  proposal. The next customer is never moved without accepting.
+- **Pricing transparency.** There is no price cap. When a quote is above the
+  range the provider advertises for the job, the customer's approval screen
+  says by how much. Admins monitor quoted-vs-advertised prices and estimate
+  accuracy per provider; providers see their own estimate accuracy.
 
 ## Cancellation and Disputes
 
@@ -157,6 +184,7 @@ Router group segments such as `(tabs)` are not part of the path.
 | `rate_now` | `/bookings/[id]` |
 | `job_complete` | `/bookings/[id]` |
 | `provider_enroute` | `/bookings/tracking/[bookingId]` |
+| `eta_changed` | `/bookings/[id]` |
 | `kudos_received` | `/more/provider` |
 | `new_message` | `/inbox/[threadId]` |
 

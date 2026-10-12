@@ -29,8 +29,10 @@ import { Alert } from 'react-native';
 const mockAlert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 
 const mockGetBookingById = jest.fn();
+const mockGetModifiers = jest.fn();
 jest.mock('../../../../../src/lib/supabase/queries', () => ({
   getBookingById: (...args: unknown[]) => mockGetBookingById(...args),
+  getServiceDurationModifiers: (...args: unknown[]) => mockGetModifiers(...args),
 }));
 
 // Calls are recorded in order — the sequence is the thing under test.
@@ -65,6 +67,7 @@ const BOOKING = {
     { label: 'SUV', amount_cents: 3000 },
     { label: 'Heavy pet hair', amount_cents: 2500 },
   ],
+  provider_id: 'prov-1',
   provider_profiles: { users: { full_name: 'Dana Rivers' } },
 };
 
@@ -73,6 +76,7 @@ beforeEach(() => {
   mockAlert.mockImplementation(() => {});
   calls.length = 0;
   mockGetBookingById.mockResolvedValue({ data: BOOKING, error: null });
+  mockGetModifiers.mockResolvedValue({ data: [], error: null });
   mockAcceptQuote.mockResolvedValue({
     data: { ok: true, next: 'requires_deposit', total_cents: 17500, deposit_cents: 2625 },
     error: null,
@@ -248,5 +252,43 @@ describe('parseLineItems', () => {
   it('is empty for a non-array', () => {
     expect(parseLineItems(null)).toEqual([]);
     expect(parseLineItems({})).toEqual([]);
+  });
+});
+
+describe('a quote above the advertised range (§7)', () => {
+  // $175 quoted with $55 of surcharges on a $120 base.
+  it('says how far above what the provider lists it is', async () => {
+    mockGetModifiers.mockResolvedValue({
+      data: [{ factor_type: 'size', delta_price: 30 }],
+      error: null,
+    });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByTestId('quote-above-advertised'));
+    expect(mockGetModifiers).toHaveBeenCalledWith('prov-1');
+    // Advertised $120–$150; quoted $175.
+    expect(view.getByTestId('quote-above-advertised').props.children.join('')).toContain(
+      'This is $25.00 above the $120.00–$150.00 Dana Rivers lists',
+    );
+  });
+
+  it('stays quiet when the quote is inside the range', async () => {
+    mockGetModifiers.mockResolvedValue({
+      data: [
+        { factor_type: 'size', delta_price: 30 },
+        { factor_type: 'soil', delta_price: 25 },
+      ],
+      error: null,
+    });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByTestId('quote-approval-total'));
+    expect(view.queryByTestId('quote-above-advertised')).toBeNull();
+  });
+
+  it('says nothing, and still lets them approve, when the range is unknown', async () => {
+    mockGetModifiers.mockResolvedValue({ data: null, error: new Error('offline') });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByText('Approve & Pay Deposit'));
+    // Against the bare $120 base, $175 would wrongly read as "above".
+    expect(view.queryByTestId('quote-above-advertised')).toBeNull();
   });
 });

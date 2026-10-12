@@ -52,6 +52,7 @@ the `TODO` block in `run-e2e.sh`:
 | `more-settings.yaml` | `more` | Workflow E |
 | `provider-dashboard.yaml` | `provider` | Workflow D + payout surface (M) |
 | `provider-job-flow.yaml` | `provider` `jobs` | Workflow H (provider side) |
+| `job-day-provider.yaml` | `provider` `jobs` | Phase 4 job day: report running late (+15), see the customer told, back on time |
 
 ## Story → coverage trace
 
@@ -71,6 +72,7 @@ built yet · `🖥️` desktop-web (out of Maestro's mobile scope).
 | G — Booking Mgmt Actions | 🟡 cancel ✅; reschedule is now propose/accept — `bookings-management`'s direct reschedule step is stale, covered by 🔬 `detail-quote-flow` + `verify-quote-flow.mjs`; **Add Service** 🚧 | `bookings-management` |
 | Quote-first booking (Phase 3) | 🟡 request/card/quote/approve ✅ across two sessions; more-info, adjustment, reschedule 🔬 screen tests + `scripts/verify-quote-flow.mjs` (live actions); photo capture not automatable | `quote-flow`, `quote-flow-provider` |
 | H — Provider Job Flow | 🟡 status-advance + payout + photo-gate ✅; Complete (destructive) + live-GPS not driven | `provider-job-flow` |
+| Job day (Phase 4) | 🟡 running late ✅; knock-on for later jobs, early-finish offer and the customer's live view 🔬 `job-day.test.tsx`, `detail-quote-flow.test.tsx` + `scripts/verify-job-day.mjs` (live actions) | `job-day-provider` |
 | I — Gift Cards & Promo | 🚧 | no screen built |
 | J — Referral Program | 🚧 | no screen built |
 | K — Recurring Subscriptions | 🚧 deferred (Phase 2) | — |
