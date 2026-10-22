@@ -243,6 +243,25 @@ describe('cancelling an unpriced request', () => {
   });
 });
 
+describe('a quote waiting for approval', () => {
+  // total_amount stays the pre-quote price until accept_quote writes it, but
+  // the surcharge is already itemised, so the breakdown must total the quote.
+  it('totals the price breakdown with the quoted surcharge', async () => {
+    withBooking({
+      status: 'pending_customer_approval',
+      services: [{ id: 's1', name: 'Full Detail', base_price: 35800, duration_mins: 360 }],
+      service_fee: 7.16,
+      total_amount: 365.16,
+      quoted_total_amount: 405.16,
+      quote_line_items: [{ label: 'Heavy Pet Hair', amount_cents: 4000 }],
+    });
+    const view = render(<BookingDetailScreen />);
+    await waitFor(() => view.getByText('Heavy Pet Hair'));
+    expect(view.getAllByText('$405.16').length).toBeGreaterThan(0);
+    expect(view.queryByText('$365.16')).toBeNull();
+  });
+});
+
 describe('an approved quote-first booking', () => {
   it('says the deposit is processing rather than paid', async () => {
     withBooking({ status: 'pending' });

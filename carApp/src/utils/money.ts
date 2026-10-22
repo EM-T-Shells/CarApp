@@ -82,3 +82,22 @@ export function calculateServiceFee(totalCents: number): number {
 export function calculateProviderPayout(totalCents: number, platformFeeRate: number): number {
   return totalCents - calculatePlatformFee(totalCents, platformFeeRate);
 }
+
+/**
+ * A booking's total in cents for display, or null when it has none. Booking
+ * money columns are NUMERIC dollars.
+ *
+ * Prefers quoted_total_amount. While a quote waits on the customer,
+ * total_amount still holds the pre-quote advertised price — accept_quote
+ * writes it, because a quote is only a proposal — but the quote's surcharges
+ * are already in quote_line_items, so only the quoted figure matches the
+ * itemised lines. Approving a quote or an adjustment writes both columns
+ * together, and a booking that was never quoted has no quoted total.
+ */
+export function bookingTotalCents(booking: {
+  total_amount: number | null;
+  quoted_total_amount: number | null;
+}): number | null {
+  const dollars = booking.quoted_total_amount ?? booking.total_amount;
+  return dollars == null ? null : Math.round(dollars * 100);
+}

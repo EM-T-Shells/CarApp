@@ -85,6 +85,7 @@ jest.mock('../../../../src/components/ui/Spacer', () => {
 });
 
 jest.mock('../../../../src/utils/money', () => ({
+  ...jest.requireActual('../../../../src/utils/money'),
   centsToDisplay: (cents: number) => `$${(cents / 100).toFixed(2)}`,
 }));
 
@@ -196,6 +197,23 @@ describe('BookingsScreen', () => {
       expect(await screen.findByTestId('booking-card-lateness')).toBeTruthy();
       // formatTime is stubbed here; duration.test.ts checks the real arrival time.
       expect(screen.getByText(/^Running about 20 min late · arriving around/)).toBeTruthy();
+    });
+
+    // total_amount is still the pre-quote price until the customer approves.
+    it('shows the quoted total for a quote awaiting approval', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({
+        data: [
+          makeBooking({
+            status: 'pending_customer_approval',
+            total_amount: 365.16,
+            quoted_total_amount: 405.16,
+          }),
+        ],
+        error: null,
+      });
+      render(<BookingsScreen />);
+      expect(await screen.findByText('$405.16')).toBeTruthy();
+      expect(screen.queryByText('$365.16')).toBeNull();
     });
 
     it('says nothing about lateness on an on-time booking', async () => {

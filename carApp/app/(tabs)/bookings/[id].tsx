@@ -105,6 +105,7 @@ import {
 import { appendLineItems } from '../../../supabase/functions/_shared/quote';
 import { useAuthStore } from '../../../src/state/auth';
 import {
+  bookingTotalCents,
   centsToDisplay,
   CUSTOMER_LATE_CANCEL_FEE_CENTS,
   calculateLateCancelFee,
@@ -315,8 +316,9 @@ export default function BookingDetailScreen(): React.ReactElement {
 
   const providerUserId = booking?.provider_profiles?.users?.id ?? null;
 
-  // Display amounts — DB stores NUMERIC dollars; convert to cents.
-  const totalCents = dollarsToCents(booking?.total_amount);
+  // Display amounts — DB stores NUMERIC dollars; convert to cents. The total
+  // is the quoted one, so a quote awaiting approval sums its own surcharges.
+  const totalCents = booking ? (bookingTotalCents(booking) ?? 0) : 0;
   const depositCents = dollarsToCents(booking?.deposit_amount);
   const serviceFeeCents = dollarsToCents(booking?.service_fee);
   const balanceCents = Math.max(totalCents - depositCents, 0);

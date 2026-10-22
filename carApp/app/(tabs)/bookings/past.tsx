@@ -28,7 +28,7 @@ import {
   getPastBookingsForCustomer,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -73,6 +73,7 @@ function PastBookingCard({
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  const totalCents = bookingTotalCents(booking);
 
   const canRebook = booking.status === 'completed' && !!booking.provider_id;
 
@@ -132,9 +133,9 @@ function PastBookingCard({
       <Spacer size="sm" />
 
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
+        {totalCents != null && (
           <Text variant="price" color="charcoal">
-            {centsToDisplay(Math.round(booking.total_amount * 100))}
+            {centsToDisplay(totalCents)}
           </Text>
         )}
         <Spacer flex />

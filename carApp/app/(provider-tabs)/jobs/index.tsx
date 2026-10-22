@@ -7,7 +7,7 @@
 // provider dashboard got its own tab bar — this is provider-only, so there is
 // no customer/provider view toggle here anymore.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   FlatList,
@@ -19,7 +19,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Briefcase, ChevronRight, Clock, Car } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Card } from '../../../src/components/ui/Card';
@@ -239,9 +239,22 @@ export default function ProviderJobsScreen(): React.ReactElement {
     [user],
   );
 
-  useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+  // Refetch whenever the list regains focus, not only on mount: quoting,
+  // starting and completing all happen on screens pushed over this one, and a
+  // list that still shows a finished job as in progress reads as a failure.
+  // Only the first load shows the full-screen spinner.
+  const hasLoadedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (hasLoadedRef.current) {
+        setRefreshToken((n) => n + 1);
+        fetchJobs(true);
+        return;
+      }
+      hasLoadedRef.current = true;
+      fetchJobs();
+    }, [fetchJobs]),
+  );
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);

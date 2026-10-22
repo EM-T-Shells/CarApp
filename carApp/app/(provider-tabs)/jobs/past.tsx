@@ -28,7 +28,7 @@ import {
   getProviderByUserId,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 
 // ── Status config ──────────────────────────────────────────────────────
@@ -68,6 +68,7 @@ function PastJobCard({
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  const totalCents = bookingTotalCents(booking);
 
   return (
     <Card
@@ -123,9 +124,9 @@ function PastJobCard({
       <Spacer size="sm" />
 
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
+        {totalCents != null && (
           <Text variant="price" color="charcoal">
-            {centsToDisplay(Math.round(booking.total_amount * 100))}
+            {centsToDisplay(totalCents)}
           </Text>
         )}
       </View>

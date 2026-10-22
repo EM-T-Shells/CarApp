@@ -32,7 +32,7 @@ import {
   getUpcomingBookingsForCustomer,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 import { formatLateness } from '../../../src/utils/duration';
 
@@ -82,6 +82,7 @@ function BookingCard({
   const vehicleLabel = vehicle
     ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
     : null;
+  const totalCents = bookingTotalCents(booking);
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
@@ -160,16 +161,17 @@ function BookingCard({
       <Spacer size="sm" />
 
       {/* Footer: total + chevron. An unpriced request has no total yet — its
-          total_amount is the advertised estimate, not what will be charged. */}
+          total_amount is the advertised estimate, not what will be charged.
+          A quote awaiting approval shows the quoted total. */}
       <View style={cardStyles.row}>
         {UNPRICED_STATUSES.includes(booking.status) ? (
           <Text variant="bodySmall" color="midGray">
             Awaiting quote
           </Text>
         ) : (
-          booking.total_amount != null && (
+          totalCents != null && (
             <Text variant="price" color="charcoal">
-              {centsToDisplay(Math.round(booking.total_amount * 100))}
+              {centsToDisplay(totalCents)}
             </Text>
           )
         )}

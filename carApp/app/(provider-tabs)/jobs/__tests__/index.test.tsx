@@ -3,7 +3,7 @@
 // navigation into the job detail screen.
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -32,9 +32,21 @@ jest.mock('../../../../src/state/auth', () => ({
 }));
 
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
-}));
+// Runs on mount like the real hook's first focus; a test refocuses the screen
+// by calling the latest callback again.
+const mockFocus: { current: (() => void) | null } = { current: null };
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return {
+    useRouter: () => ({ push: mockPush }),
+    useFocusEffect: (callback: () => void) => {
+      useEffect(() => {
+        mockFocus.current = callback;
+        callback();
+      }, [callback]);
+    },
+  };
+});
 
 jest.mock('react-native-safe-area-context', () => {
   const { View } = require('react-native');
@@ -215,6 +227,22 @@ describe('ProviderJobsScreen', () => {
     render(<ProviderJobsScreen />);
     fireEvent.press(await screen.findByText('Past'));
     expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/past');
+  });
+
+  // Completing a job happens on a screen pushed over this one; coming back to
+  // a list still showing it in progress reads as the completion having failed.
+  it('refetches when the list regains focus, without the full-screen spinner', async () => {
+    mockGetUpcomingProvider.mockResolvedValue({ data: [makeJob({ status: 'in_progress' })], error: null });
+    render(<ProviderJobsScreen />);
+    await screen.findByText('$150.00');
+    expect(mockGetUpcomingProvider).toHaveBeenCalledTimes(1);
+
+    mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
+    await act(async () => {
+      mockFocus.current?.();
+    });
+    expect(mockGetUpcomingProvider).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
   });
 
   it('shows the error state when the profile lookup fails', async () => {

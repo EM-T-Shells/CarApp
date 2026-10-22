@@ -114,7 +114,7 @@ import {
 } from '../../../supabase/functions/_shared/eta';
 import { sendProviderLocation } from '../../../src/lib/location/tracking';
 import { useAuthStore } from '../../../src/state/auth';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatDateTime, formatTime } from '../../../src/utils/date';
 import {
   formatBookingReadyBy,
@@ -227,7 +227,10 @@ export default function ProviderJobScreen(): React.ReactElement {
     : 0;
   const countdownLabel = formatCountdown(approvalMsLeft);
   const payoutCents = dollarsToCents(job?.provider_payout);
-  const totalCents = dollarsToCents(job?.total_amount);
+  const totalCents = job ? (bookingTotalCents(job) ?? 0) : 0;
+  // provider_payout is written by accept_quote, so until the customer approves
+  // it is still the pre-quote figure and would understate a quoted surcharge.
+  const isQuoteAwaitingApproval = status === 'pending_customer_approval';
   const hasDestination = job?.location_lat != null && job?.location_lng != null;
   // A delay can be reported on a committed job that has not finished, and
   // before the start only within a day of it (_shared/eta.ts).
@@ -540,6 +543,12 @@ export default function ProviderJobScreen(): React.ReactElement {
     ]);
   }, []);
 
+  // Pops back to the Jobs list when it is under this screen, and replaces this
+  // screen with it when it is not (opened from a push notification).
+  const handleBackToJobs = useCallback(() => {
+    router.dismissTo('/(provider-tabs)/jobs');
+  }, [router]);
+
   const handleComplete = useCallback(() => {
     if (!job) return;
     if (!photoReq.satisfied) {
@@ -775,7 +784,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             {error?.message ?? "We couldn't load this job."}
           </Text>
           <Spacer size="lg" />
-          <Button label="Back to Jobs" variant="primary" onPress={() => router.replace('/bookings')} />
+          <Button label="Back to Jobs" variant="primary" onPress={handleBackToJobs} />
         </View>
       </>
     );
@@ -795,7 +804,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             This job belongs to another provider.
           </Text>
           <Spacer size="lg" />
-          <Button label="Back to Jobs" variant="primary" onPress={() => router.replace('/bookings')} />
+          <Button label="Back to Jobs" variant="primary" onPress={handleBackToJobs} />
         </View>
       </>
     );
@@ -803,6 +812,10 @@ export default function ProviderJobScreen(): React.ReactElement {
 
   const isTerminal =
     status === 'completed' || status === 'cancelled' || status === 'no_show';
+  const footerSurface = {
+    backgroundColor: palette.offWhite,
+    borderTopColor: isDark ? '#2A2A3E' : '#E5E7EB',
+  };
 
   return (
     <>
@@ -1009,9 +1022,15 @@ export default function ProviderJobScreen(): React.ReactElement {
               <Text variant="label" color="charcoal">
                 Your payout
               </Text>
-              <Text variant="price" color="emeraldGreen">
-                {centsToDisplay(payoutCents)}
-              </Text>
+              {isQuoteAwaitingApproval ? (
+                <Text variant="caption" color="midGray" testID="payout-pending">
+                  Set when the customer approves
+                </Text>
+              ) : (
+                <Text variant="price" color="emeraldGreen">
+                  {centsToDisplay(payoutCents)}
+                </Text>
+              )}
             </View>
           </Card>
 
@@ -1043,12 +1062,7 @@ export default function ProviderJobScreen(): React.ReactElement {
         {/* Sticky action footer */}
         {!isTerminal && (
           <SafeAreaView edges={['bottom']} style={styles.stickyFooter}>
-            <View
-              style={[
-                styles.footerInner,
-                { backgroundColor: palette.offWhite, borderTopColor: isDark ? '#2A2A3E' : '#E5E7EB' },
-              ]}
-            >
+            <View style={[styles.footerInner, footerSurface]}>
               {status === 'pending' && (
                 <Text variant="caption" color="midGray" style={styles.centeredText}>
                   Waiting for the customer to pay the deposit before this job can start.
@@ -1215,6 +1229,22 @@ export default function ProviderJobScreen(): React.ReactElement {
                   />
                 )}
               </View>
+            </View>
+          </SafeAreaView>
+        )}
+
+        {/* A finished job has nothing left to act on, so the footer points
+            back to the list instead of leaving the screen without a way on. */}
+        {isTerminal && (
+          <SafeAreaView edges={['bottom']} style={styles.stickyFooter}>
+            <View style={[styles.footerInner, footerSurface]}>
+              <Button
+                label="Back to Jobs"
+                variant="primary"
+                size="lg"
+                onPress={handleBackToJobs}
+                testID="job-back-to-jobs"
+              />
             </View>
           </SafeAreaView>
         )}

@@ -7,8 +7,9 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
+const mockDismissTo = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ back: jest.fn(), replace: jest.fn(), push: jest.fn() }),
+  useRouter: () => ({ back: jest.fn(), replace: jest.fn(), push: jest.fn(), dismissTo: mockDismissTo }),
   useLocalSearchParams: () => ({ bookingId: 'book-1' }),
   Stack: { Screen: () => null },
 }));
@@ -367,5 +368,42 @@ describe('finishing early', () => {
       buttons: [],
     });
     expect(mockPropose).not.toHaveBeenCalled();
+  });
+});
+
+describe('a finished job', () => {
+  it('points back to the Jobs list', async () => {
+    withJob({ status: 'completed', started_at: inMinutes(-60), scheduled_at: inMinutes(-60) });
+    const view = render(<ProviderJobScreen />);
+    await waitFor(() => view.getByTestId('job-back-to-jobs'));
+    expect(view.queryByTestId('job-complete')).toBeNull();
+    fireEvent.press(view.getByTestId('job-back-to-jobs'));
+    expect(mockDismissTo).toHaveBeenCalledWith('/(provider-tabs)/jobs');
+  });
+
+  it('is not offered while the job is still running', async () => {
+    withJob({ status: 'in_progress', started_at: inMinutes(-30) });
+    const view = render(<ProviderJobScreen />);
+    await waitFor(() => view.getByTestId('job-complete'));
+    expect(view.queryByTestId('job-back-to-jobs')).toBeNull();
+  });
+});
+
+describe('earnings on a quote awaiting approval', () => {
+  // accept_quote writes total_amount and provider_payout; until then both are
+  // the pre-quote figures, so the payout would understate the surcharge.
+  it('shows the quoted total and holds the payout until approval', async () => {
+    withJob({ status: 'pending_customer_approval', total_amount: 365.16, quoted_total_amount: 405.16, provider_payout: 358 });
+    const view = render(<ProviderJobScreen />);
+    await waitFor(() => view.getByTestId('payout-pending'));
+    expect(view.getByText('$405.16')).toBeTruthy();
+    expect(view.queryByText('$358.00')).toBeNull();
+  });
+
+  it('shows the payout once the quote is approved', async () => {
+    withJob({ total_amount: 405.16, quoted_total_amount: 405.16, provider_payout: 398 });
+    const view = render(<ProviderJobScreen />);
+    await waitFor(() => view.getByText('$398.00'));
+    expect(view.queryByTestId('payout-pending')).toBeNull();
   });
 });
