@@ -3,7 +3,7 @@
 // routes into each step screen. Re-reads status on focus so returning from a
 // step reflects the latest state. When everything is approved the provider's
 // verification_status flips to 'approved' (admin/server side) and this screen
-// surfaces the approved banner.
+// surfaces the approved banner plus the way out to the provider dashboard.
 
 import React, { useCallback, useState } from 'react';
 import {
@@ -17,6 +17,7 @@ import {
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { CheckCircle2, ChevronRight } from 'lucide-react-native';
 import { Text } from '../../src/components/ui/Text';
+import { Button } from '../../src/components/ui/Button';
 import { Card } from '../../src/components/ui/Card';
 import { Spacer } from '../../src/components/ui/Spacer';
 import {
@@ -28,12 +29,14 @@ import {
   PROFILE_COMPLETENESS_THRESHOLD,
 } from '../../src/components/provider/vettingSteps';
 import { colors, spacing } from '../../src/design/tokens';
-import { useAuthStore } from '../../src/state/auth';
+import { useAuthStore, selectIsProvider } from '../../src/state/auth';
+import { useModeStore } from '../../src/state/mode';
 import {
   getProviderByUserId,
   getProviderVetting,
 } from '../../src/lib/supabase/queries';
-import type { ProviderVetting } from '../../src/types/models';
+import { insertProviderProfile } from '../../src/lib/supabase/mutations';
+import type { ProviderProfile, ProviderVetting } from '../../src/types/models';
 
 type Palette = (typeof colors)['light'] | (typeof colors)['dark'];
 
@@ -85,6 +88,8 @@ export default function VettingHubScreen(): React.ReactElement {
   const palette = isDark ? colors.dark : colors.light;
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const isProvider = useAuthStore(selectIsProvider);
+  const setActiveMode = useModeStore((s) => s.setActiveMode);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,16 +100,51 @@ export default function VettingHubScreen(): React.ReactElement {
     if (!user) return;
     setError(null);
     const profileRes = await getProviderByUserId(user.id);
-    if (profileRes.error || !profileRes.data) {
-      setError('We could not find your provider application.');
+    if (profileRes.error) {
+      setError('We could not load your provider application.');
       setLoading(false);
       return;
     }
-    setApproved(profileRes.data.verification_status === 'approved');
-    const vettingRes = await getProviderVetting(profileRes.data.id);
+
+    // No provider_profiles row yet. A provider-role account reaches this state
+    // when the row failed to create during onboarding — the root gate then
+    // parks them on pending-approval and "Continue your application" lands
+    // here, so without a repair there is no way forward at all. Create the row
+    // on the spot (a DB trigger seeds provider_vetting off it) and carry on
+    // with the application, same as More → Provider "Start application".
+    // provider_type_id stays null; the profile step sets it.
+    let profile: ProviderProfile | null = profileRes.data;
+    if (!profile) {
+      if (!isProvider) {
+        setError('We could not find your provider application.');
+        setLoading(false);
+        return;
+      }
+      const createdRes = await insertProviderProfile({ user_id: user.id });
+      if (createdRes.error || !createdRes.data) {
+        setError('We could not start your provider application.');
+        setLoading(false);
+        return;
+      }
+      profile = createdRes.data;
+    }
+
+    setApproved(profile.verification_status === 'approved');
+    const vettingRes = await getProviderVetting(profile.id);
     setSteps(resolveSteps(vettingRes.data ?? null));
     setLoading(false);
-  }, [user]);
+  }, [user, isProvider]);
+
+  // The way out for an approved provider. This screen is the root of the
+  // (provider) stack when it's opened directly (pending-approval → Continue, a
+  // reload, a deep link), so there's no header back button, and the root gate
+  // deliberately leaves anyone inside the (provider) group alone — without this
+  // an approved provider is stranded on their own application. replace() rather
+  // than push() so the dashboard doesn't stack on top of the vetting flow.
+  const goToDashboard = useCallback((): void => {
+    setActiveMode('provider');
+    router.replace('/(provider-tabs)/jobs');
+  }, [setActiveMode, router]);
 
   // Refresh whenever the hub regains focus (e.g. returning from a step).
   useFocusEffect(
@@ -156,13 +196,23 @@ export default function VettingHubScreen(): React.ReactElement {
       contentContainerStyle={styles.content}
     >
       {approved ? (
-        <Card variant="outlined" style={styles.banner}>
-          <CheckCircle2 size={22} color={palette.emeraldGreen} strokeWidth={2} />
-          <Spacer size="sm" horizontal />
-          <Text variant="label" color="charcoal" style={styles.flex}>
-            You&apos;re approved! You can start accepting bookings.
-          </Text>
-        </Card>
+        <>
+          <Card variant="outlined" style={styles.banner}>
+            <CheckCircle2 size={22} color={palette.emeraldGreen} strokeWidth={2} />
+            <Spacer size="sm" horizontal />
+            <Text variant="label" color="charcoal" style={styles.flex}>
+              You&apos;re approved! You can start accepting bookings.
+            </Text>
+          </Card>
+          <Spacer size="md" />
+          <Button
+            label="Go to dashboard"
+            variant="primary"
+            size="lg"
+            onPress={goToDashboard}
+            testID="vetting-go-to-dashboard"
+          />
+        </>
       ) : (
         <Text variant="body" color="midGray">
           Complete all six steps to start accepting bookings. {approvedCount} of{' '}

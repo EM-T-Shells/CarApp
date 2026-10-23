@@ -1,6 +1,7 @@
 // Provider active-job screen (Flows 5.4 / 5.5 / 5.6).
 //
-// Reached from the Bookings tab "My Jobs" toggle. Shows the job from the
+// The detail route for the provider dashboard's Jobs tab — pushed from the job
+// queue (jobs/index) and past jobs (jobs/past). Shows the job from the
 // provider's side (customer, vehicle, address, schedule, payout) and drives the
 // job lifecycle:
 //   pending_provider_approval → [Accept] → confirmed → [Start Travel] →
@@ -19,8 +20,25 @@
 //
 // expo-location is approved but not yet installed (External); like LiveMap's
 // react-native-maps, this screen compiles against it and works once installed.
+//
+// Quote-first (Phase 3) additions on a confirmed job, all server actions:
+//   • Adjust Job — propose a longer duration and/or extra charges (§7 "vehicle
+//     worse than declared"). Nothing agreed moves until the customer approves;
+//     the provider can withdraw it until then.
+//   • Propose New Time — reschedule by proposal; the start moves only when the
+//     customer accepts, and a customer's proposal is answered here.
+//
+// Job day (Phase 4), also server actions:
+//   • Running late — +15/+30/+60 (and back down) through report_delay. The
+//     customer's arrival / ready-by time follows it and they are pushed when it
+//     moves materially. The response lists the later jobs the delay reaches;
+//     for each the provider tells that customer, proposes a new time, or
+//     leaves it (§2 shift / reschedule / shorten). Nothing moves on its own.
+//   • Finished early — after Complete Job, the next job today is checked: a
+//     delay its customer was told is corrected, or, with real room, they are
+//     offered an earlier start as a reschedule proposal (§7: never auto-moved).
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -48,40 +66,76 @@ import {
   X,
   Clock,
 } from 'lucide-react-native';
-import { Text } from '../../../../src/components/ui/Text';
-import { Button } from '../../../../src/components/ui/Button';
-import { Card } from '../../../../src/components/ui/Card';
-import { Avatar } from '../../../../src/components/ui/Avatar';
-import { Spacer } from '../../../../src/components/ui/Spacer';
-import { StatusTimeline } from '../../../../src/components/booking/StatusTimeline';
-import { JobPhotoCapture } from '../../../../src/components/provider/JobPhotoCapture';
-import type { BookingStatus } from '../../../../src/components/booking/StatusTimeline';
-import { colors, spacing } from '../../../../src/design/tokens';
+import { Text } from '../../../src/components/ui/Text';
+import { Button } from '../../../src/components/ui/Button';
+import { Card } from '../../../src/components/ui/Card';
+import { Avatar } from '../../../src/components/ui/Avatar';
+import { Spacer } from '../../../src/components/ui/Spacer';
+import { StatusTimeline } from '../../../src/components/booking/StatusTimeline';
+import { JobPhotoCapture } from '../../../src/components/provider/JobPhotoCapture';
+import QuoteBuilder, { type QuoteDraft } from '../../../src/components/provider/QuoteBuilder';
+import {
+  RescheduleProposalCard,
+  RescheduleSheet,
+} from '../../../src/components/booking/RescheduleProposal';
+import { Sheet } from '../../../src/components/ui/Sheet';
+import { TextField } from '../../../src/components/ui/TextField';
+import { RunningLateCard } from '../../../src/components/provider/RunningLateCard';
+import { DelayKnockOn } from '../../../src/components/provider/DelayKnockOn';
+import type { BookingStatus } from '../../../src/components/booking/StatusTimeline';
+import { colors, spacing } from '../../../src/design/tokens';
 import {
   getProviderJobById,
   getBookingPhotos,
+  getProviderDaySchedule,
   getThreadByBooking,
   type ProviderJobSummary,
-} from '../../../../src/lib/supabase/queries';
-import { updateBooking, insertMessageThread } from '../../../../src/lib/supabase/mutations';
+} from '../../../src/lib/supabase/queries';
+import { updateBooking, insertMessageThread } from '../../../src/lib/supabase/mutations';
 import {
   captureBalance,
   acceptBooking,
+  adjustJobDuration,
   declineBooking,
   providerCancelBooking,
   markNoShow,
-} from '../../../../src/lib/stripe';
-import { sendProviderLocation } from '../../../../src/lib/location/tracking';
-import { useAuthStore } from '../../../../src/state/auth';
-import { centsToDisplay } from '../../../../src/utils/money';
-import { formatDateTime } from '../../../../src/utils/date';
-import type { ProviderJobParams } from '../../../../src/types/navigation';
-import type { BookingPhoto } from '../../../../src/types/models';
+  proposeReschedule,
+  reportDelay,
+  respondReschedule,
+  withdrawAdjustment,
+  type DelayKnockOn as KnockOnEntry,
+} from '../../../src/lib/stripe';
+import { MAX_ADJUSTMENT_REASON_LENGTH } from '../../../supabase/functions/_shared/quote';
+import {
+  delayReportable,
+  pickNextJob,
+  planAfterFinish,
+  type EarlyFinishPlan,
+} from '../../../supabase/functions/_shared/eta';
+import { sendProviderLocation } from '../../../src/lib/location/tracking';
+import { useAuthStore } from '../../../src/state/auth';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
+import { formatDateTime, formatTime } from '../../../src/utils/date';
+import {
+  formatBookingReadyBy,
+  formatDuration,
+  resolveExpectedArrival,
+  resolveRunningLateMins,
+} from '../../../src/utils/duration';
+import { MIN_PHOTOS_PER_TYPE, photoRequirement } from '../../../src/utils/jobPhotos';
+import type { ProviderJobParams } from '../../../src/types/navigation';
+import type { BookingPhoto } from '../../../src/types/models';
 
-// Minimum before/after photos before a job can be completed (CLAUDE.md / Flow 5.5).
-const MIN_PHOTOS_TO_COMPLETE = 4;
 const GPS_INTERVAL_MS = 5_000;
 const ACTIVE_STATUSES: BookingStatus[] = ['en_route', 'in_progress'];
+
+const COMPLETED_MESSAGE = 'Payment captured and your payout is queued.';
+
+/** The next job after a finish, and what to offer its customer. */
+interface NextJobOffer {
+  plan: EarlyFinishPlan;
+  next: ProviderJobSummary;
+}
 
 function dollarsToCents(amount: number | null | undefined): number {
   if (amount == null) return 0;
@@ -115,6 +169,18 @@ export default function ProviderJobScreen(): React.ReactElement {
   const [error, setError] = useState<Error | null>(null);
   const [isMutating, setIsMutating] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [showRescheduleSheet, setShowRescheduleSheet] = useState(false);
+  const [adjustDraft, setAdjustDraft] = useState<QuoteDraft | null>(null);
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustError, setAdjustError] = useState<string | undefined>();
+  // Phase 4: the later jobs the last reported delay reaches, which one is being
+  // acted on, and which one the provider is proposing a new time for.
+  const [knockOn, setKnockOn] = useState<KnockOnEntry[]>([]);
+  const [knockOnBusyId, setKnockOnBusyId] = useState<string | null>(null);
+  const [knockOnReschedule, setKnockOnReschedule] = useState<KnockOnEntry | null>(null);
+  const [delayNotice, setDelayNotice] = useState<string | null>(null);
+
+  const photoReq = useMemo(() => photoRequirement(photos), [photos]);
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
 
@@ -161,8 +227,23 @@ export default function ProviderJobScreen(): React.ReactElement {
     : 0;
   const countdownLabel = formatCountdown(approvalMsLeft);
   const payoutCents = dollarsToCents(job?.provider_payout);
-  const totalCents = dollarsToCents(job?.total_amount);
+  const totalCents = job ? (bookingTotalCents(job) ?? 0) : 0;
+  // provider_payout is written by accept_quote, so until the customer approves
+  // it is still the pre-quote figure and would understate a quoted surcharge.
+  const isQuoteAwaitingApproval = status === 'pending_customer_approval';
   const hasDestination = job?.location_lat != null && job?.location_lng != null;
+  // A delay can be reported on a committed job that has not finished, and
+  // before the start only within a day of it (_shared/eta.ts).
+  const canReportDelay =
+    job != null &&
+    delayReportable({
+      status: job.status,
+      scheduledAt: job.scheduled_at,
+      startedAt: job.started_at,
+      nowMs: Date.now(),
+    }).ok;
+  const readyBy = job ? formatBookingReadyBy(job) : '';
+  const expectedArrivalIso = job ? resolveExpectedArrival(job) : null;
 
   // ── Live GPS streaming while active ──────────────────────────────────
   useEffect(() => {
@@ -371,12 +452,109 @@ export default function ProviderJobScreen(): React.ReactElement {
     [transition],
   );
 
+  // ── Finished early (§7) ──────────────────────────────────────────────
+  // The finished job's slot is released the moment it completes, so the next
+  // job today could start once the provider has packed up, travelled and set
+  // up. planAfterFinish decides whether that changes anything for its
+  // customer: a delay they were told that no longer holds, or room to offer an
+  // earlier start. Only today's jobs: offering to pull tomorrow's job forward
+  // to this afternoon is not an early finish.
+  const planNextJob = useCallback(
+    async (finished: ProviderJobSummary): Promise<NextJobOffer | null> => {
+      if (!finished.provider_id) return null;
+      const day = await getProviderDaySchedule(finished.provider_id, new Date());
+      if (day.error) return null;
+
+      const dayEndMs = new Date(day.data.range.end).getTime();
+      const candidates = day.data.bookings
+        .filter((b) => new Date(b.scheduled_at).getTime() < dayEndMs)
+        .map((b) => ({ id: b.id, status: b.status, scheduledAt: b.scheduled_at, booking: b }));
+      const next = pickNextJob(
+        { id: finished.id, scheduledAt: finished.scheduled_at },
+        candidates,
+      );
+      if (!next) return null;
+
+      const plan = planAfterFinish({
+        nowMs: Date.now(),
+        finishedBufferAfterMins: finished.buffer_after_mins,
+        next: {
+          id: next.booking.id,
+          scheduledAt: next.booking.scheduled_at,
+          startedAt: next.booking.started_at,
+          durationMins: next.booking.estimated_duration_mins,
+          runningLateMins: next.booking.running_late_mins,
+          bufferBeforeMins: next.booking.buffer_before_mins,
+          bufferAfterMins: next.booking.buffer_after_mins,
+          hasOpenProposal: next.booking.proposed_scheduled_at != null,
+        },
+      });
+      return plan ? { plan, next: next.booking } : null;
+    },
+    [],
+  );
+
+  // One alert, not two in a row: iOS drops an alert presented over another.
+  const announceCompletion = useCallback((offer: NextJobOffer | null) => {
+    if (!offer) {
+      Alert.alert('Job complete', COMPLETED_MESSAGE);
+      return;
+    }
+
+    const { plan, next } = offer;
+    const who = next.customer?.full_name ?? 'Your next customer';
+    const when = formatTime(next.scheduled_at);
+    const fail = (title: string, message: string) => Alert.alert(title, message);
+
+    if (plan.kind === 'offer_earlier') {
+      const start = formatTime(plan.startAt);
+      Alert.alert(
+        'Job complete — you finished early',
+        `${COMPLETED_MESSAGE}\n\n${who} is booked for ${when}. Offer to start at ${start} instead? They can accept or keep their time.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: `Offer ${start}`,
+            onPress: async () => {
+              const result = await proposeReschedule(plan.bookingId, plan.startAt);
+              if (result.error) fail('Could not send the offer', result.error.message);
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    const later = plan.toMins > plan.fromMins;
+    const message = later
+      ? `You can’t make ${who}’s ${when} job on time. Tell them you’ll be about ${formatDuration(plan.toMins)} late?`
+      : plan.toMins === 0
+        ? `${who} was told you’d be ${formatDuration(plan.fromMins)} late for ${when}. You’re on time now — tell them?`
+        : `${who} was told you’d be ${formatDuration(plan.fromMins)} late for ${when}. It’s now about ${formatDuration(plan.toMins)} — tell them?`;
+    Alert.alert('Job complete', `${COMPLETED_MESSAGE}\n\n${message}`, [
+      { text: 'Not now', style: 'cancel' },
+      {
+        text: later ? 'Let them know' : 'Update them',
+        onPress: async () => {
+          const result = await reportDelay(plan.bookingId, plan.toMins);
+          if (result.error) fail('Could not update', result.error.message);
+        },
+      },
+    ]);
+  }, []);
+
+  // Pops back to the Jobs list when it is under this screen, and replaces this
+  // screen with it when it is not (opened from a push notification).
+  const handleBackToJobs = useCallback(() => {
+    router.dismissTo('/(provider-tabs)/jobs');
+  }, [router]);
+
   const handleComplete = useCallback(() => {
     if (!job) return;
-    if (photos.length < MIN_PHOTOS_TO_COMPLETE) {
+    if (!photoReq.satisfied) {
       Alert.alert(
         'Add more photos',
-        `Capture at least ${MIN_PHOTOS_TO_COMPLETE} before/after photos before completing the job.`,
+        `Every job needs at least ${MIN_PHOTOS_PER_TYPE} before and ${MIN_PHOTOS_PER_TYPE} after photos. Capture ${photoReq.missingLabel}.`,
       );
       return;
     }
@@ -398,12 +576,148 @@ export default function ProviderJobScreen(): React.ReactElement {
             // The Edge Function transitions the booking to completed and queues
             // the payout server-side — refetch to reflect it.
             fetchJob(true);
-            Alert.alert('Job complete', 'Payment captured and your payout is queued.');
+            announceCompletion(await planNextJob(job));
           },
         },
       ],
     );
-  }, [job, photos.length, fetchJob]);
+  }, [job, photoReq, fetchJob, planNextJob, announceCompletion]);
+
+  // ── Running late (§2, §3) ────────────────────────────────────────────
+  const handleReportDelay = useCallback(
+    async (delayMins: number) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await reportDelay(job.id, delayMins);
+      setIsMutating(false);
+      if (result.error) {
+        Alert.alert('Could not update', result.error.message);
+        fetchJob(true);
+        return;
+      }
+      setKnockOn(result.data.affected ?? []);
+      // Below the materiality threshold, or inside the dedupe window, nobody
+      // is pushed — but the customer's screen follows the row live either way.
+      setDelayNotice(
+        result.data.notified
+          ? `${customerName} was notified.`
+          : `Saved. ${customerName} sees the new time in the app.`,
+      );
+      fetchJob(true);
+    },
+    [job, customerName, fetchJob],
+  );
+
+  const dropKnockOn = useCallback((bookingId: string) => {
+    setKnockOn((prev) => prev.filter((entry) => entry.booking_id !== bookingId));
+  }, []);
+
+  // Shift: the later job carries the delay it needs, and its customer is told.
+  const handleKnockOnTell = useCallback(
+    async (entry: KnockOnEntry) => {
+      setKnockOnBusyId(entry.booking_id);
+      const result = await reportDelay(entry.booking_id, entry.required_delay_mins);
+      setKnockOnBusyId(null);
+      if (result.error) {
+        Alert.alert('Could not update', result.error.message);
+        return;
+      }
+      dropKnockOn(entry.booking_id);
+    },
+    [dropKnockOn],
+  );
+
+  // Reschedule: a proposal the customer accepts or not.
+  const handleKnockOnPropose = useCallback(
+    async (scheduledAt: string) => {
+      const entry = knockOnReschedule;
+      if (!entry) return;
+      setKnockOnBusyId(entry.booking_id);
+      const result = await proposeReschedule(entry.booking_id, scheduledAt);
+      setKnockOnBusyId(null);
+      if (result.error) {
+        Alert.alert('Could not propose', result.error.message);
+        return;
+      }
+      setKnockOnReschedule(null);
+      dropKnockOn(entry.booking_id);
+    },
+    [knockOnReschedule, dropKnockOn],
+  );
+
+  // ── Adjust a confirmed job (§7) ──────────────────────────────────────
+  const openAdjust = useCallback(() => {
+    if (!job) return;
+    setAdjustDraft({
+      scheduledAt: null,
+      durationMins: job.estimated_duration_mins ?? job.suggested_duration_mins ?? 60,
+      lineItems: [],
+    });
+    setAdjustReason('');
+    setAdjustError(undefined);
+  }, [job]);
+
+  const handleSubmitAdjust = useCallback(async () => {
+    if (!job || !adjustDraft) return;
+    setIsMutating(true);
+    setAdjustError(undefined);
+    const result = await adjustJobDuration({
+      bookingId: job.id,
+      estimatedDurationMins: adjustDraft.durationMins,
+      lineItems: adjustDraft.lineItems
+        .filter((item) => item.label.trim().length > 0 && item.amountCents > 0)
+        .map((item) => ({ label: item.label.trim(), amount_cents: item.amountCents })),
+      reason: adjustReason.trim(),
+    });
+    setIsMutating(false);
+    if (result.error) {
+      // Inline: the distinctions matter (nothing changed, below the deposit,
+      // no longer confirmed) and the form is still open to fix it.
+      setAdjustError(result.error.message);
+      return;
+    }
+    setAdjustDraft(null);
+    fetchJob(true);
+    Alert.alert('Change sent', 'The customer has been asked to approve it. Nothing changes until they do.');
+  }, [job, adjustDraft, adjustReason, fetchJob]);
+
+  const handleWithdrawAdjust = useCallback(async () => {
+    if (!job) return;
+    setIsMutating(true);
+    const result = await withdrawAdjustment(job.id);
+    setIsMutating(false);
+    if (result.error) Alert.alert('Could not withdraw', result.error.message);
+    fetchJob(true);
+  }, [job, fetchJob]);
+
+  // ── Reschedule, by proposal ──────────────────────────────────────────
+  const handleProposeReschedule = useCallback(
+    async (scheduledAt: string) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await proposeReschedule(job.id, scheduledAt);
+      setIsMutating(false);
+      if (result.error) {
+        Alert.alert('Could not propose', result.error.message);
+        return;
+      }
+      setShowRescheduleSheet(false);
+      fetchJob(true);
+    },
+    [job, fetchJob],
+  );
+
+  const handleRespondReschedule = useCallback(
+    async (accept: boolean) => {
+      if (!job) return;
+      setIsMutating(true);
+      const result = await respondReschedule(job.id, accept);
+      setIsMutating(false);
+      if (result.error) Alert.alert('Could not update', result.error.message);
+      fetchJob(true);
+    },
+    [job, fetchJob],
+  );
 
   // ── Navigate / message ───────────────────────────────────────────────
   const handleOpenInMaps = useCallback(() => {
@@ -440,7 +754,9 @@ export default function ProviderJobScreen(): React.ReactElement {
       threadId = created.data.id;
     }
     setIsMutating(false);
-    router.push(`/inbox/${threadId}`);
+    // Thread detail is shared across both dashboards — it keys off the
+    // authenticated user, so the provider reuses the customer group's screen.
+    router.push(`/(tabs)/inbox/${threadId}`);
   }, [job, router]);
 
   // ── Loading / error / authorization ──────────────────────────────────
@@ -468,7 +784,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             {error?.message ?? "We couldn't load this job."}
           </Text>
           <Spacer size="lg" />
-          <Button label="Back to Jobs" variant="primary" onPress={() => router.replace('/bookings')} />
+          <Button label="Back to Jobs" variant="primary" onPress={handleBackToJobs} />
         </View>
       </>
     );
@@ -488,7 +804,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             This job belongs to another provider.
           </Text>
           <Spacer size="lg" />
-          <Button label="Back to Jobs" variant="primary" onPress={() => router.replace('/bookings')} />
+          <Button label="Back to Jobs" variant="primary" onPress={handleBackToJobs} />
         </View>
       </>
     );
@@ -496,6 +812,10 @@ export default function ProviderJobScreen(): React.ReactElement {
 
   const isTerminal =
     status === 'completed' || status === 'cancelled' || status === 'no_show';
+  const footerSurface = {
+    backgroundColor: palette.offWhite,
+    borderTopColor: isDark ? '#2A2A3E' : '#E5E7EB',
+  };
 
   return (
     <>
@@ -540,6 +860,78 @@ export default function ProviderJobScreen(): React.ReactElement {
 
           <Spacer size="lg" />
 
+          {canReportDelay && (
+            <>
+              <RunningLateCard
+                runningLateMins={resolveRunningLateMins(job)}
+                started={job.started_at != null}
+                readyBy={readyBy}
+                expectedArrival={expectedArrivalIso ? formatTime(expectedArrivalIso) : ''}
+                customerLabel={customerName}
+                onReport={handleReportDelay}
+                busy={isMutating}
+                notice={delayNotice}
+              />
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {knockOn.length > 0 && (
+            <>
+              <DelayKnockOn
+                entries={knockOn}
+                busyId={knockOnBusyId}
+                onTell={handleKnockOnTell}
+                onPropose={setKnockOnReschedule}
+                onLeave={(entry) => dropKnockOn(entry.booking_id)}
+              />
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {status === 'pending_adjustment_approval' && job.adjustment_total_amount != null && (
+            <>
+              <View testID="adjustment-pending">
+                <Card>
+                  <Text variant="label" color="charcoal">
+                    Waiting on the customer
+                  </Text>
+                  <Spacer size="sm" />
+                  <Text variant="body" color="midGray">
+                    You proposed {formatDuration(job.adjustment_duration_mins) || 'a new duration'}{' '}
+                    and a new total of {centsToDisplay(dollarsToCents(job.adjustment_total_amount))}.
+                    The job stays as agreed until they approve.
+                  </Text>
+                  <Spacer size="md" />
+                  <Button
+                    label="Withdraw Change"
+                    variant="secondary"
+                    size="md"
+                    onPress={handleWithdrawAdjust}
+                    loading={isMutating}
+                    testID="adjustment-withdraw"
+                  />
+                </Card>
+              </View>
+              <Spacer size="lg" />
+            </>
+          )}
+
+          {status === 'confirmed' && job.proposed_scheduled_at && (
+            <>
+              <RescheduleProposalCard
+                proposedAt={job.proposed_scheduled_at}
+                proposedByViewer={job.reschedule_proposed_by === 'provider'}
+                otherPartyLabel={customerName}
+                onAccept={() => handleRespondReschedule(true)}
+                onDecline={() => handleRespondReschedule(false)}
+                onWithdraw={() => handleRespondReschedule(false)}
+                busy={isMutating}
+              />
+              <Spacer size="lg" />
+            </>
+          )}
+
           {/* Details */}
           <Card variant="outlined">
             <Text variant="label" color="charcoal">
@@ -555,6 +947,12 @@ export default function ProviderJobScreen(): React.ReactElement {
                 <Text variant="body" color="charcoal">
                   {formatDateTime(job.scheduled_at)}
                 </Text>
+                {job.estimated_duration_mins != null && (
+                  <Text variant="caption" color="midGray">
+                    Est. {formatDuration(job.estimated_duration_mins)}
+                    {readyBy ? ` · ready by ${readyBy}` : ''}
+                  </Text>
+                )}
               </View>
             </View>
             {vehicleLabel && (
@@ -624,9 +1022,15 @@ export default function ProviderJobScreen(): React.ReactElement {
               <Text variant="label" color="charcoal">
                 Your payout
               </Text>
-              <Text variant="price" color="emeraldGreen">
-                {centsToDisplay(payoutCents)}
-              </Text>
+              {isQuoteAwaitingApproval ? (
+                <Text variant="caption" color="midGray" testID="payout-pending">
+                  Set when the customer approves
+                </Text>
+              ) : (
+                <Text variant="price" color="emeraldGreen">
+                  {centsToDisplay(payoutCents)}
+                </Text>
+              )}
             </View>
           </Card>
 
@@ -641,7 +1045,7 @@ export default function ProviderJobScreen(): React.ReactElement {
             <Text variant="caption" color="midGray">
               {isTerminal
                 ? `${photos.length} photo${photos.length === 1 ? '' : 's'} on file.`
-                : `Add at least ${MIN_PHOTOS_TO_COMPLETE} to complete the job (${photos.length}/${MIN_PHOTOS_TO_COMPLETE}).`}
+                : `Add at least ${MIN_PHOTOS_PER_TYPE} of each to complete the job — before ${photoReq.before}/${MIN_PHOTOS_PER_TYPE}, after ${photoReq.after}/${MIN_PHOTOS_PER_TYPE}.`}
             </Text>
             <Spacer size="md" />
             <JobPhotoCapture
@@ -658,12 +1062,7 @@ export default function ProviderJobScreen(): React.ReactElement {
         {/* Sticky action footer */}
         {!isTerminal && (
           <SafeAreaView edges={['bottom']} style={styles.stickyFooter}>
-            <View
-              style={[
-                styles.footerInner,
-                { backgroundColor: palette.offWhite, borderTopColor: isDark ? '#2A2A3E' : '#E5E7EB' },
-              ]}
-            >
+            <View style={[styles.footerInner, footerSurface]}>
               {status === 'pending' && (
                 <Text variant="caption" color="midGray" style={styles.centeredText}>
                   Waiting for the customer to pay the deposit before this job can start.
@@ -707,15 +1106,40 @@ export default function ProviderJobScreen(): React.ReactElement {
               )}
 
               {status === 'confirmed' && (
-                <Button
-                  label="Start Travel"
-                  variant="primary"
-                  size="lg"
-                  loading={isMutating}
-                  onPress={handleStartTravel}
-                  leftIcon={<Truck size={18} color={palette.offWhite} strokeWidth={2} />}
-                  testID="job-start-travel"
-                />
+                <>
+                  <Button
+                    label="Start Travel"
+                    variant="primary"
+                    size="lg"
+                    loading={isMutating}
+                    onPress={handleStartTravel}
+                    leftIcon={<Truck size={18} color={palette.offWhite} strokeWidth={2} />}
+                    testID="job-start-travel"
+                  />
+                  <Spacer size="sm" />
+                  <View style={styles.actionRow}>
+                    <Button
+                      label="Adjust Job"
+                      variant="secondary"
+                      size="md"
+                      onPress={openAdjust}
+                      disabled={isMutating}
+                      style={styles.flexBtn}
+                      testID="job-adjust"
+                    />
+                    {!job.proposed_scheduled_at && (
+                      <Button
+                        label="New Time"
+                        variant="secondary"
+                        size="md"
+                        onPress={() => setShowRescheduleSheet(true)}
+                        disabled={isMutating}
+                        style={styles.flexBtn}
+                        testID="job-reschedule"
+                      />
+                    )}
+                  </View>
+                </>
               )}
 
               {status === 'en_route' && (
@@ -739,6 +1163,19 @@ export default function ProviderJobScreen(): React.ReactElement {
                   onPress={handleComplete}
                   leftIcon={<CheckCircle2 size={18} color={palette.offWhite} strokeWidth={2} />}
                   testID="job-complete"
+                />
+              )}
+
+              {/* Walking away from an unanswered adjustment is penalty-free
+                  (bookingPolicy.cancellationFeeApplies). */}
+              {status === 'pending_adjustment_approval' && (
+                <Button
+                  label="Cancel Job"
+                  variant="ghost"
+                  size="md"
+                  loading={isMutating}
+                  onPress={handleProviderCancel}
+                  testID="job-provider-cancel"
                 />
               )}
 
@@ -795,6 +1232,90 @@ export default function ProviderJobScreen(): React.ReactElement {
             </View>
           </SafeAreaView>
         )}
+
+        {/* A finished job has nothing left to act on, so the footer points
+            back to the list instead of leaving the screen without a way on. */}
+        {isTerminal && (
+          <SafeAreaView edges={['bottom']} style={styles.stickyFooter}>
+            <View style={[styles.footerInner, footerSurface]}>
+              <Button
+                label="Back to Jobs"
+                variant="primary"
+                size="lg"
+                onPress={handleBackToJobs}
+                testID="job-back-to-jobs"
+              />
+            </View>
+          </SafeAreaView>
+        )}
+
+        <RescheduleSheet
+          visible={showRescheduleSheet}
+          onClose={() => setShowRescheduleSheet(false)}
+          currentScheduledAt={job.scheduled_at}
+          otherPartyLabel={customerName}
+          onSubmit={handleProposeReschedule}
+          submitting={isMutating}
+        />
+
+        {/* A later job the delay reaches: propose it a new time. */}
+        <RescheduleSheet
+          visible={knockOnReschedule !== null}
+          onClose={() => setKnockOnReschedule(null)}
+          currentScheduledAt={knockOnReschedule?.scheduled_at ?? job.scheduled_at}
+          otherPartyLabel={knockOnReschedule?.customer_name ?? 'your customer'}
+          onSubmit={handleKnockOnPropose}
+          submitting={knockOnBusyId !== null}
+        />
+
+        {/* Adjustment: the same builder as a quote, with no window (the start
+            is agreed) and the current total as the base. The server adds the
+            charges and returns the total the customer will see. */}
+        <Sheet
+          visible={adjustDraft !== null}
+          onClose={() => setAdjustDraft(null)}
+          title="Adjust this job"
+        >
+          {adjustDraft && (
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text variant="body" color="midGray">
+                Tell {customerName} what changed. Nothing is updated until they
+                approve; if they decline, the booking is cancelled and they are
+                refunded in full.
+              </Text>
+              <Spacer size="md" />
+              <QuoteBuilder
+                window={null}
+                baseTotalCents={totalCents}
+                baseLabel="Current total"
+                totalLabel="New total"
+                draft={adjustDraft}
+                onChange={setAdjustDraft}
+                error={adjustError}
+              />
+              <Spacer size="md" />
+              <TextField
+                label="Why?"
+                value={adjustReason}
+                onChangeText={(text) => setAdjustReason(text.slice(0, MAX_ADJUSTMENT_REASON_LENGTH))}
+                placeholder="Heavy mud throughout the interior"
+                multiline
+                testID="adjust-reason"
+              />
+              <Spacer size="lg" />
+              <Button
+                label="Send to Customer"
+                variant="primary"
+                size="lg"
+                onPress={handleSubmitAdjust}
+                loading={isMutating}
+                disabled={adjustReason.trim().length === 0}
+                testID="adjust-send"
+              />
+              <Spacer size="base" />
+            </ScrollView>
+          )}
+        </Sheet>
       </View>
     </>
   );

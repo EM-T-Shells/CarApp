@@ -33,20 +33,24 @@ jest.mock('../../../../src/state/auth', () => ({
   selectIsProvider: () => mockIsProvider,
 }));
 
+const mockSetActiveMode = jest.fn();
+jest.mock('../../../../src/state/mode', () => ({
+  useModeStore: (sel: (s: { setActiveMode: unknown }) => unknown) =>
+    sel({ setActiveMode: mockSetActiveMode }),
+}));
+
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+const mockReplace = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+}));
 
 jest.mock('lucide-react-native', () => {
   const { View } = require('react-native');
   const icon = (n: string) => () => <View testID={`icon-${n}`} />;
   return {
-    BadgeCheck: icon('BadgeCheck'),
-    Briefcase: icon('Briefcase'),
     Check: icon('Check'),
-    ChevronRight: icon('ChevronRight'),
     ShieldCheck: icon('ShieldCheck'),
-    SlidersHorizontal: icon('SlidersHorizontal'),
-    Wallet: icon('Wallet'),
     Wrench: icon('Wrench'),
   };
 });
@@ -130,21 +134,18 @@ describe('ProviderScreen', () => {
       expect(mockPush).toHaveBeenCalledWith('/(provider)/vetting');
     });
 
-    it('shows the dashboard hub when verification_status is approved', async () => {
+    it('switches into provider mode and redirects to the dashboard when approved', async () => {
       mockGetProviderByUserId.mockResolvedValue({
         data: { id: 'pp-1', verification_status: 'approved' },
         error: null,
       });
       render(<ProviderScreen />);
-      expect(await screen.findByText('Provider Dashboard')).toBeTruthy();
-
-      // Dashboard rows route into the provider sub-screens.
-      fireEvent.press(screen.getByTestId('dashboard-manage'));
-      expect(mockPush).toHaveBeenCalledWith('/(tabs)/more/provider-manage');
-      fireEvent.press(screen.getByTestId('dashboard-earnings'));
-      expect(mockPush).toHaveBeenCalledWith('/(tabs)/more/provider-earnings');
-      fireEvent.press(screen.getByTestId('dashboard-jobs'));
-      expect(mockPush).toHaveBeenCalledWith('/(tabs)/bookings');
+      await waitFor(() => {
+        expect(mockSetActiveMode).toHaveBeenCalledWith('provider');
+        expect(mockReplace).toHaveBeenCalledWith('/(provider-tabs)/jobs');
+      });
+      // The customer-side dashboard hub is gone — nothing renders it here.
+      expect(screen.queryByText('Provider Dashboard')).toBeNull();
     });
   });
 });

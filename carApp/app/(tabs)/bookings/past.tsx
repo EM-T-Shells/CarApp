@@ -4,7 +4,7 @@
 // routes back into the booking flow for the same provider, so customers
 // can re-engage their favourite providers with one tap.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   FlatList,
@@ -22,20 +22,16 @@ import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
-import { colors, spacing } from '../../../src/design/tokens';
-import { useAuthStore, selectIsProvider } from '../../../src/state/auth';
+import { colors, spacing, type Palette } from '../../../src/design/tokens';
+import { useAuthStore } from '../../../src/state/auth';
 import {
   getPastBookingsForCustomer,
-  getPastBookingsForProvider,
-  getProviderByUserId,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
 
 // ── Types ──────────────────────────────────────────────────────────────
-
-type ViewMode = 'customer' | 'provider';
 
 interface StatusConfig {
   label: string;
@@ -56,8 +52,7 @@ function getStatusConfig(status: string): StatusConfig {
 
 interface PastBookingCardProps {
   booking: BookingSummary;
-  palette: (typeof colors)['light'];
-  viewMode: ViewMode;
+  palette: Palette;
   onPress: () => void;
   onRebook: () => void;
 }
@@ -65,7 +60,6 @@ interface PastBookingCardProps {
 function PastBookingCard({
   booking,
   palette,
-  viewMode,
   onPress,
   onRebook,
 }: PastBookingCardProps): React.ReactElement {
@@ -79,11 +73,9 @@ function PastBookingCard({
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  const totalCents = bookingTotalCents(booking);
 
-  const canRebook =
-    viewMode === 'customer' &&
-    booking.status === 'completed' &&
-    !!booking.provider_id;
+  const canRebook = booking.status === 'completed' && !!booking.provider_id;
 
   return (
     <Card
@@ -141,9 +133,9 @@ function PastBookingCard({
       <Spacer size="sm" />
 
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
+        {totalCents != null && (
           <Text variant="price" color="charcoal">
-            {centsToDisplay(Math.round(booking.total_amount * 100))}
+            {centsToDisplay(totalCents)}
           </Text>
         )}
         <Spacer flex />
@@ -215,45 +207,21 @@ export default function PastBookingsScreen(): React.ReactElement {
   const router = useRouter();
 
   const user = useAuthStore((s) => s.user);
-  const isProvider = useAuthStore(selectIsProvider);
 
-  const [viewMode, setViewMode] = useState<ViewMode>('customer');
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const providerIdRef = useRef<string | null>(null);
-
   const fetchBookings = useCallback(
-    async (mode: ViewMode, refresh = false) => {
+    async (refresh = false) => {
       if (!user) return;
       if (!refresh) setIsLoading(true);
       setError(null);
 
-      if (mode === 'provider') {
-        if (!providerIdRef.current) {
-          const { data: profile, error: profileError } =
-            await getProviderByUserId(user.id);
-          if (profileError || !profile) {
-            setError(profileError ?? new Error('Provider profile not found'));
-            setIsLoading(false);
-            return;
-          }
-          providerIdRef.current = profile.id;
-        }
-        const { data, error: err } = await getPastBookingsForProvider(
-          providerIdRef.current,
-        );
-        if (err) setError(err);
-        else setBookings(data ?? []);
-      } else {
-        const { data, error: err } = await getPastBookingsForCustomer(
-          user.id,
-        );
-        if (err) setError(err);
-        else setBookings(data ?? []);
-      }
+      const { data, error: err } = await getPastBookingsForCustomer(user.id);
+      if (err) setError(err);
+      else setBookings(data ?? []);
 
       setIsLoading(false);
     },
@@ -261,13 +229,13 @@ export default function PastBookingsScreen(): React.ReactElement {
   );
 
   useEffect(() => {
-    fetchBookings(viewMode);
-  }, [viewMode, fetchBookings]);
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchBookings(viewMode, true).finally(() => setIsRefreshing(false));
-  }, [viewMode, fetchBookings]);
+    fetchBookings(true).finally(() => setIsRefreshing(false));
+  }, [fetchBookings]);
 
   const handleBookingPress = useCallback(
     (bookingId: string) => {
@@ -288,72 +256,22 @@ export default function PastBookingsScreen(): React.ReactElement {
       <PastBookingCard
         booking={item}
         palette={palette}
-        viewMode={viewMode}
         onPress={() => handleBookingPress(item.id)}
         onRebook={() => {
           if (item.provider_id) handleRebook(item.provider_id);
         }}
       />
     ),
-    [palette, viewMode, handleBookingPress, handleRebook],
+    [palette, handleBookingPress, handleRebook],
   );
 
   const keyExtractor = useCallback((item: BookingSummary) => item.id, []);
-
-  const tabToggle = isProvider ? (
-    <View
-      style={[
-        styles.tabBar,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.06)'
-            : 'rgba(0,0,0,0.04)',
-        },
-      ]}
-    >
-      <Pressable
-        style={[
-          styles.tab,
-          viewMode === 'customer' && { backgroundColor: palette.deepIndigo },
-        ]}
-        onPress={() => setViewMode('customer')}
-        accessibilityRole="tab"
-        accessibilityLabel="Past bookings as customer"
-        accessibilityState={{ selected: viewMode === 'customer' }}
-      >
-        <Text
-          variant="label"
-          style={{ color: viewMode === 'customer' ? '#FFFFFF' : palette.midGray }}
-        >
-          My Bookings
-        </Text>
-      </Pressable>
-      <Pressable
-        style={[
-          styles.tab,
-          viewMode === 'provider' && { backgroundColor: palette.deepIndigo },
-        ]}
-        onPress={() => setViewMode('provider')}
-        accessibilityRole="tab"
-        accessibilityLabel="Past jobs as provider"
-        accessibilityState={{ selected: viewMode === 'provider' }}
-      >
-        <Text
-          variant="label"
-          style={{ color: viewMode === 'provider' ? '#FFFFFF' : palette.midGray }}
-        >
-          My Jobs
-        </Text>
-      </Pressable>
-    </View>
-  ) : null;
 
   // ── Loading ────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
-        {tabToggle}
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={palette.electricBlue} />
         </View>
@@ -366,7 +284,6 @@ export default function PastBookingsScreen(): React.ReactElement {
   if (error) {
     return (
       <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
-        {tabToggle}
         <View style={styles.centered}>
           <Text variant="subheading" color="charcoal">
             Something went wrong
@@ -380,7 +297,7 @@ export default function PastBookingsScreen(): React.ReactElement {
             label="Retry"
             variant="primary"
             size="md"
-            onPress={() => fetchBookings(viewMode)}
+            onPress={() => fetchBookings()}
           />
         </View>
       </View>
@@ -392,7 +309,6 @@ export default function PastBookingsScreen(): React.ReactElement {
   if (bookings.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
-        {tabToggle}
         <ScrollView
           contentContainerStyle={styles.centered}
           refreshControl={
@@ -410,21 +326,16 @@ export default function PastBookingsScreen(): React.ReactElement {
           </Text>
           <Spacer size="sm" />
           <Text variant="body" color="midGray" style={styles.centeredText}>
-            {viewMode === 'provider'
-              ? "You haven't completed any jobs yet. Past work will show here."
-              : "You haven't completed any bookings yet. Find a provider to get started."}
+            You haven&apos;t completed any bookings yet. Find a provider to get
+            started.
           </Text>
-          {viewMode === 'customer' && (
-            <>
-              <Spacer size="lg" />
-              <Button
-                label="Find a Provider"
-                variant="primary"
-                size="md"
-                onPress={() => router.push('/(tabs)/search')}
-              />
-            </>
-          )}
+          <Spacer size="lg" />
+          <Button
+            label="Find a Provider"
+            variant="primary"
+            size="md"
+            onPress={() => router.push('/(tabs)/search')}
+          />
         </ScrollView>
       </View>
     );
@@ -434,7 +345,6 @@ export default function PastBookingsScreen(): React.ReactElement {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.offWhite }]}>
-      {tabToggle}
       <FlatList
         data={bookings}
         renderItem={renderItem}
@@ -469,22 +379,6 @@ const styles = StyleSheet.create({
   centeredText: {
     textAlign: 'center',
     maxWidth: 280,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.base,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    borderRadius: 10,
-    padding: spacing.xs,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderRadius: 8,
-    minHeight: 44,
-    justifyContent: 'center',
   },
   listContent: {
     padding: spacing.base,

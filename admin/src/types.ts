@@ -31,3 +31,9 @@ export interface ProviderDetail extends QueueRow {
   } | null;
   provider_vetting: ProviderVettingRow[] | null;
 }
+
+// One provider's row of get_duration_calibration() (migration 20260823000000):
+// suggested vs quoted vs actual duration, late starts, and how far quotes run
+// above the provider's advertised prices.
+export type CalibrationRow =
+  Database['public']['Functions']['get_duration_calibration']['Returns'][number];

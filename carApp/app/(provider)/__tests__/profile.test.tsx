@@ -25,6 +25,12 @@ jest.mock('../../../src/state/auth', () => ({
 const mockBack = jest.fn();
 jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockBack, push: jest.fn() }) }));
 
+const mockGeocode = jest.fn();
+jest.mock('../../../src/lib/location', () => ({
+  geocodeAddress: (...a: unknown[]) => mockGeocode(...a),
+  normalizeCoverageArea: (s: string) => s,
+}));
+
 jest.mock('../../../src/components/provider/ServiceMenuEditor', () => {
   const { View } = require('react-native');
   return { ServiceMenuEditor: () => <View testID="service-menu-editor" /> };
@@ -73,6 +79,7 @@ beforeEach(() => {
   mockGetOwnPkgs.mockResolvedValue({ data: [{ id: 'pkg-1' }], error: null });
   mockUpdateProfile.mockResolvedValue({ data: { id: 'pp-1' }, error: null });
   mockUpdateVetting.mockResolvedValue({ data: true, error: null });
+  mockGeocode.mockResolvedValue({ latitude: 38.9, longitude: -77.3 });
 });
 
 describe('ProfileStep', () => {
@@ -95,14 +102,35 @@ describe('ProfileStep', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('profile-save'));
     });
+    expect(mockGeocode).toHaveBeenCalledWith('Reston, Vienna');
     expect(mockUpdateProfile).toHaveBeenCalledWith('pp-1', {
       bio: 'Seasoned detailer with a decade of experience.',
       coverage_area: 'Reston, Vienna',
       mile_radius: 25,
       availability: { mon: true },
+      base_lat: 38.9,
+      base_lng: -77.3,
     });
     // 20 (type) + 20 (bio) + 20 (coverage) + 10 (radius) + 30 (has services) = 100
     expect(mockUpdateVetting).toHaveBeenCalledWith('pp-1', { profile_completeness: 100 });
+    expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('omits coordinates when geocoding fails (does not wipe stored coords)', async () => {
+    mockGeocode.mockResolvedValue(null);
+    render(<ProfileStep />);
+    await screen.findByTestId('service-menu-editor');
+    fireEvent.changeText(
+      screen.getByTestId('field-Bio'),
+      'Seasoned detailer with a decade of experience.',
+    );
+    fireEvent.changeText(screen.getByTestId('field-Coverage area'), 'Reston, Vienna');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('profile-save'));
+    });
+    const updateArgs = mockUpdateProfile.mock.calls[0][1];
+    expect(updateArgs).not.toHaveProperty('base_lat');
+    expect(updateArgs).not.toHaveProperty('base_lng');
     expect(mockBack).toHaveBeenCalled();
   });
 });

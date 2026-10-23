@@ -41,6 +41,14 @@ is not available). Seed the two Vault secrets once per project:
   SELECT vault.create_secret('https://<project-ref>.supabase.co/functions/v1/stripe-webhook', 'edge_url');
   SELECT vault.create_secret('<service-role-key>', 'service_role_key');
 
+  ⚠️ edge_url MUST stay pointed at stripe-webhook — do NOT "align" it with the
+  Stripe webhook URL below, even though the two strings look identical. The cron
+  invokes the expire_pending_approvals ACTION, which only exists in
+  stripe-webhook, and it can send the service_role_key as a JWT, so
+  verify_jwt: true is satisfied. Stripe cannot send a JWT, which is why its
+  deliveries go somewhere else. Repointing this at stripe-events would break the
+  2-hour auto-cancel sweep (no such action there).
+
 Status on project apbubklogxgqkokbctwz: extensions pg_cron + pg_net enabled,
 both Vault secrets seeded, job 'expire-pending-approvals' scheduled (every
 minute) and verified returning HTTP 200 {ok:true}. The three Edge Functions
@@ -117,6 +125,41 @@ Backend is LIVE on project apbubklogxgqkokbctwz (2026-06-24). Remaining: Resend 
         Site URL:       https://car-app-five-ebon.vercel.app
         Redirect URLs:  https://car-app-five-ebon.vercel.app/**
      (Keep http://localhost:5173/** too if you still run the panel locally.)
+
+
+Stripe webhook endpoint (deposit → pending_provider_approval) — 2026-07-27
+
+Stripe deliveries must point at stripe-events, NOT stripe-webhook:
+
+  Stripe Dashboard (Test mode) → Developers → Webhooks → the destination
+  "CarApp Supabase Stripe Webhook":
+
+    URL:     https://apbubklogxgqkokbctwz.supabase.co/functions/v1/stripe-events
+    Events:  payment_intent.succeeded, payment_intent.payment_failed
+    Secret:  reveal whsec_… → supabase secrets set STRIPE_WEBHOOK_SECRET='whsec_…'
+
+Why the split: stripe-webhook is deployed verify_jwt: true because it does
+service-role writes with no in-code caller auth (cancel_booking, mark_no_show,
+refund_deposit). Stripe cannot attach a Supabase JWT, so every delivery to it
+was rejected 401 by the platform before the handler ran — from April 2026 until
+this was found, no payment_intent.succeeded had EVER processed (the only
+'succeeded' payments rows were the two hand-seeded e2e ones). stripe-events is
+deployed --no-verify-jwt and authenticates by verifying Stripe-Signature
+instead, refusing anything unsigned.
+
+  supabase functions deploy stripe-events --no-verify-jwt   ✅ (v1)
+  supabase functions deploy stripe-webhook                  ✅ (v15)
+
+Symptom if the URL is still wrong: the deposit charges in Stripe, but the
+booking stays 'pending', payments.status stays 'pending', approval_expires_at
+stays null, and the provider is never notified. Check the destination's
+"Event deliveries" tab — a wall of 401s means the URL, a 400 means the
+signing secret predates a Stripe account/key change.
+
+Also note: Stripe keys were rotated on 2026-07-26. Rotating keys strands
+users.stripe_customer_id (those cus_… ids only exist in the account that made
+them) and the deposit call 500s with "No such customer" until cleared:
+  update users set stripe_customer_id = null where stripe_customer_id is not null;
 
 
 Third-Party Accounts

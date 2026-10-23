@@ -30,6 +30,11 @@ export type ProviderLocationCache = Tables<'provider_location_cache'>;
 export type ProviderLocationCacheInsert = TablesInsert<'provider_location_cache'>;
 export type ProviderLocationCacheUpdate = TablesUpdate<'provider_location_cache'>;
 
+// ── Provider Time Off ──────────────────────────────────────────────────
+export type ProviderTimeOff = Tables<'provider_time_off'>;
+export type ProviderTimeOffInsert = TablesInsert<'provider_time_off'>;
+export type ProviderTimeOffUpdate = TablesUpdate<'provider_time_off'>;
+
 // ── Service Catalog ────────────────────────────────────────────────────
 export type ServiceCatalog = Tables<'service_catalog'>;
 export type ServiceCatalogInsert = TablesInsert<'service_catalog'>;
@@ -39,6 +44,11 @@ export type ServiceCatalogUpdate = TablesUpdate<'service_catalog'>;
 export type ServicePackage = Tables<'service_packages'>;
 export type ServicePackageInsert = TablesInsert<'service_packages'>;
 export type ServicePackageUpdate = TablesUpdate<'service_packages'>;
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+export type ServiceDurationModifier = Tables<'service_duration_modifiers'>;
+export type ServiceDurationModifierInsert = TablesInsert<'service_duration_modifiers'>;
+export type ServiceDurationModifierUpdate = TablesUpdate<'service_duration_modifiers'>;
 
 // ── Bookings ───────────────────────────────────────────────────────────
 export type Booking = Tables<'bookings'>;
@@ -99,3 +109,16 @@ export type PromoRedemptionUpdate = TablesUpdate<'promo_redemptions'>;
 export type Subscription = Tables<'subscriptions'>;
 export type SubscriptionInsert = TablesInsert<'subscriptions'>;
 export type SubscriptionUpdate = TablesUpdate<'subscriptions'>;
+
+// ── Arrival windows ────────────────────────────────────────────────────
+/**
+ * The window a customer says they are available in, as two ISO strings.
+ * Maps to bookings.requested_window_start / requested_window_end, which
+ * bookings_requested_window_check requires to be set together with
+ * end > start. A quote-first request carries one; the provider picks the
+ * exact start inside it when they quote.
+ */
+export interface ArrivalWindow {
+  start: string;
+  end: string;
+}

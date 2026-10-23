@@ -5,6 +5,21 @@
  * Expo Router delivers all params as strings at runtime.
  */
 
+// ── Auth ──────────────────────────────────────────────────────────────
+
+/**
+ * (auth)/otp-verify.tsx — one-time-code entry.
+ * Must stay a type alias, not an interface: `useLocalSearchParams<T>()`
+ * constrains T to `Record<string, string | string[]>`, and only type aliases
+ * get the implicit index signature that satisfies it.
+ */
+export type OtpVerifyParams = {
+  /** 'email' or 'phone'; any other value is treated as email. */
+  method?: string;
+  email?: string;
+  phone?: string;
+};
+
 // ── Search ────────────────────────────────────────────────────────────
 
 /** (tabs)/search/provider/[id].tsx */
@@ -15,6 +30,15 @@ export type ProviderDetailParams = {
 /** (tabs)/search/book/[providerId].tsx */
 export type BookProviderParams = {
   providerId: string;
+};
+
+// ── Services ──────────────────────────────────────────────────────────
+
+/** (tabs)/services/[catalogId].tsx — providers offering a catalog service */
+export type ServiceProvidersParams = {
+  catalogId: string;
+  /** Service name, passed through for the screen header. */
+  name?: string;
 };
 
 // ── Bookings ──────────────────────────────────────────────────────────
@@ -29,8 +53,15 @@ export type BookingTrackingParams = {
   bookingId: string;
 };
 
-/** (tabs)/bookings/job/[bookingId].tsx — provider active-job view */
+// ── Provider dashboard ────────────────────────────────────────────────
+
+/** (provider-tabs)/jobs/[bookingId].tsx — provider active-job view */
 export type ProviderJobParams = {
+  bookingId: string;
+};
+
+/** (provider-tabs)/jobs/quote/[bookingId].tsx — provider prices a request */
+export type ProviderQuoteParams = {
   bookingId: string;
 };
 

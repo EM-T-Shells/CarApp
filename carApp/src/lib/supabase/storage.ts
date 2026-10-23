@@ -4,6 +4,13 @@ import { supabase } from './client'
 
 export type StorageBucket = 'avatars' | 'booking-photos' | 'vetting-documents'
 
+/**
+ * intake = the customer's, sent with a quote request (spec §3). before/after =
+ * the provider's, on the day. Only 'intake' is customer-insertable at the row
+ * level (migration 20260820000000); the bucket path is the same for all three.
+ */
+export type BookingPhotoType = 'intake' | 'before' | 'after'
+
 export type StorageResult<T> =
   | { data: T; error: null }
   | { data: null; error: Error }
@@ -44,7 +51,7 @@ function buildPath(
   opts: {
     userId?: string
     bookingId?: string
-    photoType?: 'before' | 'after'
+    photoType?: BookingPhotoType
     docLabel?: string
     mimeType: AcceptedMimeType
   },
@@ -109,7 +116,7 @@ export async function uploadFile(
   opts: {
     userId?: string
     bookingId?: string
-    photoType?: 'before' | 'after'
+    photoType?: BookingPhotoType
     docLabel?: string
   },
 ): Promise<UploadResult> {
@@ -162,12 +169,13 @@ export async function uploadAvatar(
 // ── Upload Booking Photo (convenience) ────────────────────────────────
 
 /**
- * Upload a before/after booking photo.
- * Returns the storage path (not a public URL — access is restricted).
+ * Upload a booking photo — the customer's intake photos or the provider's
+ * before/after. Returns the storage path (not a public URL — access is
+ * restricted to the booking's participants).
  */
 export async function uploadBookingPhoto(
   bookingId: string,
-  photoType: 'before' | 'after',
+  photoType: BookingPhotoType,
   file: Blob | ArrayBuffer | File,
   mimeType: string,
   fileSize: number,

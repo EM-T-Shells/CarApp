@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   StyleSheet,
   View,
@@ -60,27 +61,34 @@ export function JobPhotoCapture({
 
   const runUpload = useCallback(
     async (photoType: PhotoType, source: 'camera' | 'library'): Promise<void> => {
-      const permission =
-        source === 'camera'
-          ? await ImagePicker.requestCameraPermissionsAsync()
-          : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          source === 'camera' ? 'Camera access needed' : 'Photo access needed',
-          'Allow access to add job photos.',
-        );
-        return;
-      }
-
-      const picked =
-        source === 'camera'
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-      if (picked.canceled || !picked.assets?.[0]) return;
-
-      const asset = picked.assets[0];
-      setUploading(photoType);
       try {
+        const permission =
+          source === 'camera'
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          const title = source === 'camera' ? 'Camera access needed' : 'Photo access needed';
+          // iOS only shows the system prompt once; after a denial the request
+          // resolves denied with canAskAgain false, so Settings is the only way back.
+          if (permission.canAskAgain === false) {
+            Alert.alert(title, 'Turn access on for CarApp in Settings to add job photos.', [
+              { text: 'Not Now', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+            ]);
+          } else {
+            Alert.alert(title, 'Allow access to add job photos.');
+          }
+          return;
+        }
+
+        const picked =
+          source === 'camera'
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+        if (picked.canceled || !picked.assets?.[0]) return;
+
+        const asset = picked.assets[0];
+        setUploading(photoType);
         const response = await fetch(asset.uri);
         const blob = await response.blob();
         const mimeType = asset.mimeType ?? 'image/jpeg';
@@ -106,7 +114,14 @@ export function JobPhotoCapture({
         }
         onChanged();
       } catch (err) {
-        Alert.alert('Upload failed', err instanceof Error ? err.message : 'Unexpected error.');
+        const message = err instanceof Error ? err.message : 'Unexpected error.';
+        // Simulators have no camera, so launchCameraAsync throws rather than
+        // opening anything — point the tester at the library instead.
+        if (source === 'camera' && /simulator|not available/i.test(message)) {
+          Alert.alert('Camera unavailable', 'This device has no camera. Choose from your library instead.');
+        } else {
+          Alert.alert('Upload failed', message);
+        }
       } finally {
         setUploading(null);
       }
@@ -117,8 +132,8 @@ export function JobPhotoCapture({
   const promptSource = useCallback(
     (photoType: PhotoType): void => {
       Alert.alert(`Add ${photoType} photo`, undefined, [
-        { text: 'Take Photo', onPress: () => runUpload(photoType, 'camera') },
-        { text: 'Choose from Library', onPress: () => runUpload(photoType, 'library') },
+        { text: 'Take Photo', onPress: () => void runUpload(photoType, 'camera') },
+        { text: 'Choose from Library', onPress: () => void runUpload(photoType, 'library') },
         { text: 'Cancel', style: 'cancel' },
       ]);
     },

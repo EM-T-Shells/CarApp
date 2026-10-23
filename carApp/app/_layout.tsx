@@ -8,6 +8,7 @@
 
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import Constants from 'expo-constants';
@@ -17,6 +18,7 @@ import { supabase } from '../src/lib/supabase/client';
 import { getProviderByUserId } from '../src/lib/supabase/queries';
 import { registerPushNotifications } from '../src/lib/notifications/push';
 import { useAuthStore, type ProviderVerificationStatus } from '../src/state/auth';
+import { useModeStore } from '../src/state/mode';
 import type { User } from '../src/types/models';
 import tokens from '../src/design/tokens';
 
@@ -55,6 +57,12 @@ function useProtectedRoute(): void {
   const role = useAuthStore((s) => s.role);
   const providerVerification = useAuthStore((s) => s.providerVerification);
   const isHydrating = useAuthStore((s) => s.isHydrating);
+  // Which dashboard a dual-role ('both') user is acting in. Only consulted for
+  // 'both' accounts — pure customer / pure provider accounts have a fixed
+  // destination. `modeHydrated` guards against routing on the default 'customer'
+  // value before the persisted mode has been read back from AsyncStorage.
+  const activeMode = useModeStore((s) => s.activeMode);
+  const modeHydrated = useModeStore((s) => s.hydrated);
   const segments = useSegments();
   const router = useRouter();
 
@@ -68,6 +76,9 @@ function useProtectedRoute(): void {
     // outside the tab bar like (auth), so authenticated users must be
     // allowed to stay in it rather than being bounced back to (tabs).
     const inProviderGroup = segments[0] === '(provider)';
+    // The provider dashboard's own bottom tab bar (Jobs / Inbox / Earnings /
+    // More), mounted for providers instead of the customer (tabs) bar.
+    const inProviderTabsGroup = segments[0] === '(provider-tabs)';
     const seg1 = (segments as readonly string[])[1];
     const inOnboarding = inAuthGroup && seg1 === 'onboarding';
     const onPendingApproval = inAuthGroup && seg1 === 'pending-approval';
@@ -104,12 +115,44 @@ function useProtectedRoute(): void {
       return;
     }
 
-    // Signed in + hydrated user row — route into (tabs), unless the user is
-    // intentionally inside the (provider) vetting flow.
-    if (!inTabsGroup && !inProviderGroup) {
+    // Always allow staying in the (provider) vetting flow — it's reached
+    // intentionally (opt-in / continue application) and sits outside both tab
+    // bars, like (auth).
+    if (inProviderGroup) return;
+
+    // For a dual 'both' account the destination depends on the persisted active
+    // mode. Wait for it to rehydrate so we don't route to the customer tabs on
+    // the default value and then flash over to the provider tabs.
+    if (role === 'both' && !modeHydrated) return;
+
+    // Decide which tab bar to mount:
+    //   • pure 'provider' → provider tabs (already known-approved: the block
+    //     above sends unapproved provider-only accounts to pending-approval).
+    //   • 'both' → provider tabs only when actively switched into provider mode
+    //     AND approved; otherwise the customer tabs.
+    //   • 'customer' → customer tabs.
+    const wantsProviderTabs =
+      role === 'provider' ||
+      (role === 'both' &&
+        activeMode === 'provider' &&
+        providerVerification === 'approved');
+
+    if (wantsProviderTabs) {
+      if (!inProviderTabsGroup) router.replace('/(provider-tabs)/jobs');
+    } else if (!inTabsGroup) {
       router.replace('/(tabs)/search');
     }
-  }, [isHydrating, session, user, role, providerVerification, segments, router]);
+  }, [
+    isHydrating,
+    session,
+    user,
+    role,
+    providerVerification,
+    activeMode,
+    modeHydrated,
+    segments,
+    router,
+  ]);
 }
 
 // ── Root Layout ────────────────────────────────────────────────────────
@@ -185,25 +228,32 @@ export default function RootLayout(): React.ReactElement {
 
   if (isHydrating) {
     return (
-      <View style={styles.splash} testID="auth-hydrating-splash">
-        <ActivityIndicator
-          size="large"
-          color={tokens.colors.light.electricBlue}
-        />
-      </View>
+      <GestureHandlerRootView style={styles.root}>
+        <View style={styles.splash} testID="auth-hydrating-splash">
+          <ActivityIndicator
+            size="large"
+            color={tokens.colors.light.electricBlue}
+          />
+        </View>
+      </GestureHandlerRootView>
     );
   }
 
   return (
-    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-      <Slot />
-    </StripeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+        <Slot />
+      </StripeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   splash: {
     flex: 1,
     alignItems: 'center',

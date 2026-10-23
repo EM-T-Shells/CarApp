@@ -88,7 +88,13 @@
 
 ## Phase 7 — Payments
 - [x] `src/lib/stripe/index.ts` — Stripe Connect, deposit, balance capture, payouts
-- [x] Stripe webhook handler (Supabase Edge Function) — payment succeeded, payout processed
+- [x] Card collection — Stripe PaymentSheet (`presentDepositPaymentSheet`). No `CardField` anywhere by design.
+- [x] Booking rollback when a deposit fails / is dismissed (no orphaned `pending` bookings)
+- [x] Stripe webhook handler — `stripe-events` Edge Function, payment succeeded/failed
+- [ ] **Deploy `stripe-events` (`--no-verify-jwt`) + register the endpoint in Stripe and set `STRIPE_WEBHOOK_SECRET`.** Until this is done, deposits charge but bookings never leave `pending` and providers are never notified.
+- [ ] Restrict deposit to cards — `payment_method_types: ['card']` in `create_deposit_intent`. Klarna/Cash App/Amazon Pay/ACH cannot be charged off-session, so `capture_balance` would fail on the remaining 85%.
+- [ ] Wrap Stripe calls in `create_deposit_intent` in try/catch so failures return a typed message instead of an opaque 500.
+- [ ] `payout.paid` handling (fires on the provider's Connected account — needs Connect event listening)
 
 ---
 

@@ -5,12 +5,13 @@
 
 import React from 'react';
 import { View, StyleSheet, useColorScheme } from 'react-native';
-import { Star, MapPin, Briefcase, Award } from 'lucide-react-native';
+import { Star, MapPin, Briefcase, Award, Navigation } from 'lucide-react-native';
 import { Card } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { Text } from '../ui/Text';
 import { Spacer } from '../ui/Spacer';
 import { colors, spacing } from '../../design/tokens';
+import { formatDistanceMiles } from '../../lib/location';
 import type { ProviderSearchResult } from '../../lib/supabase/queries';
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export const ProviderCard = React.memo<ProviderCardProps>(
     const rating = Number(provider.avg_gear_rating ?? 0);
     const totalJobs = provider.total_jobs ?? 0;
     const kudosCount = provider.kudos_count ?? 0;
+    const distanceMi = provider.distance_miles;
 
     return (
       <Card
@@ -62,6 +64,19 @@ export const ProviderCard = React.memo<ProviderCardProps>(
             {/* Rating + stats */}
             <Spacer size="xs" />
             <View style={styles.statsRow}>
+              {distanceMi != null && (
+                <View style={styles.stat}>
+                  <Navigation
+                    size={13}
+                    color={palette.electricBlue}
+                    strokeWidth={2}
+                  />
+                  <Text variant="label" style={{ color: palette.electricBlue }}>
+                    {formatDistanceMiles(distanceMi)}
+                  </Text>
+                </View>
+              )}
+
               {rating > 0 && (
                 <View style={styles.stat}>
                   <Star

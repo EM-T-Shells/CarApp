@@ -83,6 +83,18 @@ describe('StatusTimeline', () => {
     });
   });
 
+  // ─── Pending adjustment ──────────────────────────────────────────────
+
+  // A confirmed job whose provider proposed a change still holds its slot and
+  // still happens, so it must not step back to "Requested".
+  describe('pending_adjustment_approval', () => {
+    it('stays on Confirmed', () => {
+      render(<StatusTimeline status="pending_adjustment_approval" />);
+      const bar = screen.getByLabelText('Booking status: Confirmed');
+      expect(bar.props.accessibilityValue?.now).toBe(1);
+    });
+  });
+
   // ─── Unknown status fallback ─────────────────────────────────────────
 
   describe('unknown status fallback', () => {

@@ -35,6 +35,7 @@ const SORT_OPTIONS: {
   value: NonNullable<ProviderSearchFilters['sortBy']>;
   label: string;
 }[] = [
+  { value: 'distance', label: 'Nearest' },
   { value: 'rating', label: 'Top Rated' },
   { value: 'newest', label: 'Newest' },
 ];
@@ -102,7 +103,7 @@ export function FiltersSheet({
         <Spacer size="sm" />
         <View style={styles.chipRow}>
           {SORT_OPTIONS.map(({ value, label }) => {
-            const active = (draft.sortBy ?? 'rating') === value;
+            const active = (draft.sortBy ?? 'distance') === value;
             return (
               <Pressable
                 key={value}

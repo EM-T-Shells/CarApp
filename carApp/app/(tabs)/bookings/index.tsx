@@ -1,9 +1,9 @@
 // Upcoming bookings list — shows pending/confirmed/en_route/in_progress
-// bookings for the authenticated user. Providers with role 'both' or
-// 'provider' see a tab switcher to toggle between customer bookings and
-// provider jobs. Handles loading, empty, and error states per convention.
+// bookings for the authenticated customer. Provider jobs live in their own
+// dashboard (the (provider-tabs) group), so this screen is customer-only.
+// Handles loading, empty, and error states per convention.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   FlatList,
@@ -26,20 +26,15 @@ import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
 import { Avatar } from '../../../src/components/ui/Avatar';
 import { Spacer } from '../../../src/components/ui/Spacer';
-import { colors, spacing } from '../../../src/design/tokens';
-import { useAuthStore, selectIsProvider } from '../../../src/state/auth';
+import { colors, spacing, type Palette } from '../../../src/design/tokens';
+import { useAuthStore } from '../../../src/state/auth';
 import {
   getUpcomingBookingsForCustomer,
-  getUpcomingBookingsForProvider,
-  getProviderByUserId,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
-
-// ── Types ──────────────────────────────────────────────────────────────
-
-type ViewMode = 'customer' | 'provider';
+import { formatLateness } from '../../../src/utils/duration';
 
 // ── Status config ──────────────────────────────────────────────────────
 
@@ -50,10 +45,18 @@ interface StatusConfig {
 
 const STATUS_MAP: Record<string, StatusConfig> = {
   pending: { label: 'Pending', colorKey: 'midGray' },
+  // Quote-first states. Each label says who holds the request, because that is
+  // the only thing the customer can act on.
+  pending_provider_quote: { label: 'Awaiting Quote', colorKey: 'midGray' },
+  pending_customer_approval: { label: 'Quote Ready', colorKey: 'gearGold' },
+  awaiting_customer_info: { label: 'Info Needed', colorKey: 'gearGold' },
+  pending_adjustment_approval: { label: 'Change Proposed', colorKey: 'gearGold' },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue' },
   en_route: { label: 'En Route', colorKey: 'gearGold' },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen' },
 };
+
+const UNPRICED_STATUSES: string[] = ['pending_provider_quote', 'awaiting_customer_info'];
 
 function getStatusConfig(status: string): StatusConfig {
   return STATUS_MAP[status] ?? STATUS_MAP['pending'];
@@ -64,7 +67,7 @@ function getStatusConfig(status: string): StatusConfig {
 interface BookingCardProps {
   booking: BookingSummary;
   onPress: () => void;
-  palette: (typeof colors)['light'];
+  palette: Palette;
 }
 
 function BookingCard({
@@ -79,9 +82,12 @@ function BookingCard({
   const vehicleLabel = vehicle
     ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
     : null;
+  const totalCents = bookingTotalCents(booking);
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  // The provider's own report of how far behind they are (Phase 4).
+  const lateness = formatLateness(booking);
 
   return (
     <Card
@@ -129,6 +135,15 @@ function BookingCard({
         </Text>
       </View>
 
+      {lateness ? (
+        <>
+          <Spacer size="xs" />
+          <Text variant="caption" style={{ color: palette.gearGold }} testID="booking-card-lateness">
+            {lateness}
+          </Text>
+        </>
+      ) : null}
+
       {/* Vehicle */}
       {vehicleLabel && (
         <>
@@ -145,12 +160,20 @@ function BookingCard({
 
       <Spacer size="sm" />
 
-      {/* Footer: total + chevron */}
+      {/* Footer: total + chevron. An unpriced request has no total yet — its
+          total_amount is the advertised estimate, not what will be charged.
+          A quote awaiting approval shows the quoted total. */}
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
-          <Text variant="price" color="charcoal">
-            {centsToDisplay(booking.total_amount)}
+        {UNPRICED_STATUSES.includes(booking.status) ? (
+          <Text variant="bodySmall" color="midGray">
+            Awaiting quote
           </Text>
+        ) : (
+          totalCents != null && (
+            <Text variant="price" color="charcoal">
+              {centsToDisplay(totalCents)}
+            </Text>
+          )
         )}
         <Spacer flex />
         <ChevronRight size={18} color={palette.midGray} strokeWidth={2} />
@@ -184,47 +207,23 @@ export default function BookingsScreen(): React.ReactElement {
   const router = useRouter();
 
   const user = useAuthStore((s) => s.user);
-  const isProvider = useAuthStore(selectIsProvider);
 
-  const [viewMode, setViewMode] = useState<ViewMode>('customer');
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Cache the provider profile ID after the first lookup so we don't
-  // re-query provider_profiles every time the user switches tabs.
-  const providerIdRef = useRef<string | null>(null);
-
   const fetchBookings = useCallback(
-    async (mode: ViewMode, refresh = false) => {
+    async (refresh = false) => {
       if (!user) return;
       if (!refresh) setIsLoading(true);
       setError(null);
 
-      if (mode === 'provider') {
-        if (!providerIdRef.current) {
-          const { data: profile, error: profileError } =
-            await getProviderByUserId(user.id);
-          if (profileError || !profile) {
-            setError(profileError ?? new Error('Provider profile not found'));
-            setIsLoading(false);
-            return;
-          }
-          providerIdRef.current = profile.id;
-        }
-        const { data, error: err } = await getUpcomingBookingsForProvider(
-          providerIdRef.current,
-        );
-        if (err) setError(err);
-        else setBookings(data ?? []);
-      } else {
-        const { data, error: err } = await getUpcomingBookingsForCustomer(
-          user.id,
-        );
-        if (err) setError(err);
-        else setBookings(data ?? []);
-      }
+      const { data, error: err } = await getUpcomingBookingsForCustomer(
+        user.id,
+      );
+      if (err) setError(err);
+      else setBookings(data ?? []);
 
       setIsLoading(false);
     },
@@ -232,25 +231,19 @@ export default function BookingsScreen(): React.ReactElement {
   );
 
   useEffect(() => {
-    fetchBookings(viewMode);
-  }, [viewMode, fetchBookings]);
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchBookings(viewMode, true).finally(() => setIsRefreshing(false));
-  }, [viewMode, fetchBookings]);
+    fetchBookings(true).finally(() => setIsRefreshing(false));
+  }, [fetchBookings]);
 
   const handleBookingPress = useCallback(
     (bookingId: string) => {
-      // Providers manage their own jobs on the active-job screen; customers
-      // open the read-only booking detail.
-      if (viewMode === 'provider') {
-        router.push(`/bookings/job/${bookingId}`);
-      } else {
-        router.push(`/bookings/${bookingId}`);
-      }
+      router.push(`/bookings/${bookingId}`);
     },
-    [router, viewMode],
+    [router],
   );
 
   const renderItem = useCallback(
@@ -266,56 +259,6 @@ export default function BookingsScreen(): React.ReactElement {
 
   const keyExtractor = useCallback((item: BookingSummary) => item.id, []);
 
-  // ── Tab toggle (shared between loading/loaded states) ──────────────
-
-  const tabToggle = isProvider ? (
-    <View
-      style={[
-        styles.tabBar,
-        {
-          backgroundColor: isDark
-            ? 'rgba(255,255,255,0.06)'
-            : 'rgba(0,0,0,0.04)',
-        },
-      ]}
-    >
-      <Pressable
-        style={[
-          styles.tab,
-          viewMode === 'customer' && { backgroundColor: palette.deepIndigo },
-        ]}
-        onPress={() => setViewMode('customer')}
-        accessibilityRole="tab"
-        accessibilityLabel="My bookings as customer"
-        accessibilityState={{ selected: viewMode === 'customer' }}
-      >
-        <Text
-          variant="label"
-          style={{ color: viewMode === 'customer' ? '#FFFFFF' : palette.midGray }}
-        >
-          My Bookings
-        </Text>
-      </Pressable>
-      <Pressable
-        style={[
-          styles.tab,
-          viewMode === 'provider' && { backgroundColor: palette.deepIndigo },
-        ]}
-        onPress={() => setViewMode('provider')}
-        accessibilityRole="tab"
-        accessibilityLabel="My jobs as provider"
-        accessibilityState={{ selected: viewMode === 'provider' }}
-      >
-        <Text
-          variant="label"
-          style={{ color: viewMode === 'provider' ? '#FFFFFF' : palette.midGray }}
-        >
-          My Jobs
-        </Text>
-      </Pressable>
-    </View>
-  ) : null;
-
   // ── Loading ────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -326,7 +269,6 @@ export default function BookingsScreen(): React.ReactElement {
             Bookings
           </Text>
         </View>
-        {tabToggle}
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={palette.electricBlue} />
           <Spacer size="md" />
@@ -348,7 +290,6 @@ export default function BookingsScreen(): React.ReactElement {
             Bookings
           </Text>
         </View>
-        {tabToggle}
         <View style={styles.centered}>
           <Text variant="subheading" color="charcoal">
             Something went wrong
@@ -362,7 +303,7 @@ export default function BookingsScreen(): React.ReactElement {
             label="Retry"
             variant="primary"
             size="md"
-            onPress={() => fetchBookings(viewMode)}
+            onPress={() => fetchBookings()}
           />
         </View>
       </View>
@@ -399,7 +340,6 @@ export default function BookingsScreen(): React.ReactElement {
             </Text>
           </Pressable>
         </View>
-        {tabToggle}
         <ScrollView
           contentContainerStyle={styles.centered}
           refreshControl={
@@ -417,21 +357,15 @@ export default function BookingsScreen(): React.ReactElement {
           </Text>
           <Spacer size="sm" />
           <Text variant="body" color="midGray" style={styles.centeredText}>
-            {viewMode === 'provider'
-              ? 'No jobs scheduled yet. New bookings from customers will appear here.'
-              : 'Ready for a detail? Find a provider and book your first service.'}
+            Ready for a detail? Find a provider and book your first service.
           </Text>
-          {viewMode === 'customer' && (
-            <>
-              <Spacer size="lg" />
-              <Button
-                label="Find a Provider"
-                variant="primary"
-                size="md"
-                onPress={() => router.push('/(tabs)/search')}
-              />
-            </>
-          )}
+          <Spacer size="lg" />
+          <Button
+            label="Find a Provider"
+            variant="primary"
+            size="md"
+            onPress={() => router.push('/(tabs)/search')}
+          />
         </ScrollView>
       </View>
     );
@@ -466,8 +400,6 @@ export default function BookingsScreen(): React.ReactElement {
           </Text>
         </Pressable>
       </View>
-
-      {tabToggle}
 
       <FlatList
         data={bookings}
@@ -516,21 +448,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.base,
-    marginBottom: spacing.sm,
-    borderRadius: 10,
-    padding: spacing.xs,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderRadius: 8,
-    minHeight: 44,
-    justifyContent: 'center',
   },
   listContent: {
     padding: spacing.base,

@@ -2,6 +2,7 @@
 
 type MockBuilder = {
   insert: jest.Mock
+  upsert: jest.Mock
   update: jest.Mock
   delete: jest.Mock
   select: jest.Mock
@@ -20,6 +21,7 @@ function makeBuilder(
 ): MockBuilder {
   const builder = {} as MockBuilder
   builder.insert = jest.fn(() => builder)
+  builder.upsert = jest.fn(() => builder)
   builder.update = jest.fn(() => builder)
   builder.delete = jest.fn(() => builder)
   builder.select = jest.fn(() => builder)
@@ -30,7 +32,9 @@ function makeBuilder(
 }
 
 const mockFrom = jest.fn()
-const mockInvoke = jest.fn(() => Promise.resolve({ data: null, error: null }))
+const mockInvoke = jest.fn((..._args: unknown[]) =>
+  Promise.resolve({ data: null, error: null }),
+)
 
 jest.mock('../client', () => ({
   supabase: {
@@ -58,6 +62,14 @@ import {
   updateServicePackage,
   deleteServicePackage,
   insertBooking,
+  isSlotUnavailableError,
+  upsertServiceDurationModifier,
+  updateServiceDurationModifier,
+  deleteServiceDurationModifier,
+  insertProviderTimeOff,
+  deleteProviderTimeOff,
+  isTimeOffOverlapError,
+  TimeOffOverlapError,
   updateBooking,
   insertBookingPhoto,
   insertRating,
@@ -259,6 +271,48 @@ describe('insertBooking', () => {
     expect(result.data).toEqual(booking)
     expect(mockFrom).toHaveBeenCalledWith('bookings')
   })
+
+  // bookings_no_provider_overlap (migration 20260818000000) raises 23P01 when
+  // the slot is already committed. Postgres phrases that as 'conflicting key
+  // value violates exclusion constraint', which tells a customer nothing.
+  it('translates 23P01 into a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "bookings_no_provider_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertBooking({
+      customer_id: 'u1',
+      provider_id: 'pp1',
+      scheduled_at: '2026-05-01T10:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(isSlotUnavailableError(result.error)).toBe(true)
+    expect(result.error?.message).toMatch(/just taken/i)
+  })
+
+  it('leaves other database errors alone', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '23503', message: 'insert or update violates foreign key' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertBooking({
+      customer_id: 'u1',
+      provider_id: 'pp1',
+      scheduled_at: '2026-05-01T10:00:00Z',
+    })
+
+    expect(isSlotUnavailableError(result.error)).toBe(false)
+    expect(result.error?.message).toMatch(/foreign key/)
+  })
 })
 
 describe('updateBooking', () => {
@@ -285,6 +339,27 @@ describe('updateBooking', () => {
     expect(mockInvoke).toHaveBeenCalledWith('notify-provider-enroute', {
       body: { booking_id: 'b1' },
     })
+  })
+
+  // Rescheduling writes scheduled_at, which regenerates occupied_range, so an
+  // update hits the same constraint an insert does.
+  it('translates 23P01 on a reschedule into a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "bookings_no_provider_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await updateBooking('b1', {
+      scheduled_at: '2026-05-02T10:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(isSlotUnavailableError(result.error)).toBe(true)
   })
 })
 
@@ -523,5 +598,186 @@ describe('error handling', () => {
 
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('No data returned')
+  })
+})
+
+// ── Provider Time Off ──────────────────────────────────────────────────
+
+describe('insertProviderTimeOff', () => {
+  const BLOCK = {
+    provider_id: 'pp1',
+    starts_at: '2026-09-01T12:00:00Z',
+    ends_at: '2026-09-05T12:00:00Z',
+  }
+
+  it('inserts a valid block and returns the row', async () => {
+    const row = { id: 'to1', ...BLOCK }
+    const builder = makeBuilder({ data: row, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual(row)
+    expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
+    expect(builder.insert).toHaveBeenCalledWith(BLOCK)
+  })
+
+  // provider_time_off_no_overlap also raises 23P01, but it means the provider
+  // collided with themselves — not that a customer took the slot. Sharing
+  // SlotUnavailableError's copy would tell them a stranger claimed their
+  // vacation.
+  it('translates 23P01 into a TimeOffOverlapError, not a SlotUnavailableError', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: {
+        code: '23P01',
+        message:
+          'conflicting key value violates exclusion constraint "provider_time_off_no_overlap"',
+      },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(result.data).toBeNull()
+    expect(result.error).toBeInstanceOf(TimeOffOverlapError)
+    expect(isTimeOffOverlapError(result.error)).toBe(true)
+    expect(isSlotUnavailableError(result.error)).toBe(false)
+    expect(result.error?.message).toMatch(/already have time off/i)
+  })
+
+  // blocked_range is GENERATED ALWAYS and STORED, so tstzrange() runs before
+  // provider_time_off_ends_after_start and raises a bare 22000 the provider
+  // must never see. Caught client-side, where the values are still in hand.
+  it('refuses an inverted range before it reaches the database', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff({
+      ...BLOCK,
+      starts_at: '2026-09-05T12:00:00Z',
+      ends_at: '2026-09-01T12:00:00Z',
+    })
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toMatch(/end after it starts/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('refuses a zero-length block, which the range would also reject', async () => {
+    mockFrom.mockReturnValue(makeBuilder({ data: null, error: null }))
+
+    const result = await insertProviderTimeOff({
+      ...BLOCK,
+      ends_at: BLOCK.starts_at,
+    })
+
+    expect(result.error?.message).toMatch(/end after it starts/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unparseable date rather than sending Invalid Date', async () => {
+    mockFrom.mockReturnValue(makeBuilder({ data: null, error: null }))
+
+    const result = await insertProviderTimeOff({ ...BLOCK, ends_at: 'later' })
+
+    expect(result.error?.message).toMatch(/valid start and end/i)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('passes a non-exclusion error through untranslated', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '42501', message: 'permission denied' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await insertProviderTimeOff(BLOCK)
+
+    expect(isTimeOffOverlapError(result.error)).toBe(false)
+    expect(result.error?.message).toBe('permission denied')
+  })
+})
+
+describe('deleteProviderTimeOff', () => {
+  it('deletes by id', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await deleteProviderTimeOff('to1')
+
+    expect(result.error).toBeNull()
+    expect(mockFrom).toHaveBeenCalledWith('provider_time_off')
+    expect(builder.delete).toHaveBeenCalled()
+    expect(builder.eq).toHaveBeenCalledWith('id', 'to1')
+  })
+})
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+describe('upsertServiceDurationModifier', () => {
+  // A second row for 'suv' would make the suggested duration depend on row
+  // order, which is why the table has a unique constraint and why this upserts
+  // rather than inserting and reporting a conflict the provider cannot act on.
+  it('upserts on the provider/factor/value key', async () => {
+    const builder = makeBuilder({ data: { id: 'm1' }, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await upsertServiceDurationModifier({
+      provider_id: 'pp1',
+      factor_type: 'size_class',
+      factor_value: 'suv',
+      delta_mins: 30,
+    })
+
+    expect(mockFrom).toHaveBeenCalledWith('service_duration_modifiers')
+    expect(builder.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ factor_value: 'suv' }),
+      { onConflict: 'provider_id,factor_type,factor_value' },
+    )
+  })
+
+  it('surfaces a constraint failure rather than swallowing it', async () => {
+    const builder = makeBuilder({
+      data: null,
+      error: { code: '23514', message: 'violates check constraint' },
+    })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await upsertServiceDurationModifier({
+      provider_id: 'pp1',
+      factor_type: 'soil_level',
+      factor_value: 'suv',
+      delta_mins: 10,
+    })
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toMatch(/check constraint/)
+  })
+})
+
+describe('updateServiceDurationModifier', () => {
+  it('updates by id', async () => {
+    const builder = makeBuilder({ data: { id: 'm1' }, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    await updateServiceDurationModifier('m1', { delta_mins: 45 })
+
+    expect(builder.update).toHaveBeenCalledWith({ delta_mins: 45 })
+    expect(builder.eq).toHaveBeenCalledWith('id', 'm1')
+  })
+})
+
+describe('deleteServiceDurationModifier', () => {
+  it('deletes by id', async () => {
+    const builder = makeBuilder({ data: null, error: null })
+    mockFrom.mockReturnValue(builder)
+
+    const result = await deleteServiceDurationModifier('m1')
+
+    expect(result.error).toBeNull()
+    expect(builder.delete).toHaveBeenCalled()
+    expect(builder.eq).toHaveBeenCalledWith('id', 'm1')
   })
 })

@@ -9,6 +9,7 @@ import {
   calculateLateCancelRefund,
   calculatePlatformFee,
   calculateProviderPayout,
+  bookingTotalCents,
 } from '../money';
 
 describe('cancellation policy money helpers (Blocker #5)', () => {
@@ -85,5 +86,25 @@ describe('Founding Provider Program fee rates (Blocker #8)', () => {
         ).toBe(subtotal);
       }
     }
+  });
+});
+
+describe('bookingTotalCents', () => {
+  // The live booking that surfaced this: $358 of packages, a $7.16 service fee
+  // and a $40 surcharge. Before approval total_amount is still $365.16.
+  it('shows the quoted total while the quote waits on the customer', () => {
+    expect(bookingTotalCents({ total_amount: 365.16, quoted_total_amount: 405.16 })).toBe(40516);
+  });
+
+  it('agrees with total_amount once the quote is approved', () => {
+    expect(bookingTotalCents({ total_amount: 405.16, quoted_total_amount: 405.16 })).toBe(40516);
+  });
+
+  it('falls back to total_amount for a booking never quoted', () => {
+    expect(bookingTotalCents({ total_amount: 96.9, quoted_total_amount: null })).toBe(9690);
+  });
+
+  it('is null when the booking has no total at all', () => {
+    expect(bookingTotalCents({ total_amount: null, quoted_total_amount: null })).toBeNull();
   });
 });

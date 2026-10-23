@@ -1,24 +1,17 @@
 // bank.test.tsx — unit tests for the Bank step (Flow 4.6 / Blocker #6).
 //
-// Exercises the onAction orchestration that BankStep hands to VettingActionStep:
-// start Connect onboarding → open the hosted session → re-check status →
-// map the outcome to a vetting step result. VettingActionStep is mocked so the
-// test invokes onAction directly and asserts the mapping, independent of the
-// shared step UI (covered by its own tests).
+// MVP prototype: the Bank step no longer runs Stripe Connect onboarding. The
+// onAction BankStep hands to VettingActionStep just marks bank_status approved
+// via updateProviderVetting. These tests exercise that mapping (VettingActionStep
+// is mocked so onAction can be invoked directly, independent of the shared UI).
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import * as WebBrowser from 'expo-web-browser';
 import type { VettingActionResult } from '../../../src/components/provider/VettingActionStep';
-import { startConnectOnboarding, refreshConnectStatus } from '../../../src/lib/stripe/connect';
+import { updateProviderVetting } from '../../../src/lib/supabase/mutations';
 
-jest.mock('expo-web-browser', () => ({
-  openAuthSessionAsync: jest.fn(),
-}));
-
-jest.mock('../../../src/lib/stripe/connect', () => ({
-  startConnectOnboarding: jest.fn(),
-  refreshConnectStatus: jest.fn(),
+jest.mock('../../../src/lib/supabase/mutations', () => ({
+  updateProviderVetting: jest.fn(),
 }));
 
 // Capture the onAction prop VettingActionStep is rendered with so we can call it
@@ -38,12 +31,7 @@ jest.mock('../../../src/components/provider/VettingActionStep', () => {
 
 import BankStep from '../bank';
 
-const mockOpenSession = WebBrowser.openAuthSessionAsync as jest.Mock;
-const mockStart = startConnectOnboarding as jest.Mock;
-const mockRefresh = refreshConnectStatus as jest.Mock;
-
-const RETURN_URL = 'carapp://provider/bank';
-const ONBOARDING_URL = 'https://connect.stripe.com/setup/abc';
+const mockUpdate = updateProviderVetting as jest.Mock;
 
 function mountAndGetAction(): (providerId: string) => Promise<VettingActionResult> {
   capturedOnAction = null;
@@ -57,65 +45,21 @@ beforeEach(() => {
 });
 
 describe('BankStep onAction', () => {
-  it('opens Stripe onboarding and approves once payouts are enabled', async () => {
-    mockStart.mockResolvedValue({ configured: true, url: ONBOARDING_URL });
-    mockOpenSession.mockResolvedValue({ type: 'success', url: RETURN_URL });
-    mockRefresh.mockResolvedValue({ state: 'approved' });
+  it('marks the bank step approved', async () => {
+    mockUpdate.mockResolvedValue({ data: true, error: null });
 
     const onAction = mountAndGetAction();
     const result = await onAction('pp-1');
 
-    expect(mockStart).toHaveBeenCalledWith('pp-1');
-    expect(mockOpenSession).toHaveBeenCalledWith(ONBOARDING_URL, RETURN_URL);
-    expect(mockRefresh).toHaveBeenCalledWith('pp-1');
+    expect(mockUpdate).toHaveBeenCalledWith('pp-1', { bank_status: 'approved' });
     expect(result).toEqual({ status: 'approved' });
   });
 
-  it('keeps the step in progress when Stripe is still reviewing the account', async () => {
-    mockStart.mockResolvedValue({ configured: true, url: ONBOARDING_URL });
-    mockOpenSession.mockResolvedValue({ type: 'success', url: RETURN_URL });
-    mockRefresh.mockResolvedValue({ state: 'pending' });
+  it('surfaces an error when the vetting update fails', async () => {
+    mockUpdate.mockResolvedValue({ data: null, error: new Error('Update failed') });
 
     const result = await mountAndGetAction()('pp-1');
 
-    expect(result).toEqual({ status: 'submitted' });
-  });
-
-  it('leaves the step submitted when the user dismisses before finishing', async () => {
-    mockStart.mockResolvedValue({ configured: true, url: ONBOARDING_URL });
-    mockOpenSession.mockResolvedValue({ type: 'cancel' });
-
-    const result = await mountAndGetAction()('pp-1');
-
-    // Account already exists server-side; don't re-check status on dismiss.
-    expect(mockRefresh).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: 'submitted' });
-  });
-
-  it('surfaces an error when onboarding is not configured', async () => {
-    mockStart.mockResolvedValue({ configured: false, error: 'Connect disabled' });
-
-    const result = await mountAndGetAction()('pp-1');
-
-    expect(mockOpenSession).not.toHaveBeenCalled();
-    expect(result).toEqual({ error: 'Connect disabled' });
-  });
-
-  it('falls back to a generic message when onboarding is not configured and gives no error', async () => {
-    mockStart.mockResolvedValue({ configured: false });
-
-    const result = await mountAndGetAction()('pp-1');
-
-    expect(result).toEqual({ error: 'Bank payouts are not set up yet.' });
-  });
-
-  it('surfaces an error when the post-return status check fails', async () => {
-    mockStart.mockResolvedValue({ configured: true, url: ONBOARDING_URL });
-    mockOpenSession.mockResolvedValue({ type: 'success', url: RETURN_URL });
-    mockRefresh.mockResolvedValue({ state: 'pending', error: 'Status check failed.' });
-
-    const result = await mountAndGetAction()('pp-1');
-
-    expect(result).toEqual({ error: 'Status check failed.' });
+    expect(result).toEqual({ error: 'Update failed' });
   });
 });

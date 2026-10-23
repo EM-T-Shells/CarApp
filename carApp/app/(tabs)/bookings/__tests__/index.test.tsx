@@ -1,6 +1,7 @@
 // index.test.tsx — unit tests for the upcoming bookings list screen.
-// Covers loading, empty, error, and populated states; customer vs. provider
-// tab toggle; navigation on card press; and pull-to-refresh behaviour.
+// Covers loading, empty, error, and populated states; navigation on card
+// press; and pull-to-refresh behaviour. This screen is customer-only — provider
+// jobs live in their own (provider-tabs) dashboard.
 
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native';
@@ -8,24 +9,17 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockGetUpcomingCustomer = jest.fn();
-const mockGetUpcomingProvider = jest.fn();
-const mockGetProviderByUserId = jest.fn();
 
 jest.mock('../../../../src/lib/supabase/queries', () => ({
   getUpcomingBookingsForCustomer: (...args: unknown[]) =>
     mockGetUpcomingCustomer(...args),
-  getUpcomingBookingsForProvider: (...args: unknown[]) =>
-    mockGetUpcomingProvider(...args),
-  getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
 }));
 
 let mockUser: { id: string } | null = { id: 'user-123' };
-let mockIsProvider = false;
 
 jest.mock('../../../../src/state/auth', () => ({
   useAuthStore: (selector: (s: { user: unknown }) => unknown) =>
     selector({ user: mockUser }),
-  selectIsProvider: (_s: unknown) => mockIsProvider,
 }));
 
 const mockPush = jest.fn();
@@ -91,10 +85,12 @@ jest.mock('../../../../src/components/ui/Spacer', () => {
 });
 
 jest.mock('../../../../src/utils/money', () => ({
+  ...jest.requireActual('../../../../src/utils/money'),
   centsToDisplay: (cents: number) => `$${(cents / 100).toFixed(2)}`,
 }));
 
 jest.mock('../../../../src/utils/date', () => ({
+  ...jest.requireActual('../../../../src/utils/date'),
   formatShortDate: () => 'Mon, Apr 28',
   formatTime: () => '10:00 AM',
 }));
@@ -107,7 +103,8 @@ const makeBooking = (overrides: Record<string, unknown> = {}) => ({
   provider_id: 'provider-profile-1',
   scheduled_at: '2026-04-28T10:00:00Z',
   status: 'confirmed',
-  total_amount: 15000,
+  // bookings.total_amount is NUMERIC(10,2) dollars, as the rows really are.
+  total_amount: 150,
   service_address: '123 Main St',
   services: [],
   provider_profiles: {
@@ -135,13 +132,7 @@ import BookingsScreen from '../index';
 beforeEach(() => {
   jest.clearAllMocks();
   mockUser = { id: 'user-123' };
-  mockIsProvider = false;
   mockGetUpcomingCustomer.mockResolvedValue({ data: [], error: null });
-  mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
-  mockGetProviderByUserId.mockResolvedValue({
-    data: { id: 'provider-profile-1' },
-    error: null,
-  });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -197,6 +188,41 @@ describe('BookingsScreen', () => {
       expect(mockPush).toHaveBeenCalledWith('/bookings/past');
     });
 
+    it('says when the provider is running late', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({
+        data: [makeBooking({ status: 'en_route', running_late_mins: 20 })],
+        error: null,
+      });
+      render(<BookingsScreen />);
+      expect(await screen.findByTestId('booking-card-lateness')).toBeTruthy();
+      // formatTime is stubbed here; duration.test.ts checks the real arrival time.
+      expect(screen.getByText(/^Running about 20 min late · arriving around/)).toBeTruthy();
+    });
+
+    // total_amount is still the pre-quote price until the customer approves.
+    it('shows the quoted total for a quote awaiting approval', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({
+        data: [
+          makeBooking({
+            status: 'pending_customer_approval',
+            total_amount: 365.16,
+            quoted_total_amount: 405.16,
+          }),
+        ],
+        error: null,
+      });
+      render(<BookingsScreen />);
+      expect(await screen.findByText('$405.16')).toBeTruthy();
+      expect(screen.queryByText('$365.16')).toBeNull();
+    });
+
+    it('says nothing about lateness on an on-time booking', async () => {
+      mockGetUpcomingCustomer.mockResolvedValue({ data: [makeBooking()], error: null });
+      render(<BookingsScreen />);
+      await screen.findByText('Alex Smith');
+      expect(screen.queryByTestId('booking-card-lateness')).toBeNull();
+    });
+
     it('shows correct status label for en_route booking', async () => {
       mockGetUpcomingCustomer.mockResolvedValue({
         data: [makeBooking({ status: 'en_route' })],
@@ -239,85 +265,12 @@ describe('BookingsScreen', () => {
       });
       expect(mockGetUpcomingCustomer).toHaveBeenCalledTimes(2);
     });
-  });
 
-  describe('provider tab toggle', () => {
-    beforeEach(() => {
-      mockIsProvider = true;
-    });
-
-    it('renders the tab switcher for provider users', async () => {
-      render(<BookingsScreen />);
-      await waitFor(() => {
-        expect(screen.getByText('My Bookings')).toBeTruthy();
-        expect(screen.getByText('My Jobs')).toBeTruthy();
-      });
-    });
-
-    it('does not render the tab switcher for customer-only users', async () => {
-      mockIsProvider = false;
+    it('does not render a customer/provider view toggle', async () => {
       render(<BookingsScreen />);
       await screen.findByText('No upcoming bookings');
       expect(screen.queryByText('My Bookings')).toBeNull();
       expect(screen.queryByText('My Jobs')).toBeNull();
-    });
-
-    it('fetches provider bookings after switching to My Jobs tab', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await waitFor(() => {
-        expect(mockGetProviderByUserId).toHaveBeenCalledWith('user-123');
-        expect(mockGetUpcomingProvider).toHaveBeenCalledWith('provider-profile-1');
-      });
-    });
-
-    it('shows provider-specific empty message on My Jobs tab', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      expect(
-        await screen.findByText(
-          'No jobs scheduled yet. New bookings from customers will appear here.',
-        ),
-      ).toBeTruthy();
-    });
-
-    it('shows error when provider profile lookup fails', async () => {
-      mockGetProviderByUserId.mockResolvedValue({
-        data: null,
-        error: new Error('Profile not found'),
-      });
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      expect(await screen.findByText('Something went wrong')).toBeTruthy();
-    });
-
-    it('caches provider id and does not re-fetch profile on second switch', async () => {
-      render(<BookingsScreen />);
-      await screen.findByText('My Jobs');
-
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await screen.findByText('No upcoming bookings');
-
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Bookings'));
-      });
-      await act(async () => {
-        fireEvent.press(screen.getByText('My Jobs'));
-      });
-      await waitFor(() => {
-        expect(mockGetProviderByUserId).toHaveBeenCalledTimes(1);
-      });
     });
   });
 });

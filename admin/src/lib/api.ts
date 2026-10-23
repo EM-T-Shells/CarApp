@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { ProviderDetail, QueueRow } from '../types';
+import type { CalibrationRow, ProviderDetail, QueueRow } from '../types';
 
 export interface Result<T> {
   data: T | null;
@@ -66,4 +66,17 @@ export async function reviewProvider(
   );
   if (error) return { data: null, error: error.message };
   return { data: data ?? null, error: null };
+}
+
+/**
+ * Duration and pricing calibration per provider, over jobs scheduled in the
+ * last `sinceDays` days. get_duration_calibration is SECURITY DEFINER with its
+ * own is_admin check, so an admin sees every provider (and anyone else, only
+ * themselves) — there is no admin read policy on bookings to rely on.
+ */
+export async function fetchCalibration(sinceDays: number): Promise<Result<CalibrationRow[]>> {
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase.rpc('get_duration_calibration', { p_since: since });
+  if (error) return { data: null, error: error.message };
+  return { data: (data ?? []) as CalibrationRow[], error: null };
 }

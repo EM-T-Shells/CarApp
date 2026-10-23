@@ -389,6 +389,30 @@ describe('signInWithOtp', () => {
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('Rate limit exceeded')
   })
+
+  // OtpTarget admits `{ email: '' }`, so the empty case has to be rejected
+  // here rather than relying on every caller to validate first.
+  it.each([
+    ['empty email', { email: '' }, 'Email is required'],
+    ['whitespace-only email', { email: '   ' }, 'Email is required'],
+    ['empty phone', { phone: '' }, 'Phone number is required'],
+    ['whitespace-only phone', { phone: '  ' }, 'Phone number is required'],
+  ])('rejects %s without calling Supabase', async (_label, target, message) => {
+    const result = await signInWithOtpFn(target)
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe(message)
+    expect(mockSignInWithOtp).not.toHaveBeenCalled()
+  })
+
+  it('trims the contact before sending', async () => {
+    mockSignInWithOtp.mockResolvedValue({ error: null })
+
+    const result = await signInWithOtpFn({ email: '  test@example.com  ' })
+
+    expect(result.error).toBeNull()
+    expect(mockSignInWithOtp).toHaveBeenCalledWith({ email: 'test@example.com' })
+  })
 })
 
 describe('verifyOtp', () => {
@@ -434,6 +458,34 @@ describe('verifyOtp', () => {
 
     expect(result.data).toBeNull()
     expect(result.error?.message).toBe('Invalid OTP')
+  })
+
+  it.each([
+    ['empty email', { email: '' }, 'Email is required'],
+    ['whitespace-only email', { email: '   ' }, 'Email is required'],
+    ['empty phone', { phone: '' }, 'Phone number is required'],
+    ['whitespace-only phone', { phone: '  ' }, 'Phone number is required'],
+  ])('rejects %s without calling Supabase', async (_label, target, message) => {
+    const result = await verifyOtp(target, '123456')
+
+    expect(result.data).toBeNull()
+    expect(result.error?.message).toBe(message)
+    expect(mockVerifyOtp).not.toHaveBeenCalled()
+  })
+
+  it('trims the contact before verifying', async () => {
+    mockVerifyOtp.mockResolvedValue({
+      data: { session: mockSession },
+      error: null,
+    })
+
+    await verifyOtp({ email: '  test@example.com  ' }, '123456')
+
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      email: 'test@example.com',
+      token: '123456',
+      type: 'email',
+    })
   })
 })
 

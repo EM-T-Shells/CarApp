@@ -8,6 +8,7 @@ import {
   estimateEtaMinutes,
   formatEtaMinutes,
   regionForPoints,
+  regionForCoordinates,
   DEFAULT_AVG_SPEED_MPH,
   type LatLng,
 } from '../index';
@@ -156,5 +157,37 @@ describe('regionForPoints', () => {
     const lngSpan = Math.abs(TYSONS.longitude - ARLINGTON.longitude);
     expect(r.latitudeDelta).toBeGreaterThanOrEqual(latSpan * 1.6 - 1e-9);
     expect(r.longitudeDelta).toBeGreaterThanOrEqual(lngSpan * 1.6 - 1e-9);
+  });
+});
+
+describe('regionForCoordinates', () => {
+  it('returns null for an empty list', () => {
+    expect(regionForCoordinates([])).toBeNull();
+  });
+
+  it('centers on a single point with the minimum span', () => {
+    const r = regionForCoordinates([TYSONS]);
+    expect(r).not.toBeNull();
+    expect(r!.latitude).toBeCloseTo(TYSONS.latitude, 6);
+    expect(r!.longitude).toBeCloseTo(TYSONS.longitude, 6);
+    expect(r!.latitudeDelta).toBeCloseTo(0.02, 6);
+    expect(r!.longitudeDelta).toBeCloseTo(0.02, 6);
+  });
+
+  it('centers on the bounding-box midpoint of many points', () => {
+    const r = regionForCoordinates([TYSONS, DC_UNION_STATION, ARLINGTON]);
+    const lats = [TYSONS, DC_UNION_STATION, ARLINGTON].map((p) => p.latitude);
+    const lngs = [TYSONS, DC_UNION_STATION, ARLINGTON].map((p) => p.longitude);
+    expect(r!.latitude).toBeCloseTo((Math.min(...lats) + Math.max(...lats)) / 2, 6);
+    expect(r!.longitude).toBeCloseTo((Math.min(...lngs) + Math.max(...lngs)) / 2, 6);
+  });
+
+  it('pads the bounding box by the padding factor for spread points', () => {
+    const points = [TYSONS, DC_UNION_STATION];
+    const r = regionForCoordinates(points, 1.4);
+    const latSpan = Math.abs(TYSONS.latitude - DC_UNION_STATION.latitude);
+    const lngSpan = Math.abs(TYSONS.longitude - DC_UNION_STATION.longitude);
+    expect(r!.latitudeDelta).toBeCloseTo(latSpan * 1.4, 6);
+    expect(r!.longitudeDelta).toBeCloseTo(lngSpan * 1.4, 6);
   });
 });

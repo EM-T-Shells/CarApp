@@ -33,7 +33,10 @@ export function Queue() {
     <div className="page">
       <header className="topbar">
         <h1>Provider vetting queue</h1>
-        <button onClick={signOut} data-testid="signout">Sign out</button>
+        <div className="nav">
+          <Link to="/calibration" data-testid="calibration-link">Calibration</Link>
+          <button onClick={signOut} data-testid="signout">Sign out</button>
+        </div>
       </header>
 
       <input

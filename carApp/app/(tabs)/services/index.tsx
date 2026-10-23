@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Sparkles, Wrench, Plus } from 'lucide-react-native';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
@@ -33,7 +34,6 @@ interface CatalogSection {
 const CATEGORY_LABELS: Record<string, string> = {
   detailing: 'Detailing',
   mechanical: 'Mechanical',
-  addon: 'Add-ons',
 };
 
 function formatCategoryTitle(category: string): string {
@@ -69,6 +69,7 @@ export default function ServicesScreen(): React.ReactElement {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const palette = isDark ? colors.dark : colors.light;
+  const router = useRouter();
 
   const [sections, setSections] = useState<CatalogSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +91,16 @@ export default function ServicesScreen(): React.ReactElement {
   useEffect(() => {
     loadCatalog();
   }, [loadCatalog]);
+
+  const handleServicePress = useCallback(
+    (service: ServiceCatalog) => {
+      router.push({
+        pathname: '/services/[catalogId]',
+        params: { catalogId: service.id, name: service.name },
+      });
+    },
+    [router],
+  );
 
   const getCategoryIcon = useCallback(
     (category: string) => {
@@ -200,7 +211,13 @@ export default function ServicesScreen(): React.ReactElement {
           </View>
         )}
         renderItem={({ item }) => (
-          <Card variant="outlined" style={styles.serviceItem}>
+          <Card
+            variant="outlined"
+            style={styles.serviceItem}
+            onPress={() => handleServicePress(item)}
+            accessibilityLabel={item.name}
+            accessibilityHint="Shows providers who offer this service"
+          >
             <Text variant="body" color="charcoal">
               {item.name}
             </Text>

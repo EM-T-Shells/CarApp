@@ -12,8 +12,6 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  type NativeSyntheticEvent,
-  type TextInputFocusEventData,
 } from 'react-native';
 import tokens from '../../design/tokens';
 import { textStyles } from '../../design/typography';
@@ -69,8 +67,14 @@ export function VehicleForm({
   }
 
   function handleBlur(field: FieldKey) {
-    return (e: NativeSyntheticEvent<TextInputFocusEventData>) => {
-      const value = e.nativeEvent.text;
+    // Validate the committed draft value rather than the blur event. As of
+    // React Native 0.83 `onBlur` is typed as BlurEvent
+    // (NativeSyntheticEvent<TargetedEvent>), which exposes only `target` —
+    // reading `text` off it no longer typechecks. The native side still sends
+    // `text`, so this is a typing fix, not a behaviour change; the draft store
+    // is the source of truth here regardless.
+    return () => {
+      const value = vehicle[field] ?? '';
       setErrors((prev) => ({ ...prev, [field]: validate(field, value) }));
     };
   }
@@ -171,7 +175,7 @@ interface FieldProps {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   maxLength?: number;
   onChangeText: (value: string) => void;
-  onBlur?: (e: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onBlur?: () => void;
   accessibilityLabel?: string;
 }
 

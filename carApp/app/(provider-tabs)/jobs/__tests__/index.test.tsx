@@ -1,0 +1,327 @@
+// index.test.tsx — unit tests for the provider job queue (Jobs tab root).
+// Covers provider-profile resolution, fetch, empty state, card render, and
+// navigation into the job detail screen.
+
+import React from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+
+// ── Mocks ────────────────────────────────────────────────────────────────────
+
+const mockGetUpcomingProvider = jest.fn();
+const mockGetQuoteRequests = jest.fn();
+const mockGetProviderByUserId = jest.fn();
+const mockGetProviderDaySchedule = jest.fn();
+
+jest.mock('../../../../src/lib/supabase/queries', () => ({
+  getUpcomingBookingsForProvider: (...args: unknown[]) =>
+    mockGetUpcomingProvider(...args),
+  // The quote queue loads alongside the jobs list.
+  getQuoteRequestsForProvider: (...args: unknown[]) =>
+    mockGetQuoteRequests(...args),
+  getProviderByUserId: (...args: unknown[]) => mockGetProviderByUserId(...args),
+  // The day view mounts inside this screen once the provider id resolves.
+  getProviderDaySchedule: (...args: unknown[]) =>
+    mockGetProviderDaySchedule(...args),
+}));
+
+let mockUser: { id: string } | null = { id: 'user-123' };
+
+jest.mock('../../../../src/state/auth', () => ({
+  useAuthStore: (selector: (s: { user: unknown }) => unknown) =>
+    selector({ user: mockUser }),
+}));
+
+const mockPush = jest.fn();
+// Runs on mount like the real hook's first focus; a test refocuses the screen
+// by calling the latest callback again.
+const mockFocus: { current: (() => void) | null } = { current: null };
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return {
+    useRouter: () => ({ push: mockPush }),
+    useFocusEffect: (callback: () => void) => {
+      useEffect(() => {
+        mockFocus.current = callback;
+        callback();
+      }, [callback]);
+    },
+  };
+});
+
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = require('react-native');
+  return {
+    SafeAreaView: ({ children }: { children: React.ReactNode }) => (
+      <View>{children}</View>
+    ),
+  };
+});
+
+jest.mock('lucide-react-native', () => {
+  const { View } = require('react-native');
+  const icon = (name: string) =>
+    function MockIcon(props: Record<string, unknown>) {
+      return <View testID={`icon-${name}`} {...props} />;
+    };
+  return {
+    Briefcase: icon('Briefcase'),
+    ChevronLeft: icon('ChevronLeft'),
+    ChevronRight: icon('ChevronRight'),
+    Clock: icon('Clock'),
+    Car: icon('Car'),
+  };
+});
+
+jest.mock('../../../../src/components/ui/Text', () => {
+  const { Text } = require('react-native');
+  return {
+    Text: ({ children, style, ...props }: { children: React.ReactNode; style?: unknown }) => (
+      <Text style={style} {...props}>{children}</Text>
+    ),
+  };
+});
+
+jest.mock('../../../../src/components/ui/Card', () => {
+  const { TouchableOpacity } = require('react-native');
+  return {
+    Card: ({ children, onPress }: { children: React.ReactNode; onPress?: () => void }) => (
+      <TouchableOpacity onPress={onPress}>{children}</TouchableOpacity>
+    ),
+  };
+});
+
+jest.mock('../../../../src/components/ui/Avatar', () => {
+  const { View } = require('react-native');
+  return { Avatar: () => <View testID="avatar" /> };
+});
+
+jest.mock('../../../../src/components/ui/Spacer', () => {
+  const { View } = require('react-native');
+  return { Spacer: () => <View /> };
+});
+
+jest.mock('../../../../src/utils/money', () => ({
+  centsToDisplay: (cents: number) => `$${(cents / 100).toFixed(2)}`,
+}));
+
+jest.mock('../../../../src/utils/date', () => ({
+  formatShortDate: () => 'Mon, Apr 28',
+  formatTime: () => '10:00 AM',
+}));
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const makeJob = (overrides: Record<string, unknown> = {}) => ({
+  id: 'job-1',
+  provider_id: 'provider-profile-1',
+  scheduled_at: '2026-04-28T10:00:00Z',
+  status: 'confirmed',
+  // bookings.total_amount is NUMERIC(10,2) dollars, as the rows really are.
+  total_amount: 150,
+  vehicles: { id: 'v1', year: 2022, make: 'Honda', model: 'Civic', color: 'Blue' },
+  ...overrides,
+});
+
+// ── Import after mocks ────────────────────────────────────────────────────────
+
+import ProviderJobsScreen from '../index';
+
+// ── Setup ─────────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUser = { id: 'user-123' };
+  mockGetProviderByUserId.mockResolvedValue({
+    data: { id: 'provider-profile-1' },
+    error: null,
+  });
+  mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
+  mockGetQuoteRequests.mockResolvedValue({ data: [], error: null });
+  mockGetProviderDaySchedule.mockResolvedValue({
+    data: {
+      range: {
+        start: '2026-09-14T04:00:00.000Z',
+        end: '2026-09-15T04:00:00.000Z',
+      },
+      timeZone: 'America/New_York',
+      workingHours: {
+        mon: [{ start: '08:00', end: '18:00' }],
+        tue: [],
+        wed: [],
+        thu: [],
+        fri: [],
+        sat: [],
+        sun: [],
+      },
+      maxJobsPerDay: null,
+      defaultBufferBeforeMins: 15,
+      defaultBufferAfterMins: 30,
+      bookings: [],
+      timeOff: [],
+    },
+    error: null,
+  });
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('ProviderJobsScreen', () => {
+  it('resolves the provider profile then fetches its upcoming jobs', async () => {
+    render(<ProviderJobsScreen />);
+    await waitFor(() => {
+      expect(mockGetProviderByUserId).toHaveBeenCalledWith('user-123');
+      expect(mockGetUpcomingProvider).toHaveBeenCalledWith('provider-profile-1');
+    });
+  });
+
+  it('renders the empty state when there are no jobs', async () => {
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+  });
+
+  it('renders a job card with its total', async () => {
+    mockGetUpcomingProvider.mockResolvedValue({ data: [makeJob()], error: null });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('$150.00')).toBeTruthy();
+  });
+
+  it('surfaces the action-needed label for a pending-approval job', async () => {
+    mockGetUpcomingProvider.mockResolvedValue({
+      data: [makeJob({ status: 'pending_provider_approval' })],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('Action Needed')).toBeTruthy();
+  });
+
+  it('navigates to the job detail on card press', async () => {
+    mockGetUpcomingProvider.mockResolvedValue({ data: [makeJob()], error: null });
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByText('$150.00'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/job-1');
+  });
+
+  // The day view cannot mount until the provider profile id resolves, which is
+  // a separate round trip from the job list.
+  it('mounts the day view for the resolved provider once the profile loads', async () => {
+    render(<ProviderJobsScreen />);
+
+    await waitFor(() =>
+      expect(mockGetProviderDaySchedule).toHaveBeenCalledWith(
+        'provider-profile-1',
+        expect.any(Date),
+      ),
+    );
+  });
+
+  // An empty queue is when the day view matters most — it distinguishes
+  // "nothing booked" from "nothing booked because you are on time off".
+  it('keeps the day view on screen in the empty state', async () => {
+    render(<ProviderJobsScreen />);
+
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+    expect(mockGetProviderDaySchedule).toHaveBeenCalled();
+  });
+
+  it('navigates to past jobs when Past is pressed', async () => {
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByText('Past'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/past');
+  });
+
+  // Completing a job happens on a screen pushed over this one; coming back to
+  // a list still showing it in progress reads as the completion having failed.
+  it('refetches when the list regains focus, without the full-screen spinner', async () => {
+    mockGetUpcomingProvider.mockResolvedValue({ data: [makeJob({ status: 'in_progress' })], error: null });
+    render(<ProviderJobsScreen />);
+    await screen.findByText('$150.00');
+    expect(mockGetUpcomingProvider).toHaveBeenCalledTimes(1);
+
+    mockGetUpcomingProvider.mockResolvedValue({ data: [], error: null });
+    await act(async () => {
+      mockFocus.current?.();
+    });
+    expect(mockGetUpcomingProvider).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+  });
+
+  it('shows the error state when the profile lookup fails', async () => {
+    mockGetProviderByUserId.mockResolvedValue({
+      data: null,
+      error: new Error('Profile not found'),
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('Something went wrong')).toBeTruthy();
+  });
+});
+
+// ── Quote queue ──────────────────────────────────────────────────────────────
+// Unpriced requests are the only thing on this screen with nobody else acting
+// on them, so they get their own section above the day view.
+
+const UNPRICED_REQUEST = {
+  id: 'req-1',
+  status: 'pending_provider_quote',
+  scheduled_at: '2026-10-14T12:00:00.000Z',
+  vehicles: { id: 'veh-1', year: '2021', make: 'Honda', model: 'Civic' },
+};
+
+const AWAITING_CUSTOMER = {
+  ...UNPRICED_REQUEST,
+  id: 'req-2',
+  status: 'pending_customer_approval',
+};
+
+describe('ProviderJobsScreen — quote queue', () => {
+  it('shows requests waiting for a price', async () => {
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [UNPRICED_REQUEST],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('Requests (1)')).toBeTruthy();
+    expect(screen.getByText('Needs a quote')).toBeTruthy();
+  });
+
+  it('routes an unpriced request to the quote screen', async () => {
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [UNPRICED_REQUEST],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByTestId('quote-request-req-1'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/quote/req-1');
+  });
+
+  it('does not offer to re-quote one already waiting on the customer', async () => {
+    // submit_quote refuses a booking in pending_customer_approval, so sending
+    // the provider to the builder would only produce a 409.
+    mockGetQuoteRequests.mockResolvedValue({
+      data: [AWAITING_CUSTOMER],
+      error: null,
+    });
+    render(<ProviderJobsScreen />);
+    fireEvent.press(await screen.findByTestId('quote-request-req-2'));
+    expect(mockPush).toHaveBeenCalledWith('/(provider-tabs)/jobs/req-2');
+    expect(screen.getByText('Waiting on the customer to approve')).toBeTruthy();
+  });
+
+  it('hides the section when there are no requests', async () => {
+    mockGetQuoteRequests.mockResolvedValue({ data: [], error: null });
+    render(<ProviderJobsScreen />);
+    await screen.findByText('Jobs');
+    expect(screen.queryByText(/^Requests \(/)).toBeNull();
+  });
+
+  it('keeps the jobs list when the request fetch fails', async () => {
+    // The scheduled work is the more important half of this screen; a failed
+    // queue fetch must not blank it.
+    mockGetQuoteRequests.mockResolvedValue({
+      data: null,
+      error: new Error('network'),
+    });
+    render(<ProviderJobsScreen />);
+    expect(await screen.findByText('No jobs scheduled')).toBeTruthy();
+    expect(screen.queryByText('Something went wrong')).toBeNull();
+  });
+});

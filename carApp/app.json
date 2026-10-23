@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.emre.carapp",
-      "buildNumber": "3",
+      "buildNumber": "7",
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -46,6 +46,13 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "CarApp uses your location to share your live position with the customer during an active job."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CarApp needs access to your photos so you can upload your government ID, insurance card, and credentials for vetting.",
+          "cameraPermission": "CarApp needs camera access so you can photograph your government ID, insurance card, and credentials for vetting."
         }
       ],
       [

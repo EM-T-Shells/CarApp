@@ -19,10 +19,15 @@ import type {
   ProviderProfile,
   ProviderProfileInsert,
   ProviderProfileUpdate,
+  ProviderTimeOff,
+  ProviderTimeOffInsert,
   ProviderVettingUpdate,
   Rating,
   RatingInsert,
   RatingUpdate,
+  ServiceDurationModifier,
+  ServiceDurationModifierInsert,
+  ServiceDurationModifierUpdate,
   ServicePackage,
   ServicePackageInsert,
   ServicePackageUpdate,
@@ -73,6 +78,13 @@ async function runVoid(
   }
 }
 
+// Postgres exclusion_violation. Raised by two EXCLUDE constraints from the
+// Phase 1 migrations, and each one means something different to the person
+// reading the message: bookings_no_provider_overlap (20260818000000) is a race
+// against another customer, provider_time_off_no_overlap (20260819000000) is
+// the provider colliding with themselves. Shared code, separate errors.
+const EXCLUSION_VIOLATION = '23P01'
+
 // Fire-and-forget invocation of a notify-* Edge Function. A push failure must
 // never surface to the caller or roll back the underlying mutation, so errors
 // are swallowed (the function also records an in-app notifications row, and
@@ -97,6 +109,17 @@ export function insertUser(
 ): Promise<MutationResult<User>> {
   return runMutation<User>(
     supabase.from('users').insert(user).select().single(),
+  )
+}
+
+// Rollback helper for onboarding: if a follow-on write (e.g. the provider
+// profile) fails after the users row was inserted, remove the orphaned row so
+// the account isn't left half-created and a retry can start clean.
+export function deleteUser(
+  userId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('users').delete().eq('id', userId),
   )
 }
 
@@ -193,6 +216,89 @@ export function updateProviderProfile(
   )
 }
 
+// ── Provider Time Off ──────────────────────────────────────────────────
+
+/**
+ * A time-off block overlaps one the provider already has.
+ *
+ * Deliberately NOT SlotUnavailableError, even though both come back as 23P01.
+ * "That time was just taken" describes a race against another customer, which
+ * is exactly what has not happened here — nobody competed for anything, the
+ * provider submitted a block they already have. Reusing the booking message
+ * would tell them a stranger claimed their vacation.
+ */
+export class TimeOffOverlapError extends Error {
+  readonly timeOffOverlap = true
+  constructor(
+    message = 'You already have time off covering part of that range. Edit the existing block instead.',
+  ) {
+    super(message)
+    this.name = 'TimeOffOverlapError'
+  }
+}
+
+export function isTimeOffOverlapError(
+  err: Error | null,
+): err is TimeOffOverlapError {
+  return (
+    err instanceof TimeOffOverlapError ||
+    (err as { timeOffOverlap?: boolean })?.timeOffOverlap === true
+  )
+}
+
+/**
+ * An inverted range is refused by the database, but not by the CHECK constraint
+ * that exists to refuse it: blocked_range is a STORED generated column, so
+ * tstzrange() is evaluated first and raises 22000 "range lower bound must be
+ * less than or equal to range upper bound" before provider_time_off_ends_after_start
+ * ever runs. That message is not something to show a provider, and it arrives
+ * as a generic data exception rather than a constraint name, so the ordering is
+ * validated here where the caller's own values are still in hand.
+ */
+export function insertProviderTimeOff(
+  block: ProviderTimeOffInsert,
+): Promise<MutationResult<ProviderTimeOff>> {
+  const startsAt = new Date(block.starts_at)
+  const endsAt = new Date(block.ends_at)
+
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+    return Promise.resolve({
+      data: null,
+      error: new Error('Pick a valid start and end date.'),
+    })
+  }
+  if (endsAt.getTime() <= startsAt.getTime()) {
+    return Promise.resolve({
+      data: null,
+      error: new Error('Time off has to end after it starts.'),
+    })
+  }
+
+  return runMutation<ProviderTimeOff>(
+    supabase.from('provider_time_off').insert(block).select().single(),
+  ).then(translateTimeOffError)
+}
+
+export function deleteProviderTimeOff(
+  timeOffId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('provider_time_off').delete().eq('id', timeOffId),
+  )
+}
+
+function translateTimeOffError<T>(
+  result: MutationResult<T>,
+): MutationResult<T> {
+  if (
+    result.error &&
+    (result.error as Partial<PostgrestError>).code === EXCLUSION_VIOLATION
+  ) {
+    return { data: null, error: new TimeOffOverlapError() }
+  }
+  return result
+}
+
 // ── Provider Vetting ───────────────────────────────────────────────────
 
 export function updateProviderVetting(
@@ -239,13 +345,100 @@ export function deleteServicePackage(
   )
 }
 
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+/**
+ * Publishing the same factor value twice trips the
+ * service_duration_modifiers_unique constraint (23505). That is not a race and
+ * not a conflict with anyone else — it means the provider already has a delta
+ * for SUVs and is trying to add a second one, which would make the suggestion
+ * depend on row order. Upserting is the honest resolution: they meant to change
+ * the number, not to add a rival to it.
+ */
+export function upsertServiceDurationModifier(
+  modifier: ServiceDurationModifierInsert,
+): Promise<MutationResult<ServiceDurationModifier>> {
+  return runMutation<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .upsert(modifier, { onConflict: 'provider_id,factor_type,factor_value' })
+      .select()
+      .single(),
+  )
+}
+
+export function updateServiceDurationModifier(
+  modifierId: string,
+  updates: ServiceDurationModifierUpdate,
+): Promise<MutationResult<ServiceDurationModifier>> {
+  return runMutation<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .update(updates)
+      .eq('id', modifierId)
+      .select()
+      .single(),
+  )
+}
+
+export function deleteServiceDurationModifier(
+  modifierId: string,
+): Promise<MutationResult<true>> {
+  return runVoid(
+    supabase.from('service_duration_modifiers').delete().eq('id', modifierId),
+  )
+}
+
 // ── Bookings ───────────────────────────────────────────────────────────
 
-export function insertBooking(
+/**
+ * The slot a booking asked for is already committed to someone else.
+ *
+ * Distinguished from a transport error because the recovery is different and
+ * specific: nothing is wrong with the request, the customer simply has to pick
+ * another time. The race it reports is real — two customers can both be holding
+ * requests for the same window, since only acceptance reserves a slot.
+ */
+export class SlotUnavailableError extends Error {
+  readonly slotUnavailable = true
+  constructor(message = 'That time was just taken. Pick another time and try again.') {
+    super(message)
+    this.name = 'SlotUnavailableError'
+  }
+}
+
+/** Type guard for offering "pick another time" instead of a bare retry. */
+export function isSlotUnavailableError(
+  err: Error | null,
+): err is SlotUnavailableError {
+  return (
+    err instanceof SlotUnavailableError ||
+    (err as { slotUnavailable?: boolean })?.slotUnavailable === true
+  )
+}
+
+// Postgres phrases 23P01 as 'conflicting key value violates exclusion
+// constraint "bookings_no_provider_overlap"', which is true and useless to a
+// customer. Everything else passes through untouched.
+function translateSchedulingError<T>(
+  result: MutationResult<T>,
+): MutationResult<T> {
+  if (
+    result.error &&
+    (result.error as Partial<PostgrestError>).code === EXCLUSION_VIOLATION
+  ) {
+    return { data: null, error: new SlotUnavailableError() }
+  }
+  return result
+}
+
+export async function insertBooking(
   booking: BookingInsert,
 ): Promise<MutationResult<Booking>> {
-  return runMutation<Booking>(
-    supabase.from('bookings').insert(booking).select().single(),
+  return translateSchedulingError(
+    await runMutation<Booking>(
+      supabase.from('bookings').insert(booking).select().single(),
+    ),
   )
 }
 
@@ -253,13 +446,17 @@ export async function updateBooking(
   bookingId: string,
   updates: BookingUpdate,
 ): Promise<MutationResult<Booking>> {
-  const result = await runMutation<Booking>(
-    supabase
-      .from('bookings')
-      .update(updates)
-      .eq('id', bookingId)
-      .select()
-      .single(),
+  // Rescheduling runs through here, so it can collide with another job just as
+  // an insert can.
+  const result = translateSchedulingError(
+    await runMutation<Booking>(
+      supabase
+        .from('bookings')
+        .update(updates)
+        .eq('id', bookingId)
+        .select()
+        .single(),
+    ),
   )
 
   // Notify the customer when the provider goes en route. (booking_confirmed

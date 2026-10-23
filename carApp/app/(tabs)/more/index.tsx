@@ -4,10 +4,12 @@
 //
 // Reads the signed-in user straight from the hydrated auth store (no fetch,
 // so there's no loading/empty/error state to manage here). The Provider row
-// adapts to the user's role: customers see "Become a Provider", providers see
-// "Provider Dashboard". Both route to (tabs)/more/provider, which decides
-// between the intro and the dashboard. Sign out keeps the confirmation alert
-// so an accidental tap can't drop the session.
+// adapts to the user's provider state: customers see "Become a Provider",
+// providers mid-vetting see "Provider Application" (both route to
+// (tabs)/more/provider), and approved providers see "Switch to Provider
+// Dashboard", which flips the active mode and replaces into the (provider-tabs)
+// group. Sign out keeps the confirmation alert so an accidental tap can't drop
+// the session.
 
 import React, { useCallback, useState } from 'react';
 import {
@@ -36,6 +38,7 @@ import { Spacer } from '../../../src/components/ui/Spacer';
 import { borderRadius, colors, spacing } from '../../../src/design/tokens';
 import { signOut } from '../../../src/lib/supabase/auth';
 import { useAuthStore, selectIsProvider } from '../../../src/state/auth';
+import { useModeStore } from '../../../src/state/mode';
 
 type Palette = (typeof colors)['light'] | (typeof colors)['dark'];
 
@@ -122,6 +125,8 @@ export default function MoreScreen(): React.ReactElement {
 
   const user = useAuthStore((s) => s.user);
   const isProvider = useAuthStore(selectIsProvider);
+  const providerVerification = useAuthStore((s) => s.providerVerification);
+  const setActiveMode = useModeStore((s) => s.setActiveMode);
 
   const [signingOut, setSigningOut] = useState(false);
 
@@ -131,6 +136,28 @@ export default function MoreScreen(): React.ReactElement {
     (href: Href) => () => router.push(href),
     [router],
   );
+
+  // Provider row has three states. Approved providers switch into the provider
+  // dashboard (its own tab group); everyone else opens the customer-side
+  // provider intro / application-status screen.
+  const isApprovedProvider = isProvider && providerVerification === 'approved';
+
+  const switchToProvider = useCallback((): void => {
+    setActiveMode('provider');
+    router.replace('/(provider-tabs)/jobs');
+  }, [setActiveMode, router]);
+
+  const providerRowLabel = !isProvider
+    ? 'Become a Provider'
+    : isApprovedProvider
+      ? 'Switch to Provider Dashboard'
+      : 'Provider Application';
+
+  const providerRowSubtitle = !isProvider
+    ? 'Earn by detailing cars near you'
+    : isApprovedProvider
+      ? 'Jobs, earnings & your profile'
+      : 'Finish vetting to go live';
 
   const handleSignOut = useCallback(async (): Promise<void> => {
     setSigningOut(true);
@@ -252,13 +279,11 @@ export default function MoreScreen(): React.ReactElement {
             palette={palette}
             isDark={isDark}
             icon={<Wrench size={20} color={iconColor} strokeWidth={2} />}
-            label={isProvider ? 'Provider Dashboard' : 'Become a Provider'}
-            subtitle={
-              isProvider
-                ? 'Jobs, earnings & your profile'
-                : 'Earn by detailing cars near you'
+            label={providerRowLabel}
+            subtitle={providerRowSubtitle}
+            onPress={
+              isApprovedProvider ? switchToProvider : go('/(tabs)/more/provider')
             }
-            onPress={go('/(tabs)/more/provider')}
             testID="more-provider"
           />
         </View>

@@ -1,0 +1,204 @@
+# quote-flow.yaml
+#
+# Quote-first booking, customer side (Blueprint/quote_first_booking.md §3):
+#   Search → Provider → Book (services, details + photos, arrival window)
+#   → Review → save a card (SetupIntent: no hold, no charge) → "Waiting for your
+#   price"
+#
+# …and, once the provider has quoted (quote-flow-provider.yaml, or
+# `node scripts/verify-quote-flow.mjs --keep`, which leaves a quoted request
+# behind), the approval: "Your price is ready" → Review Quote → Approve. The
+# deposit is charged off-session to the saved card, so no payment sheet opens.
+#
+# Preconditions:
+#   • Customer session for test@carapp.dev (auth-flow.yaml, or a seeded session)
+#   • npm run seed:e2e — the seeded provider offers Full Detail (premium tier,
+#     with a Ceramic Boost add-on)
+#   • Stripe test mode; card 4242 4242 4242 4242 saves without 3-D Secure
+#
+# Maestro cannot switch accounts inside one run, so the provider's quote is a
+# separate flow. Run order: this file's first half, then
+# quote-flow-provider.yaml, then this file again (the second half finds the
+# quoted request).
+#
+# Run: maestro test e2e/quote-flow.yaml
+
+appId: com.emre.carapp
+tags:
+  - booking
+  - quote
+---
+
+- launchApp
+
+- extendedWaitUntil:
+    visible:
+      text: "Find a Provider"
+    timeout: 10000
+
+- tapOn:
+    text: "Detailing"
+
+- extendedWaitUntil:
+    visible:
+      text: "provider"
+    timeout: 10000
+
+- tapOn:
+    index: 0
+    childOf:
+      text: "provider"
+
+- extendedWaitUntil:
+    visible:
+      text: "Book Now"
+    timeout: 8000
+
+- tapOn:
+    text: "Book Now"
+
+# ── Step 1: Services — tiered, with a price range ─────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Select Services"
+    timeout: 8000
+
+- tapOn:
+    text: "Full Detail"
+
+- assertVisible: "Premium"
+
+# The add-on appears only once its main service is selected.
+- assertVisible: "Add-ons"
+- tapOn:
+    text: "Ceramic Boost"
+
+- tapOn:
+    text: "Continue"
+
+# ── Step 2: Details — vehicle, condition, photos, window ──────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Your Vehicle"
+    timeout: 5000
+
+- tapOn:
+    index: 0
+    childOf:
+      text: "Your Vehicle"
+
+- scrollUntilVisible:
+    element:
+      text: "Photos of your car"
+    direction: DOWN
+
+# Photos are optional (the provider can ask for more). Camera capture is not
+# automatable, so this flow asserts the uploader is offered and moves on.
+- assertVisible:
+    id: "intake-add-photo"
+
+- tapOn:
+    accessibilityLabel: "Service address"
+- clearText
+- inputText: "1600 Tysons Blvd, McLean, VA 22102"
+
+- scrollUntilVisible:
+    element:
+      text: "Morning"
+    direction: DOWN
+- tapOn:
+    text: "Morning"
+
+- tapOn:
+    text: "Continue"
+
+# ── Step 3: Review — nothing is charged ───────────────────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Review Your Booking"
+    timeout: 5000
+
+- scrollUntilVisible:
+    element:
+      text: "You won't be charged until you approve your final price"
+    direction: DOWN
+
+- tapOn:
+    text: "Send Request"
+
+# ── Save a card (setup mode — the sheet says "Save card", not "Pay") ──
+
+- extendedWaitUntil:
+    visible:
+      text: "Save card"
+    timeout: 15000
+
+- tapOn:
+    text: "Card number"
+- inputText: "4242424242424242"
+- tapOn:
+    text: "MM / YY"
+- inputText: "12/30"
+- tapOn:
+    text: "CVC"
+- inputText: "123"
+- tapOn:
+    text: "ZIP"
+- inputText: "22102"
+
+- tapOn:
+    text: "Save card"
+
+# ── The request exists and is waiting on the provider ─────────────────
+
+- extendedWaitUntil:
+    visible:
+      text: "Waiting for your price"
+    timeout: 15000
+
+- assertVisible: "Cancel Request"
+
+---
+
+# ── Second half: approve the quote (after quote-flow-provider.yaml) ───
+
+- launchApp
+
+- tapOn:
+    text: "Bookings"
+
+- extendedWaitUntil:
+    visible:
+      text: "Quote Ready"
+    timeout: 10000
+
+- tapOn:
+    text: "Quote Ready"
+
+- extendedWaitUntil:
+    visible:
+      text: "Your price is ready"
+    timeout: 8000
+
+- tapOn:
+    text: "Review Quote"
+
+- extendedWaitUntil:
+    visible:
+      id: "quote-approval-total"
+    timeout: 8000
+
+- tapOn:
+    text: "Approve & Pay Deposit"
+
+# The saved card is charged off-session: no payment sheet opens. The booking
+# shows "Deposit processing" until stripe-events confirms it — the client never
+# asserts the payment succeeded.
+
+- extendedWaitUntil:
+    visible:
+      text: "Deposit processing|Confirmed"
+    timeout: 20000

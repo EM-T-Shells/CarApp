@@ -44,6 +44,28 @@ export function ProviderDetail() {
       setError(error ?? 'Action failed');
       return;
     }
+    // Reflect the decision locally so the Status header and Vetting table update
+    // immediately — the server has already persisted it (approve flips every
+    // vetting doc to 'approved'; reject leaves the per-doc statuses as-is).
+    setProvider((prev) =>
+      prev
+        ? {
+            ...prev,
+            verification_status: data.verification_status,
+            provider_vetting:
+              action === 'approve' && prev.provider_vetting
+                ? prev.provider_vetting.map((v) => ({
+                    ...v,
+                    identity_status: 'approved',
+                    background_status: 'approved',
+                    insurance_status: 'approved',
+                    credentials_status: 'approved',
+                    bank_status: 'approved',
+                  }))
+                : prev.provider_vetting,
+          }
+        : prev,
+    );
     const emailNote = data.email.ok ? 'email sent' : `email not sent (${data.email.error})`;
     setResult(`Provider ${data.verification_status} — ${emailNote}.`);
   }

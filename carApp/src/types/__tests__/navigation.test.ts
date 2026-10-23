@@ -1,6 +1,7 @@
 import type {
   ProviderDetailParams,
   BookProviderParams,
+  ServiceProvidersParams,
   BookingDetailParams,
   BookingTrackingParams,
   MessageThreadParams,
@@ -24,6 +25,16 @@ describe('Navigation param types', () => {
     const params: BookProviderParams = { providerId: 'provider-456' }
     expect(params).toEqual({ providerId: 'provider-456' })
     expect(Object.keys(params)).toEqual(['providerId'])
+  })
+
+  it('ServiceProvidersParams has catalogId and optional name', () => {
+    const params: ServiceProvidersParams = {
+      catalogId: 'cat-123',
+      name: 'Full Detail',
+    }
+    expect(params).toEqual({ catalogId: 'cat-123', name: 'Full Detail' })
+    const minimal: ServiceProvidersParams = { catalogId: 'cat-123' }
+    expect(Object.keys(minimal)).toEqual(['catalogId'])
   })
 
   it('BookingDetailParams has id: string', () => {

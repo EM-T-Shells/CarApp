@@ -38,13 +38,5 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# Test files (exclude unless in a testing session)
-**/__tests__/
-**/*.test.ts
-**/*.test.tsx
-**/*.spec.ts
-**/*.spec.tsx
+# Test output only — test sources stay visible (see .claude/rules/testing.md)
 coverage/
-
-# Generated files — never edit manually
-src/types/supabase.ts

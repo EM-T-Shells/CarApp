@@ -20,16 +20,26 @@ let mockUser: {
   avatar_url: null,
 };
 let mockIsProvider = false;
+let mockProviderVerification: string | null = null;
 
 jest.mock('../../../../src/state/auth', () => ({
-  useAuthStore: (selector: (s: { user: unknown }) => unknown) =>
-    selector({ user: mockUser }),
+  useAuthStore: (
+    selector: (s: { user: unknown; providerVerification: unknown }) => unknown,
+  ) =>
+    selector({ user: mockUser, providerVerification: mockProviderVerification }),
   selectIsProvider: () => mockIsProvider,
 }));
 
+const mockSetActiveMode = jest.fn();
+jest.mock('../../../../src/state/mode', () => ({
+  useModeStore: (selector: (s: { setActiveMode: unknown }) => unknown) =>
+    selector({ setActiveMode: mockSetActiveMode }),
+}));
+
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
 }));
 
 const mockSignOut = jest.fn().mockResolvedValue({ data: true, error: null });
@@ -93,6 +103,7 @@ beforeEach(() => {
     avatar_url: null,
   };
   mockIsProvider = false;
+  mockProviderVerification = null;
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -148,14 +159,42 @@ describe('MoreScreen', () => {
     mockIsProvider = false;
     render(<MoreScreen />);
     expect(screen.getByText('Become a Provider')).toBeTruthy();
-    expect(screen.queryByText('Provider Dashboard')).toBeNull();
+    expect(screen.queryByText('Switch to Provider Dashboard')).toBeNull();
   });
 
-  it('shows "Provider Dashboard" for providers', () => {
+  it('shows "Provider Application" for providers still in vetting', () => {
     mockIsProvider = true;
+    mockProviderVerification = 'pending';
     render(<MoreScreen />);
-    expect(screen.getByText('Provider Dashboard')).toBeTruthy();
+    expect(screen.getByText('Provider Application')).toBeTruthy();
     expect(screen.queryByText('Become a Provider')).toBeNull();
+    expect(screen.queryByText('Switch to Provider Dashboard')).toBeNull();
+  });
+
+  it('opens the provider intro/application screen for a non-approved provider', () => {
+    mockIsProvider = true;
+    mockProviderVerification = 'pending';
+    render(<MoreScreen />);
+    fireEvent.press(screen.getByTestId('more-provider'));
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/more/provider');
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('shows "Switch to Provider Dashboard" for approved providers', () => {
+    mockIsProvider = true;
+    mockProviderVerification = 'approved';
+    render(<MoreScreen />);
+    expect(screen.getByText('Switch to Provider Dashboard')).toBeTruthy();
+    expect(screen.queryByText('Become a Provider')).toBeNull();
+  });
+
+  it('switches into provider mode and replaces into the dashboard when tapped', () => {
+    mockIsProvider = true;
+    mockProviderVerification = 'approved';
+    render(<MoreScreen />);
+    fireEvent.press(screen.getByTestId('more-provider'));
+    expect(mockSetActiveMode).toHaveBeenCalledWith('provider');
+    expect(mockReplace).toHaveBeenCalledWith('/(provider-tabs)/jobs');
   });
 
   it('prompts for confirmation before signing out', () => {

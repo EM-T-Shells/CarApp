@@ -2,6 +2,10 @@
 -- CARAPP — UNIFIED MERGED SCHEMA
 -- ============================================================
 
+-- btree_gist supplies btree operators (`provider_id WITH =`) inside a GiST
+-- index, which is what bookings_no_provider_overlap needs alongside `&&`.
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;
+
 -- PROVIDER TYPES (admin managed)
 CREATE TABLE provider_types (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,7 +98,23 @@ CREATE TABLE provider_profiles (
   bio                 TEXT,
   coverage_area       TEXT,
   mile_radius         NUMERIC(5,2),
+  base_lat            NUMERIC(9,6),          -- geocoded base latitude (from coverage_area/address); powers distance-sorted search
+  base_lng            NUMERIC(9,6),          -- geocoded base longitude
+
   availability        JSONB,                 -- weekly { "mon": true, …, "sun": false }; NULL = not set (Flow 5.2)
+  -- Scheduling buffers (20260818000000). Snapshotted onto each booking at
+  -- insert, so tuning them never rewrites a job already on the calendar.
+  -- Travel time lives in the "after" buffer; there is no routing API in MVP.
+  default_buffer_before_mins INT NOT NULL DEFAULT 15 CHECK (default_buffer_before_mins BETWEEN 0 AND 480),
+  default_buffer_after_mins  INT NOT NULL DEFAULT 30 CHECK (default_buffer_after_mins BETWEEN 0 AND 480),
+  -- Calendar (20260819000000). working_hours supersedes the availability
+  -- booleans above, which stay for older clients; both shapes are read by
+  -- workingHoursFromJson(). Hours are wall-clock, so `timezone` is what keeps
+  -- them from drifting an hour twice a year. trg_validate_provider_schedule
+  -- rejects an unknown IANA zone or a malformed window.
+  timezone            TEXT NOT NULL DEFAULT 'America/New_York',
+  working_hours       JSONB,                 -- {"mon":[{"start":"08:00","end":"18:00"}],"sat":[]}
+  max_jobs_per_day    INT CHECK (max_jobs_per_day IS NULL OR max_jobs_per_day > 0),
   avg_gear_rating     NUMERIC(3,2) DEFAULT 0,
   total_jobs          INT DEFAULT 0,
   kudos_count         INT DEFAULT 0,
@@ -106,6 +126,48 @@ CREATE TABLE provider_profiles (
   approved_at         TIMESTAMPTZ,
   created_at          TIMESTAMPTZ DEFAULT now()
 );
+
+-- Provider profile write surface (20260818120000). "provider_profiles: write
+-- own" scopes writes to the caller's own row correctly, but RLS cannot express
+-- *which columns* — so the owner could write every one of them, including
+-- platform_fee_rate (zero out the platform's cut) and verification_status
+-- (self-approve past all six vetting steps). Column privileges close that; the
+-- policy is unchanged. DELETE is revoked outright: the row is an FK target for
+-- bookings, payouts and service packages.
+REVOKE INSERT, UPDATE, DELETE ON provider_profiles FROM anon, authenticated;
+GRANT INSERT (id, user_id, provider_type_id) ON provider_profiles TO authenticated;
+GRANT UPDATE (bio, coverage_area, mile_radius, base_lat, base_lng, availability,
+              default_buffer_before_mins, default_buffer_after_mins)
+  ON provider_profiles TO authenticated;
+GRANT UPDATE (timezone, working_hours, max_jobs_per_day)
+  ON provider_profiles TO authenticated;
+
+-- PROVIDER TIME OFF (20260819000000)
+-- One-off blocks on a provider's calendar. Advisory in Phase 1 — DayTimeline
+-- surfaces the clash, nothing refuses a booking inside one. Contrast
+-- bookings_no_provider_overlap, which is reserved for what is genuinely
+-- impossible (two jobs at once).
+CREATE TABLE provider_time_off (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id UUID NOT NULL REFERENCES provider_profiles(id) ON DELETE CASCADE,
+  starts_at   TIMESTAMPTZ NOT NULL,
+  ends_at     TIMESTAMPTZ NOT NULL,
+  reason      TEXT,                          -- provider's private note; do NOT expose to customers
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT provider_time_off_ends_after_start CHECK (ends_at > starts_at),
+  blocked_range TSTZRANGE GENERATED ALWAYS AS (tstzrange(starts_at, ends_at, '[)')) STORED,
+  -- Overlapping blocks are always a double-submit, never a meaningful state.
+  CONSTRAINT provider_time_off_no_overlap
+    EXCLUDE USING gist (provider_id WITH =, blocked_range WITH &&)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_time_off_provider_range
+  ON provider_time_off USING gist (provider_id, blocked_range);
+
+REVOKE INSERT, UPDATE, DELETE ON provider_time_off FROM anon, authenticated;
+GRANT INSERT (id, provider_id, starts_at, ends_at, reason) ON provider_time_off TO authenticated;
+GRANT UPDATE (starts_at, ends_at, reason) ON provider_time_off TO authenticated;
+GRANT DELETE ON provider_time_off TO authenticated;
 
 -- PROVIDER VETTING
 CREATE TABLE provider_vetting (
@@ -205,9 +267,81 @@ CREATE TABLE bookings (
   scheduled_at     TIMESTAMPTZ NOT NULL,
   started_at       TIMESTAMPTZ,
   completed_at     TIMESTAMPTZ,
+
+  -- Duration (20260817000000). estimated_duration_mins is what the provider
+  -- commits to; the client cannot write it — trg_derive_booking_amounts sums it
+  -- from service_packages. actual_duration_mins is stamped on completion by
+  -- trg_stamp_actual_duration and feeds calibration.
+  estimated_duration_mins INT CHECK (estimated_duration_mins IS NULL OR estimated_duration_mins > 0),
+  actual_duration_mins    INT CHECK (actual_duration_mins IS NULL OR actual_duration_mins >= 0),
+  -- Ready-by time. Keys off started_at once the job begins, so a late start
+  -- reports a late finish, and includes the provider's reported delay
+  -- (20260823000000). NULL without a duration — an ETC equal to the start
+  -- would read as "ready immediately".
+  estimated_completion_at TIMESTAMPTZ GENERATED ALWAYS AS (
+    CASE WHEN estimated_duration_mins IS NULL THEN NULL
+         ELSE timezone('UTC', timezone('UTC', COALESCE(started_at, scheduled_at))
+                              + make_interval(mins => estimated_duration_mins + running_late_mins))
+    END
+  ) STORED,
+
+  -- Live ETC (20260823000000). How far behind plan the provider says the job
+  -- is, written only by stripe-webhook's report_delay; cleared by
+  -- trg_reset_running_late_on_start when started_at is set. eta_notified_* is
+  -- what the customer was last pushed, for the materiality / dedupe rules.
+  running_late_mins          INT NOT NULL DEFAULT 0 CHECK (running_late_mins BETWEEN 0 AND 720),
+  eta_notified_at            TIMESTAMPTZ,
+  eta_notified_completion_at TIMESTAMPTZ,
+
+  -- Scheduling buffers + occupancy (20260818000000). Buffers are snapshotted
+  -- from the provider's defaults by trg_snapshot_booking_buffers; legacy rows
+  -- are 0. occupied_range keys off scheduled_at, NOT started_at, so a late
+  -- start cannot slide a committed slot into the next job — see the migration.
+  buffer_before_mins INT CHECK (buffer_before_mins IS NULL OR buffer_before_mins >= 0),
+  buffer_after_mins  INT CHECK (buffer_after_mins IS NULL OR buffer_after_mins >= 0),
+  occupied_range   TSTZRANGE GENERATED ALWAYS AS (
+    tstzrange(
+      timezone('UTC', timezone('UTC', scheduled_at)
+                      - make_interval(mins => COALESCE(buffer_before_mins, 0))),
+      timezone('UTC', timezone('UTC', scheduled_at)
+                      + make_interval(mins => COALESCE(estimated_duration_mins, 0)
+                                              + COALESCE(buffer_after_mins, 0))),
+      '[)'
+    )
+  ) STORED,
+
   created_at       TIMESTAMPTZ DEFAULT now(),
-  updated_at       TIMESTAMPTZ DEFAULT now()
+  updated_at       TIMESTAMPTZ DEFAULT now(),
+
+  -- A provider cannot hold two committed bookings whose occupied ranges
+  -- overlap (20260818000000). pending / pending_provider_approval are excluded
+  -- deliberately: several customers may request the same window and the first
+  -- accept wins. Raises 23P01, surfaced as "That time was just taken."
+  -- Requires btree_gist for `provider_id WITH =`.
+  CONSTRAINT bookings_no_provider_overlap EXCLUDE USING gist (
+    provider_id WITH =,
+    occupied_range WITH &&
+  ) WHERE (status IN ('confirmed', 'en_route', 'in_progress'))
 );
+
+-- Booking write surface (20260817120000 / 20260817140000). RLS has no column
+-- granularity, so the client's vocabulary is fixed by column privileges and
+-- two SECURITY INVOKER triggers, both of which live in those migrations:
+--   trg_derive_booking_amounts        prices every client insert server-side
+--   trg_enforce_booking_status_transition  pins clients to three transitions
+--   trg_snapshot_booking_buffers      copies the provider's buffers onto a row
+--   trg_stamp_actual_duration         stamps actual_duration_mins on completion
+--   trg_reset_running_late_on_start   clears the reported delay when the job starts
+-- The client can state who/what/when/where and never an amount or a buffer.
+-- Phase 2–4 columns and grants (intake, quotes, adjustments, live ETC) are
+-- defined in their migrations, which are the source of truth for them; see
+-- 20260820000000 through 20260823000000. bookings is published to Realtime
+-- (supabase_realtime) so the customer's screen follows its own row.
+REVOKE INSERT, UPDATE ON bookings FROM anon, authenticated;
+GRANT INSERT (id, customer_id, provider_id, vehicle_id, package_id, services,
+              status, scheduled_at, service_address, location_lat, location_lng,
+              notes) ON bookings TO authenticated;
+GRANT UPDATE (scheduled_at, status, started_at) ON bookings TO authenticated;
 
 -- Auto-cancel sweep (expire_pending_approvals) scans expired approvals; index the hot path.
 CREATE INDEX IF NOT EXISTS idx_bookings_pending_approval_expiry
@@ -373,9 +507,9 @@ WITH seed_data(name, category, type_name) AS (
     ('Ceramic Coating',         'detailing',  'DETAILER'),
     ('Headlight Restoration',   'detailing',  'DETAILER'),
     ('Engine Bay Cleaning',     'detailing',  'DETAILER'),
-    ('Pet Hair Removal',        'addon',      'DETAILER'),
-    ('Odor Removal',            'addon',      'DETAILER'),
-    ('Leather Conditioning',    'addon',      'DETAILER'),
+    ('Pet Hair Removal',        'detailing',  'DETAILER'),
+    ('Odor Removal',            'detailing',  'DETAILER'),
+    ('Leather Conditioning',    'detailing',  'DETAILER'),
     ('Oil Change',              'mechanical', 'MECHANIC'),
     ('Tire Rotation',           'mechanical', 'MECHANIC'),
     ('Brake Pad Replacement',   'mechanical', 'MECHANIC'),
@@ -388,8 +522,8 @@ WITH seed_data(name, category, type_name) AS (
     ('Wiper Blade Replacement', 'mechanical', 'MECHANIC'),
     ('Headlight Bulb Replacement','mechanical','MECHANIC'),
     ('Pre-Purchase Inspection', 'mechanical', 'MECHANIC'),
-    ('Fluid Top-Up',            'addon',      'MECHANIC'),
-    ('Tire Pressure Check',     'addon',      'MECHANIC')
+    ('Fluid Top-Up',            'mechanical', 'MECHANIC'),
+    ('Tire Pressure Check',     'mechanical', 'MECHANIC')
 )
 INSERT INTO service_catalog (name, category, provider_type_id, is_active)
 SELECT s.name, s.category, pt.id, TRUE
@@ -403,6 +537,7 @@ LEFT JOIN provider_types pt ON pt.name = s.type_name;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE provider_time_off ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_vetting ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_catalog ENABLE ROW LEVEL SECURITY;
@@ -456,6 +591,18 @@ CREATE POLICY "provider_profiles: read approved" ON provider_profiles
 
 CREATE POLICY "provider_profiles: write own" ON provider_profiles
   FOR ALL USING (auth.uid() = user_id);
+
+-- Time off is provider-only for now. The customer-facing availability query
+-- (getAvailableWindows) arrives with ArrivalWindowPicker in Phase 3 and needs
+-- its own read path — one that does NOT expose `reason`.
+CREATE POLICY "provider_time_off: manage own" ON provider_time_off
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM provider_profiles pp
+       WHERE pp.id = provider_time_off.provider_id
+         AND pp.user_id = auth.uid()
+    )
+  );
 
 -- Admins read every provider (any verification_status) for the vetting queue.
 CREATE POLICY "provider_profiles: admin read all" ON provider_profiles
@@ -635,4 +782,67 @@ CREATE POLICY "location_cache: provider update own" ON provider_location_cache
     auth.uid() = (
       SELECT user_id FROM provider_profiles WHERE id = provider_id
     )
+  );
+
+-- ============================================================================
+-- STORAGE BUCKETS + POLICIES
+-- Mirrors migration 20260713000000_storage_buckets.sql. Three buckets back the
+-- upload paths in src/lib/supabase/storage.ts. All uploads are constrained to
+-- image mime types (jpeg/png/webp) and 10 MB at the bucket level.
+-- ============================================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES
+  ('avatars',           'avatars',           true,  10485760, ARRAY['image/jpeg','image/png','image/webp']),
+  ('booking-photos',    'booking-photos',    false, 10485760, ARRAY['image/jpeg','image/png','image/webp']),
+  ('vetting-documents', 'vetting-documents', false, 10485760, ARRAY['image/jpeg','image/png','image/webp'])
+ON CONFLICT (id) DO UPDATE
+  SET public             = EXCLUDED.public,
+      file_size_limit    = EXCLUDED.file_size_limit,
+      allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- AVATARS — public read; a user writes only their own `{userId}.{ext}` object.
+CREATE POLICY "avatars: public read" ON storage.objects
+  FOR SELECT USING (bucket_id = 'avatars');
+
+CREATE POLICY "avatars: owner insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%');
+
+CREATE POLICY "avatars: owner update" ON storage.objects
+  FOR UPDATE TO authenticated
+  USING (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%')
+  WITH CHECK (bucket_id = 'avatars' AND name LIKE auth.uid()::text || '.%');
+
+-- BOOKING-PHOTOS — participants only. First path segment is the booking id; a
+-- participant is the booking's customer or the user behind its provider_profile.
+CREATE POLICY "booking-photos: participant read" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'booking-photos' AND EXISTS (
+      SELECT 1 FROM bookings b
+      LEFT JOIN provider_profiles p ON p.id = b.provider_id
+      WHERE b.id::text = (storage.foldername(name))[1]
+        AND (b.customer_id = auth.uid() OR p.user_id = auth.uid())
+    )
+  );
+
+CREATE POLICY "booking-photos: participant insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'booking-photos' AND EXISTS (
+      SELECT 1 FROM bookings b
+      LEFT JOIN provider_profiles p ON p.id = b.provider_id
+      WHERE b.id::text = (storage.foldername(name))[1]
+        AND (b.customer_id = auth.uid() OR p.user_id = auth.uid())
+    )
+  );
+
+-- VETTING-DOCUMENTS — a provider may INSERT only under their own `{userId}/`
+-- folder. No SELECT policy: reads are service-role only (admin-review-provider).
+CREATE POLICY "vetting-documents: owner insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'vetting-documents'
+    AND (storage.foldername(name))[1] = auth.uid()::text
   );

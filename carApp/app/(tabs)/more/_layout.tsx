@@ -2,6 +2,10 @@
 // nested under the single More tab instead of leaking into the bottom tab bar
 // as separate tabs. index renders its own header so headerShown is false there.
 // (Ops admin is a separate web app in /admin, not a screen here.)
+//
+// The provider dashboard's own screens (jobs, earnings, services/availability)
+// live in the (provider-tabs) group, not here — this stack only hosts the
+// customer-facing "Become a Provider" intro / application status (provider.tsx).
 
 import React from 'react';
 import { useColorScheme } from 'react-native';
@@ -25,8 +29,6 @@ export default function MoreLayout(): React.ReactElement {
       <Stack.Screen name="account" options={{ title: 'Account' }} />
       <Stack.Screen name="lug" options={{ title: 'Lug' }} />
       <Stack.Screen name="provider" options={{ title: 'Provider' }} />
-      <Stack.Screen name="provider-manage" options={{ title: 'Services & Availability' }} />
-      <Stack.Screen name="provider-earnings" options={{ title: 'Earnings' }} />
       <Stack.Screen name="settings" options={{ title: 'Settings' }} />
     </Stack>
   );

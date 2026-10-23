@@ -1,9 +1,12 @@
-// (tabs)/more/provider-earnings.tsx — provider earnings + kudos (Flows 5.7 / 5.8).
+// (provider-tabs)/earnings — provider earnings + kudos (Flows 5.7 / 5.8).
 //
 // Hosts the EarningsDashboard (payout summary + history) and a read-only Kudos
-// history (badges customers have awarded). Reached from the provider dashboard
-// (More → Provider). Earnings come from the payouts table; kudos from the kudos
-// table keyed by the provider's user id.
+// history (badges customers have awarded). This is the Earnings tab root in the
+// provider dashboard. Earnings come from the payouts table; kudos from the
+// kudos table keyed by the provider's user id.
+//
+// Moved from (tabs)/more/provider-earnings.tsx when the provider dashboard got
+// its own tab bar — it now renders its own header instead of a Stack header.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -13,7 +16,7 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../../src/components/ui/Text';
 import { Button } from '../../../src/components/ui/Button';
 import { Card } from '../../../src/components/ui/Card';
@@ -62,20 +65,34 @@ export default function ProviderEarningsScreen(): React.ReactElement {
 
   if (loading) {
     return (
-      <>
-        <Stack.Screen options={{ title: 'Earnings' }} />
-        <View style={[styles.centered, { backgroundColor: palette.offWhite }]}>
+      <SafeAreaView
+        style={[styles.safe, { backgroundColor: palette.offWhite }]}
+        edges={['top']}
+      >
+        <View style={styles.header}>
+          <Text variant="heading" color="charcoal">
+            Earnings
+          </Text>
+        </View>
+        <View style={styles.centered}>
           <ActivityIndicator size="large" color={palette.electricBlue} />
         </View>
-      </>
+      </SafeAreaView>
     );
   }
 
   if (error || !providerId) {
     return (
-      <>
-        <Stack.Screen options={{ title: 'Earnings' }} />
-        <View style={[styles.centered, { backgroundColor: palette.offWhite }]}>
+      <SafeAreaView
+        style={[styles.safe, { backgroundColor: palette.offWhite }]}
+        edges={['top']}
+      >
+        <View style={styles.header}>
+          <Text variant="heading" color="charcoal">
+            Earnings
+          </Text>
+        </View>
+        <View style={styles.centered}>
           <Text variant="subheading" color="charcoal">
             Couldn&apos;t load earnings
           </Text>
@@ -86,13 +103,20 @@ export default function ProviderEarningsScreen(): React.ReactElement {
           <Spacer size="lg" />
           <Button label="Retry" variant="primary" size="md" onPress={load} />
         </View>
-      </>
+      </SafeAreaView>
     );
   }
 
   return (
-    <>
-      <Stack.Screen options={{ title: 'Earnings' }} />
+    <SafeAreaView
+      style={[styles.safe, { backgroundColor: palette.offWhite }]}
+      edges={['top']}
+    >
+      <View style={styles.header}>
+        <Text variant="heading" color="charcoal">
+          Earnings
+        </Text>
+      </View>
       <ScrollView
         style={{ backgroundColor: palette.offWhite }}
         contentContainerStyle={styles.content}
@@ -117,12 +141,23 @@ export default function ProviderEarningsScreen(): React.ReactElement {
           </Card>
         )}
       </ScrollView>
-    </>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.base },
+  safe: { flex: 1 },
+  header: {
+    paddingHorizontal: spacing.base,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.base,
+  },
   centeredText: { textAlign: 'center', maxWidth: 300 },
   content: { padding: spacing.base, paddingBottom: spacing['3xl'] },
 });
