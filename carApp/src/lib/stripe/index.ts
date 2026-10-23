@@ -3,8 +3,11 @@
 // calls. The app never touches Stripe secret keys directly.
 //
 // Flow:
-//   1. createDepositPaymentIntent — called when customer confirms booking.
-//      Returns a client secret for the 15% deposit charge.
+//   0. createSetupIntent + presentCardSetupSheet + confirmSetupIntent — the
+//      quote-first request saves the customer's card (no hold, no charge).
+//      acceptQuote later charges the deposit off-session against it.
+//   1. createDepositPaymentIntent — the deposit PaymentIntent, for bookings
+//      with no saved card or whose off-session charge was refused.
 //   2. presentDepositPaymentSheet — opens Stripe's PaymentSheet against that
 //      client secret to collect the card and confirm the charge.
 //   3. captureBalance — invoked when a provider marks a job complete (Flow 5.6).
@@ -31,6 +34,37 @@ const PAYMENT_RETURN_URL = 'carapp://stripe-redirect';
 export type StripeResult<T> =
   | { data: T; error: null }
   | { data: null; error: Error };
+
+// ── Edge Function Error Bodies ────────────────────────────────────────
+
+/**
+ * supabase.functions.invoke collapses every non-2xx into a bare "Edge Function
+ * returned a non-2xx status code" and leaves the response itself on the error's
+ * `context`. The function's own message is the useful half — "that time
+ * overlaps a job you have already confirmed" rather than a status code — so
+ * read it back out when it is there, and fall back otherwise.
+ */
+async function readFunctionError(
+  error: unknown,
+  fallback: string,
+): Promise<Error> {
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    try {
+      const body: unknown = await context.clone().json();
+      const message = (body as { error?: unknown })?.error;
+      if (typeof message === 'string' && message.length > 0) {
+        return new Error(message);
+      }
+    } catch {
+      // Body was not JSON, or was already consumed. Fall through.
+    }
+  }
+  const message = (error as { message?: unknown })?.message;
+  return new Error(
+    typeof message === 'string' && message.length > 0 ? message : fallback,
+  );
+}
 
 // ── Edge Function Response Shapes ─────────────────────────────────────
 
@@ -77,7 +111,7 @@ export async function createDepositPaymentIntent(
     );
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Stripe Edge Function error') };
+      return { data: null, error: await readFunctionError(error, 'Stripe Edge Function error') };
     }
 
     const response = data as CreatePaymentIntentResponse;
@@ -200,7 +234,7 @@ export async function captureBalance(
     if (error) {
       return {
         data: null,
-        error: new Error(error.message ?? 'Balance capture failed'),
+        error: await readFunctionError(error, 'Balance capture failed'),
       };
     }
 
@@ -248,7 +282,7 @@ export async function refundDeposit(
     );
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Refund failed') };
+      return { data: null, error: await readFunctionError(error, 'Refund failed') };
     }
 
     return { data: data as RefundDepositResponse, error: null };
@@ -294,7 +328,7 @@ export async function cancelBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+      return { data: null, error: await readFunctionError(error, 'Cancellation failed') };
     }
 
     const response = data as CancelBookingResponse;
@@ -324,7 +358,7 @@ export async function providerCancelBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Cancellation failed') };
+      return { data: null, error: await readFunctionError(error, 'Cancellation failed') };
     }
 
     const response = data as CancelBookingResponse;
@@ -358,7 +392,7 @@ export async function markNoShow(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Failed to mark no-show') };
+      return { data: null, error: await readFunctionError(error, 'Failed to mark no-show') };
     }
 
     const response = data as MarkNoShowResponse;
@@ -406,7 +440,11 @@ export async function acceptBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Accept failed') };
+      // Two different 409s land here and the provider needs to tell them
+      // apart: the window closed, or the slot is now double-booked. Only the
+      // Edge Function knows which, so surface its message rather than the
+      // generic invoke() one.
+      return { data: null, error: await readFunctionError(error, 'Accept failed') };
     }
 
     const response = data as AcceptBookingResponse;
@@ -436,7 +474,7 @@ export async function declineBooking(
     });
 
     if (error) {
-      return { data: null, error: new Error(error.message ?? 'Decline failed') };
+      return { data: null, error: await readFunctionError(error, 'Decline failed') };
     }
 
     const response = data as DeclineBookingResponse;
@@ -450,4 +488,469 @@ export async function declineBooking(
       error: err instanceof Error ? err : new Error(String(err)),
     };
   }
+}
+
+// ── Provider quote (Phase 3 / Blueprint/quote_first_booking.md §3) ─────
+//
+// The provider prices an unpriced request: an exact start inside the window the
+// customer asked for, a duration they commit to, and optional itemised
+// surcharges. Nothing is charged — §2 locked "nothing charged until the
+// customer approves the final price" — so this only moves the booking to
+// pending_customer_approval.
+//
+// It runs server-side because it has to: a price and a duration are both
+// outside the client's write surface on bookings, deliberately (§4).
+
+export interface QuoteLineItem {
+  label: string;
+  /** Integer cents. JSONB has no exact decimal — see migration 20260821000000. */
+  amount_cents: number;
+}
+
+export interface SubmitQuoteInput {
+  bookingId: string;
+  /** Exact start, inside the customer's arrival window when they gave one. */
+  scheduledAt: string;
+  estimatedDurationMins: number;
+  lineItems?: QuoteLineItem[];
+}
+
+export interface SubmitQuoteResponse {
+  ok: boolean;
+  status?: string;
+  scheduled_at?: string;
+  estimated_duration_mins?: number;
+  /** The server's total, in cents. Never computed on the client. */
+  quoted_total_cents?: number;
+  quote_line_items?: QuoteLineItem[];
+}
+
+/**
+ * Provider submits a quote for a request awaiting one. The quoted total comes
+ * back from the server rather than being computed here: the client states the
+ * surcharges as intent, and the base it adds to is the row's derived
+ * total_amount, which the client has never been able to see or set.
+ */
+export async function submitQuote(
+  input: SubmitQuoteInput,
+): Promise<StripeResult<SubmitQuoteResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: {
+        action: 'submit_quote',
+        booking_id: input.bookingId,
+        scheduled_at: input.scheduledAt,
+        estimated_duration_mins: input.estimatedDurationMins,
+        quote_line_items: input.lineItems ?? [],
+      },
+    });
+
+    if (error) {
+      // Several distinct failures land here and the provider needs to tell them
+      // apart — a start outside the window, a duration out of range, a request
+      // the customer already cancelled. Only the Edge Function knows which, and
+      // invoke() would otherwise flatten all of them to "non-2xx status code".
+      return { data: null, error: await readFunctionError(error, 'Could not send the quote') };
+    }
+
+    const response = data as SubmitQuoteResponse;
+    if (!response?.ok) {
+      return { data: null, error: new Error('This request is no longer awaiting a quote') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+// ── Customer approves the quote (Phase 3 / spec §3, §5) ───────────────
+//
+// The counterpart to submitQuote. Approving turns the provider's proposal into
+// the amount owed: the server writes total_amount, deposit_amount, platform_fee
+// and provider_payout, and the booking returns to 'pending' — meaning it exists
+// and nothing has been charged.
+//
+// Approval alone collects no money. The response says what is owed via
+// `next: 'requires_deposit'`, and the caller must then run the existing deposit
+// flow (createDepositPaymentIntent → presentDepositPaymentSheet). Per the
+// payment rules the client never asserts that a payment succeeded; only the
+// signed Stripe event handler moves a paid booking onward.
+
+/**
+ * What the client does after approving, named by the server rather than
+ * inferred:
+ *   • deposit_processing — the saved card was charged off-session; the booking
+ *     confirms when stripe-events hears the charge landed. Nothing to open.
+ *   • requires_deposit   — no saved card, or the charge was refused; open the
+ *     PaymentSheet through createDepositPaymentIntent.
+ *   • none               — a deposit was already paid; the booking confirmed.
+ */
+export type AcceptQuoteNext = 'deposit_processing' | 'requires_deposit' | 'none';
+
+export interface AcceptQuoteResponse {
+  ok: boolean;
+  status?: string;
+  next?: AcceptQuoteNext;
+  /**
+   * Set when the saved card was tried and refused. Shown before the
+   * PaymentSheet so the customer knows why they are being asked for a card.
+   */
+  charge_error?: string;
+  /** The approved total, in cents. Server-derived. */
+  total_cents?: number;
+  /** What the deposit will be, in cents. Not a receipt — nothing is charged yet. */
+  deposit_cents?: number;
+}
+
+/**
+ * Customer approves the quote on a booking in pending_customer_approval.
+ *
+ * The amounts come back from the server rather than being computed here for the
+ * same reason submitQuote's do: total_amount and deposit_amount are outside the
+ * client's write surface on bookings (§4), and the deposit in particular is not
+ * simply 15% of the total on a re-quote — an already-charged deposit is kept as
+ * it stands so the balance still sums to what the customer agreed to.
+ */
+export async function acceptQuote(
+  bookingId: string,
+): Promise<StripeResult<AcceptQuoteResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: {
+        action: 'accept_quote',
+        booking_id: bookingId,
+      },
+    });
+
+    if (error) {
+      // The 409s here are ones the customer must be able to tell apart: the
+      // provider re-quoted while the screen was open, the request was cancelled,
+      // or the re-quote landed below a deposit already taken. invoke() would
+      // flatten all of them to "non-2xx status code".
+      return {
+        data: null,
+        error: await readFunctionError(error, 'Could not approve this quote'),
+      };
+    }
+
+    const response = data as AcceptQuoteResponse;
+    if (!response?.ok) {
+      return {
+        data: null,
+        error: new Error('This quote is no longer awaiting your approval'),
+      };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+// ── Shared invoke for the newer actions ───────────────────────────────
+
+/**
+ * Every Phase 3 action after accept_quote has the same contract: 2xx with
+ * `ok: true` on success, a JSON `{ error }` body otherwise. The message on the
+ * body is the one the person needs ("that time overlaps another job"), so it
+ * is read back rather than flattened to invoke()'s generic non-2xx string.
+ */
+async function invokeAction<T extends { ok: boolean }>(
+  body: Record<string, unknown>,
+  fallback: string,
+): Promise<StripeResult<T>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', { body });
+    if (error) {
+      return { data: null, error: await readFunctionError(error, fallback) };
+    }
+    const response = data as T;
+    if (!response?.ok) {
+      return { data: null, error: new Error(fallback) };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+// ── Save the card at request time (spec §2, §5) ───────────────────────
+//
+// "Card saved at request, no hold, no charge." The request row exists first
+// (the SetupIntent is recorded on it), then PaymentSheet opens in setup mode.
+// Only a Stripe-verified saved card turns the row into a request the provider
+// is told about — see confirmSetupIntent.
+
+export interface CreateSetupIntentResponse {
+  clientSecret: string;
+  setupIntentId: string;
+  customerId?: string;
+  ephemeralKeySecret?: string;
+}
+
+export async function createSetupIntent(
+  bookingId: string,
+): Promise<StripeResult<CreateSetupIntentResponse>> {
+  try {
+    const { data, error } = await supabase.functions.invoke('stripe-webhook', {
+      body: { action: 'create_setup_intent', booking_id: bookingId },
+    });
+    if (error) {
+      return { data: null, error: await readFunctionError(error, 'Could not start saving your card') };
+    }
+    const response = data as CreateSetupIntentResponse;
+    if (!response?.clientSecret) {
+      return { data: null, error: new Error('Invalid response from payment service') };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+/**
+ * Opens PaymentSheet in setup mode: the customer enters or picks a card and
+ * nothing is charged. Same `canceled` contract as presentDepositPaymentSheet —
+ * a dismissed sheet is an outcome, not an error.
+ */
+export async function presentCardSetupSheet(
+  intent: CreateSetupIntentResponse,
+): Promise<StripeResult<DepositPaymentOutcome>> {
+  try {
+    const { error: initError } = await initPaymentSheet({
+      merchantDisplayName: MERCHANT_DISPLAY_NAME,
+      setupIntentClientSecret: intent.clientSecret,
+      ...(intent.customerId && intent.ephemeralKeySecret
+        ? {
+            customerId: intent.customerId,
+            customerEphemeralKeySecret: intent.ephemeralKeySecret,
+          }
+        : {}),
+      // The saved card is charged later with the customer absent, so a method
+      // that settles days later is no use here either.
+      allowsDelayedPaymentMethods: false,
+      primaryButtonLabel: 'Save card',
+      returnURL: PAYMENT_RETURN_URL,
+    });
+
+    if (initError) {
+      return { data: null, error: new Error(initError.message ?? 'Could not open card setup') };
+    }
+
+    const { error: presentError } = await presentPaymentSheet();
+    if (presentError) {
+      if (presentError.code === PaymentSheetError.Canceled) {
+        return { data: { canceled: true }, error: null };
+      }
+      return { data: null, error: new Error(presentError.message ?? 'Card could not be saved') };
+    }
+
+    return { data: { canceled: false }, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
+export interface ConfirmSetupIntentResponse {
+  ok: boolean;
+  card_saved?: boolean;
+}
+
+/**
+ * Asks the server — which asks Stripe — whether the card really was saved, and
+ * on success tells the provider the request is waiting. The sheet closing
+ * without error is not taken as proof of anything.
+ */
+export function confirmSetupIntent(
+  bookingId: string,
+): Promise<StripeResult<ConfirmSetupIntentResponse>> {
+  return invokeAction<ConfirmSetupIntentResponse>(
+    { action: 'confirm_setup_intent', booking_id: bookingId },
+    'Your card has not been saved yet',
+  );
+}
+
+// ── More information (§7 "photos unusable") ───────────────────────────
+
+export interface StatusResponse {
+  ok: boolean;
+  status?: string;
+}
+
+/** Provider sends an unpriced request back to the customer with a note. */
+export function requestMorePhotos(
+  bookingId: string,
+  note: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'request_more_photos', booking_id: bookingId, note },
+    'Could not send the request back',
+  );
+}
+
+/** Customer hands the request back after adding what was asked for. */
+export function provideCustomerInfo(
+  bookingId: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'provide_customer_info', booking_id: bookingId },
+    'Could not send your request back',
+  );
+}
+
+// ── Adjustment (§7 "vehicle worse than declared") ─────────────────────
+
+export interface AdjustJobInput {
+  bookingId: string;
+  estimatedDurationMins: number;
+  /** The extra charges only, integer cents. */
+  lineItems: QuoteLineItem[];
+  reason: string;
+}
+
+export interface AdjustJobResponse extends StatusResponse {
+  adjustment_duration_mins?: number;
+  /** Server-derived. The client never computes the adjusted total. */
+  adjustment_total_cents?: number;
+  adjustment_line_items?: QuoteLineItem[];
+}
+
+/** Provider proposes a new duration and/or extra charges on a confirmed job. */
+export function adjustJobDuration(
+  input: AdjustJobInput,
+): Promise<StripeResult<AdjustJobResponse>> {
+  return invokeAction<AdjustJobResponse>(
+    {
+      action: 'adjust_job_duration',
+      booking_id: input.bookingId,
+      estimated_duration_mins: input.estimatedDurationMins,
+      adjustment_line_items: input.lineItems,
+      reason: input.reason,
+    },
+    'Could not propose the change',
+  );
+}
+
+/** Provider takes back a proposal the customer has not answered. */
+export function withdrawAdjustment(
+  bookingId: string,
+): Promise<StripeResult<StatusResponse>> {
+  return invokeAction<StatusResponse>(
+    { action: 'withdraw_adjustment', booking_id: bookingId },
+    'Could not withdraw the change',
+  );
+}
+
+export interface RespondAdjustmentResponse extends StatusResponse {
+  total_cents?: number;
+  deposit_cents?: number;
+  refund?: unknown;
+}
+
+/**
+ * Customer approves the provider's proposed change, or declines it — which
+ * cancels the booking with a full refund and no fee. Both outcomes are decided
+ * and priced server-side.
+ */
+export function respondAdjustment(
+  bookingId: string,
+  approve: boolean,
+): Promise<StripeResult<RespondAdjustmentResponse>> {
+  return invokeAction<RespondAdjustmentResponse>(
+    { action: 'respond_adjustment', booking_id: bookingId, approve },
+    approve ? 'Could not approve the change' : 'Could not decline the change',
+  );
+}
+
+// ── Reschedule (confirmed bookings, either party) ─────────────────────
+
+export interface ProposeRescheduleResponse {
+  ok: boolean;
+  proposed_scheduled_at?: string;
+  proposed_by?: 'customer' | 'provider';
+}
+
+/** Either party proposes a new start. Nothing moves until the other accepts. */
+export function proposeReschedule(
+  bookingId: string,
+  scheduledAt: string,
+): Promise<StripeResult<ProposeRescheduleResponse>> {
+  return invokeAction<ProposeRescheduleResponse>(
+    { action: 'propose_reschedule', booking_id: bookingId, scheduled_at: scheduledAt },
+    'Could not propose the new time',
+  );
+}
+
+export interface RespondRescheduleResponse {
+  ok: boolean;
+  outcome?: 'accept' | 'decline' | 'withdraw';
+  scheduled_at?: string;
+}
+
+/**
+ * The other party accepts or declines a proposed time; the proposer may only
+ * withdraw (accept = false). The server decides which it is from who calls.
+ */
+export function respondReschedule(
+  bookingId: string,
+  accept: boolean,
+): Promise<StripeResult<RespondRescheduleResponse>> {
+  return invokeAction<RespondRescheduleResponse>(
+    { action: 'respond_reschedule', booking_id: bookingId, accept },
+    'Could not answer the proposed time',
+  );
+}
+
+// ── Running late (Phase 4 — spec §2 "Overruns", §3 "Job day") ─────────
+
+/** A later job the delay reaches, as report_delay planned it. */
+export interface DelayKnockOn {
+  booking_id: string;
+  customer_name: string | null;
+  scheduled_at: string;
+  /** When that job can now start, given this delay and the buffers between. */
+  projected_start_at: string;
+  /** The delay that job should carry for its customer to be told the truth. */
+  required_delay_mins: number;
+  /** The delay it carries now. */
+  current_delay_mins: number;
+}
+
+export interface ReportDelayResponse {
+  ok: boolean;
+  running_late_mins?: number;
+  estimated_completion_at?: string | null;
+  /** Whether the customer was pushed. False inside the dedupe window. */
+  notified?: boolean;
+  affected?: DelayKnockOn[];
+}
+
+/**
+ * Provider says how far behind plan a job is, as an absolute figure (0 is
+ * "back on time"). The server moves the ready-by time, pushes the customer when
+ * it matters, and returns the later jobs the delay now reaches. Nothing about
+ * the provider's committed slots changes.
+ */
+export function reportDelay(
+  bookingId: string,
+  delayMins: number,
+): Promise<StripeResult<ReportDelayResponse>> {
+  return invokeAction<ReportDelayResponse>(
+    { action: 'report_delay', booking_id: bookingId, delay_mins: delayMins },
+    'Could not update the delay',
+  );
 }

@@ -94,3 +94,13 @@ button.danger { background: var(--danger); color: #fff; }
 
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+.nav { display: flex; align-items: center; gap: 16px; }
+.nav h1 { margin: 0; }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table th.num { text-align: right; }
+.warn { color: #f5a524; font-weight: 600; }
+
+.segmented { display: flex; gap: 8px; margin: 16px 0; }
+.segmented button.active { background: var(--primary); color: #fff; }

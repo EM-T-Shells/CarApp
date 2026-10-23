@@ -32,8 +32,9 @@ import {
   getUpcomingBookingsForCustomer,
   type BookingSummary,
 } from '../../../src/lib/supabase/queries';
-import { centsToDisplay } from '../../../src/utils/money';
+import { bookingTotalCents, centsToDisplay } from '../../../src/utils/money';
 import { formatShortDate, formatTime } from '../../../src/utils/date';
+import { formatLateness } from '../../../src/utils/duration';
 
 // ── Status config ──────────────────────────────────────────────────────
 
@@ -44,10 +45,18 @@ interface StatusConfig {
 
 const STATUS_MAP: Record<string, StatusConfig> = {
   pending: { label: 'Pending', colorKey: 'midGray' },
+  // Quote-first states. Each label says who holds the request, because that is
+  // the only thing the customer can act on.
+  pending_provider_quote: { label: 'Awaiting Quote', colorKey: 'midGray' },
+  pending_customer_approval: { label: 'Quote Ready', colorKey: 'gearGold' },
+  awaiting_customer_info: { label: 'Info Needed', colorKey: 'gearGold' },
+  pending_adjustment_approval: { label: 'Change Proposed', colorKey: 'gearGold' },
   confirmed: { label: 'Confirmed', colorKey: 'electricBlue' },
   en_route: { label: 'En Route', colorKey: 'gearGold' },
   in_progress: { label: 'In Progress', colorKey: 'emeraldGreen' },
 };
+
+const UNPRICED_STATUSES: string[] = ['pending_provider_quote', 'awaiting_customer_info'];
 
 function getStatusConfig(status: string): StatusConfig {
   return STATUS_MAP[status] ?? STATUS_MAP['pending'];
@@ -73,9 +82,12 @@ function BookingCard({
   const vehicleLabel = vehicle
     ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
     : null;
+  const totalCents = bookingTotalCents(booking);
 
   const { label: statusLabel, colorKey } = getStatusConfig(booking.status);
   const statusColor = palette[colorKey];
+  // The provider's own report of how far behind they are (Phase 4).
+  const lateness = formatLateness(booking);
 
   return (
     <Card
@@ -123,6 +135,15 @@ function BookingCard({
         </Text>
       </View>
 
+      {lateness ? (
+        <>
+          <Spacer size="xs" />
+          <Text variant="caption" style={{ color: palette.gearGold }} testID="booking-card-lateness">
+            {lateness}
+          </Text>
+        </>
+      ) : null}
+
       {/* Vehicle */}
       {vehicleLabel && (
         <>
@@ -139,12 +160,20 @@ function BookingCard({
 
       <Spacer size="sm" />
 
-      {/* Footer: total + chevron */}
+      {/* Footer: total + chevron. An unpriced request has no total yet — its
+          total_amount is the advertised estimate, not what will be charged.
+          A quote awaiting approval shows the quoted total. */}
       <View style={cardStyles.row}>
-        {booking.total_amount != null && (
-          <Text variant="price" color="charcoal">
-            {centsToDisplay(booking.total_amount)}
+        {UNPRICED_STATUSES.includes(booking.status) ? (
+          <Text variant="bodySmall" color="midGray">
+            Awaiting quote
           </Text>
+        ) : (
+          totalCents != null && (
+            <Text variant="price" color="charcoal">
+              {centsToDisplay(totalCents)}
+            </Text>
+          )
         )}
         <Spacer flex />
         <ChevronRight size={18} color={palette.midGray} strokeWidth={2} />

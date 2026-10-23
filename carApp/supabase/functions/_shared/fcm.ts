@@ -269,3 +269,27 @@ export async function getProviderUserId(
   if (error || !data) return null;
   return (data as { user_id: string | null }).user_id;
 }
+
+/**
+ * Push to one user and record the in-app row, in one call. The three steps
+ * every notify-* function performs per recipient; the newer functions use this
+ * rather than restating them.
+ */
+export async function notifyUser(
+  userId: string,
+  type: string,
+  message: PushMessage,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  const target = await getUserPushTarget(userId);
+  await sendFcm(target ?? { fcm_token: null }, message);
+  await recordNotification(userId, type, message, metadata);
+}
+
+/** JSON response with the shared CORS headers. */
+export function notifyResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}

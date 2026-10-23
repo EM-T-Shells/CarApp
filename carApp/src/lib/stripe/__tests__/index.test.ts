@@ -7,6 +7,8 @@ import {
   cancelBooking,
   providerCancelBooking,
   markNoShow,
+  submitQuote,
+  acceptQuote,
 } from '../index';
 
 // ── Mock supabase.functions.invoke ────────────────────────────────────
@@ -337,6 +339,47 @@ describe('acceptBooking', () => {
     expect(result.data).toBeNull();
     expect(result.error!.message).toBe('boom');
   });
+
+  // The provider loses the race for a slot: another job on their calendar now
+  // overlaps this one, so bookings_no_provider_overlap refuses the transition
+  // and the Edge Function answers 409 with an explanation. invoke() reports
+  // only "non-2xx", so the explanation has to come off the response body or
+  // the provider is told nothing actionable.
+  it('reads the slot-conflict message out of a 409 body', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({
+            error:
+              'That time overlaps a job you have already confirmed. Decline this request or reschedule the other job.',
+            code: 'slot_conflict',
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('overlaps a job you have already confirmed');
+  });
+
+  it('falls back to the invoke message when the body is not JSON', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response('<html>502</html>', { status: 502 }),
+      },
+    });
+
+    const result = await acceptBooking('booking-1');
+
+    expect(result.error!.message).toBe('Edge Function returned a non-2xx status code');
+  });
 });
 
 describe('declineBooking', () => {
@@ -480,5 +523,248 @@ describe('markNoShow', () => {
 
     expect(result.data).toBeNull();
     expect(result.error!.message).toContain('cannot be marked as a no-show');
+  });
+});
+
+describe('submitQuote', () => {
+  const input = {
+    bookingId: 'booking-1',
+    scheduledAt: '2026-08-20T14:00:00.000Z',
+    estimatedDurationMins: 150,
+    lineItems: [{ label: 'SUV', amount_cents: 3000 }],
+  };
+
+  it('invokes submit_quote and returns the server-computed quote', async () => {
+    mockInvoke.mockResolvedValue({
+      data: {
+        ok: true,
+        status: 'pending_customer_approval',
+        scheduled_at: '2026-08-20T14:00:00.000Z',
+        estimated_duration_mins: 150,
+        quoted_total_cents: 23400,
+        quote_line_items: [{ label: 'SUV', amount_cents: 3000 }],
+      },
+      error: null,
+    });
+
+    const result = await submitQuote(input);
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: {
+        action: 'submit_quote',
+        booking_id: 'booking-1',
+        scheduled_at: '2026-08-20T14:00:00.000Z',
+        estimated_duration_mins: 150,
+        quote_line_items: [{ label: 'SUV', amount_cents: 3000 }],
+      },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.status).toBe('pending_customer_approval');
+    // The total is the server's. Nothing here recomputes it.
+    expect(result.data?.quoted_total_cents).toBe(23400);
+  });
+
+  it('sends an empty itemisation when the provider added no surcharges', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: true }, error: null });
+
+    await submitQuote({
+      bookingId: 'booking-1',
+      scheduledAt: '2026-08-20T14:00:00.000Z',
+      estimatedDurationMins: 90,
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: {
+        action: 'submit_quote',
+        booking_id: 'booking-1',
+        scheduled_at: '2026-08-20T14:00:00.000Z',
+        estimated_duration_mins: 90,
+        quote_line_items: [],
+      },
+    });
+  });
+
+  it('errors when the request is no longer awaiting a quote (not ok)', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await submitQuote(input);
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('no longer awaiting a quote');
+  });
+
+  // A start outside the window, a duration out of range and an already-resolved
+  // request are three different fixes for the provider, and invoke() flattens
+  // all of them to "non-2xx status code". The real message is on the body.
+  it('reads a 400 validation message out of the response body', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({
+            error:
+              'The start time is outside the arrival window the customer asked for. Propose a reschedule instead.',
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await submitQuote(input);
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('outside the arrival window');
+  });
+
+  it('reads a 403 out of the response body when the caller is not the provider', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({ error: 'Not authorized to quote this booking' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await submitQuote(input);
+
+    expect(result.error!.message).toBe('Not authorized to quote this booking');
+  });
+
+  it('falls back to a readable message when there is no body to read', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: {} });
+
+    const result = await submitQuote(input);
+
+    expect(result.error!.message).toBe('Could not send the quote');
+  });
+
+  it('handles thrown exceptions', async () => {
+    mockInvoke.mockRejectedValue(new Error('Network failure'));
+
+    const result = await submitQuote(input);
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toBe('Network failure');
+  });
+});
+
+describe('acceptQuote', () => {
+  it('invokes accept_quote and returns the server-derived amounts', async () => {
+    mockInvoke.mockResolvedValue({
+      data: {
+        ok: true,
+        status: 'pending',
+        next: 'requires_deposit',
+        total_cents: 23400,
+        deposit_cents: 3510,
+      },
+      error: null,
+    });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(mockInvoke).toHaveBeenCalledWith('stripe-webhook', {
+      body: { action: 'accept_quote', booking_id: 'booking-1' },
+    });
+    expect(result.error).toBeNull();
+    expect(result.data?.total_cents).toBe(23400);
+    expect(result.data?.deposit_cents).toBe(3510);
+  });
+
+  // Approval is not payment. The booking goes back to 'pending' precisely
+  // because nothing has been charged, and the caller must run the deposit flow
+  // next — the client never asserts a payment succeeded.
+  it('reports that a deposit is still owed rather than a completed charge', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, status: 'pending', next: 'requires_deposit' },
+      error: null,
+    });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.data?.status).toBe('pending');
+    expect(result.data?.next).toBe('requires_deposit');
+    expect(result.data?.status).not.toBe('confirmed');
+  });
+
+  it('errors when the quote is no longer awaiting approval (not ok)', async () => {
+    mockInvoke.mockResolvedValue({ data: { ok: false }, error: null });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('no longer awaiting your approval');
+  });
+
+  // The provider re-quoting while the approval screen is open is the expected
+  // race, and the customer needs the real reason rather than a generic non-2xx.
+  it('reads a 409 out of the response body when the quote moved', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({
+            error: 'A booking in status pending_provider_quote has no quote to approve',
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toContain('has no quote to approve');
+  });
+
+  it('surfaces the re-quote-below-deposit refusal verbatim', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({
+            error:
+              'The approved total is below the deposit already charged. Refund the difference before re-quoting this low.',
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.error!.message).toContain('below the deposit already charged');
+  });
+
+  it('reads a 403 out of the response body when the caller is not the customer', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: new Response(
+          JSON.stringify({ error: 'Not authorized to approve this quote' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        ),
+      },
+    });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.error!.message).toBe('Not authorized to approve this quote');
+  });
+
+  it('falls back to a readable message when there is no body to read', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: {} });
+
+    const result = await acceptQuote('booking-1');
+
+    expect(result.data).toBeNull();
+    expect(result.error!.message).toBe('Could not approve this quote');
   });
 });

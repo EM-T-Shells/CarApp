@@ -72,4 +72,29 @@ describe('availabilityFromJson', () => {
     // 'mon' was a non-boolean → falls back to the default (true).
     expect(result.mon).toBe(true);
   });
+
+  // After migration 20260819000000 the real schedule lives in working_hours as
+  // per-day windows. This picker must read that shape too, or opening the
+  // screen would render a provider's configured 9-5 Monday as "unset" and
+  // offer to overwrite it.
+  it('reads the working_hours window shape', () => {
+    const result = availabilityFromJson({
+      mon: [{ start: '09:00', end: '17:00' }],
+      tue: [],
+      sat: [{ start: '10:00', end: '14:00' }],
+    });
+    expect(result.mon).toBe(true);
+    expect(result.tue).toBe(false);
+    expect(result.sat).toBe(true);
+    // Absent from the object = closed, which is what the window shape means —
+    // note this differs from the boolean map, where absent means "unset".
+    expect(result.wed).toBe(false);
+  });
+
+  it('treats a day whose only window is corrupt as unavailable', () => {
+    const result = availabilityFromJson({
+      mon: [{ start: '18:00', end: '09:00' }],
+    });
+    expect(result.mon).toBe(false);
+  });
 });

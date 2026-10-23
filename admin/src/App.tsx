@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Login } from './pages/Login';
 import { Queue } from './pages/Queue';
 import { ProviderDetail } from './pages/ProviderDetail';
+import { Calibration } from './pages/Calibration';
 
 /** Gate: requires a session AND is_admin. Otherwise routes to login / denied. */
 function RequireAdmin({ children }: { children: JSX.Element }) {
@@ -30,6 +31,7 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RequireAdmin><Queue /></RequireAdmin>} />
       <Route path="/providers/:id" element={<RequireAdmin><ProviderDetail /></RequireAdmin>} />
+      <Route path="/calibration" element={<RequireAdmin><Calibration /></RequireAdmin>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

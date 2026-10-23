@@ -138,11 +138,90 @@ async function onPaymentIntentSucceeded(
     .update({ status: 'succeeded', processed_at: new Date().toISOString() })
     .eq('stripe_payment_intent_id', paymentIntent.id);
 
-  // Deposit success → move the booking into the manual provider-approval
-  // window (Blocker #4). The provider must accept within 2 hours or the
-  // booking auto-cancels and the deposit is refunded (expire_pending_approvals).
-  // Deposit success does NOT confirm the booking — accept_booking does.
+  // Deposit success moves the booking forward, and where it lands depends on
+  // which flow it came through:
+  //
+  //   • Deposit-first (legacy) → the manual provider-approval window
+  //     (Blocker #4). The provider must accept within 2 hours or the booking
+  //     auto-cancels and the deposit is refunded (expire_pending_approvals).
+  //     Deposit success does NOT confirm these — accept_booking does.
+  //   • Quote-first (Phase 3) → confirmed outright. The provider committed by
+  //     quoting and the customer approved that price, so there is no second
+  //     approval to wait on.
+  //
+  // Both paths still refuse to move anything that is not still 'pending', so a
+  // retried delivery is a no-op rather than a second transition.
   if (payment_type === 'deposit' && booking_id) {
+    // Which flow did this booking come through? quoted_total_amount is written
+    // only by submit_quote and is NULL on every deposit-first booking ever
+    // made, so the legacy promotion below is untouched by construction.
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('quoted_total_amount')
+      .eq('id', booking_id)
+      .maybeSingle();
+
+    const viaQuote =
+      booking?.quoted_total_amount !== null &&
+      booking?.quoted_total_amount !== undefined;
+
+    if (viaQuote) {
+      // The provider already committed to this job by quoting it, and the
+      // customer has now approved the price and paid the deposit. There is
+      // nothing left for the provider to approve, so deposit success confirms
+      // outright — routing these through pending_provider_approval would ask
+      // them to accept a job they themselves priced, and the 2h sweep would
+      // refund and cancel it if they ignored the redundant prompt.
+      const { data: confirmed, error: confirmErr } = await supabase
+        .from('bookings')
+        .update({
+          status: 'confirmed',
+          confirmed_at: new Date().toISOString(),
+          approval_expires_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', booking_id)
+        .eq('status', 'pending') // Guard: only move forward if still pending.
+        .select('id');
+
+      // 23P01 from bookings_no_provider_overlap: the provider's slot filled
+      // between quoting and the customer paying. Unlike accept_booking, there
+      // is no provider staring at a screen to hand a 409 to, and the deposit
+      // has already succeeded — so fall back to the approval window rather
+      // than leaving a paid booking stuck in pending. That hands the conflict
+      // to the machinery that already exists for it: the provider declines
+      // (full refund), or the 2h sweep auto-cancels and refunds for them.
+      if (confirmErr?.code === '23P01') {
+        const expiresAt = new Date(Date.now() + APPROVAL_WINDOW_MS).toISOString();
+        const { data: awaiting } = await supabase
+          .from('bookings')
+          .update({
+            status: 'pending_provider_approval',
+            approval_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', booking_id)
+          .eq('status', 'pending')
+          .select('id');
+
+        if (awaiting && awaiting.length > 0) {
+          await fireNotify('notify-booking-requested', { booking_id });
+        } else {
+          await refundIfCancelled(booking_id, paymentIntent);
+        }
+        return;
+      }
+
+      // Only notify on the real pending → confirmed transition so retried
+      // webhook deliveries don't double-send.
+      if (confirmed && confirmed.length > 0) {
+        await fireNotify('notify-booking-confirmed', { booking_id });
+      } else {
+        await refundIfCancelled(booking_id, paymentIntent);
+      }
+      return;
+    }
+
     const expiresAt = new Date(Date.now() + APPROVAL_WINDOW_MS).toISOString();
     const { data: awaiting } = await supabase
       .from('bookings')
@@ -159,8 +238,60 @@ async function onPaymentIntentSucceeded(
     // so retried webhook deliveries don't double-send.
     if (awaiting && awaiting.length > 0) {
       await fireNotify('notify-booking-requested', { booking_id });
+    } else {
+      await refundIfCancelled(booking_id, paymentIntent);
     }
   }
+}
+
+// A deposit that lands on a booking already cancelled is refunded in full.
+//
+// Reachable because the charge and the cancel race: accept_quote now charges
+// the deposit off-session, and a customer who cancels while that charge is
+// still processing reaches cancel_booking before any deposit has succeeded —
+// so its refund finds nothing to refund, and the promotion above then matches
+// nothing because the booking is no longer 'pending'. Without this the money
+// would be kept for a job that no longer exists. The same window always
+// existed for the PaymentSheet deposit; it was just much narrower.
+//
+// Idempotent across redeliveries: once the row is 'refunded' this returns, and
+// the refund itself carries an idempotency key.
+async function refundIfCancelled(
+  bookingId: string,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const { data: booking } = await supabase
+    .from('bookings')
+    .select('status')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (booking?.status !== 'cancelled') return;
+
+  const { data: payment } = await supabase
+    .from('payments')
+    .select('id, status, user_id')
+    .eq('stripe_payment_intent_id', paymentIntent.id)
+    .maybeSingle();
+  if (!payment || payment.status === 'refunded') return;
+
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: paymentIntent.id,
+      reason: 'requested_by_customer',
+      metadata: { booking_id: bookingId, reason: 'deposit_after_cancellation' },
+    },
+    { idempotencyKey: `deposit-after-cancel-${paymentIntent.id}` },
+  );
+
+  await supabase.from('payments').update({ status: 'refunded' }).eq('id', payment.id);
+  await supabase.from('payments').insert({
+    booking_id: bookingId,
+    user_id: payment.user_id,
+    stripe_payment_intent_id: paymentIntent.id,
+    payment_type: 'refund',
+    amount: paymentIntent.amount_received / 100, // DB stores dollars
+    status: refund.status === 'succeeded' ? 'succeeded' : 'pending',
+  });
 }
 
 async function onPaymentIntentFailed(

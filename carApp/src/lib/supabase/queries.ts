@@ -1,5 +1,12 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase } from './client'
+import type { Database } from '../../types/supabase'
+import {
+  DEFAULT_TIMEZONE,
+  localDayRange,
+  workingHoursFromJson,
+  type WorkingHours,
+} from '../../utils/schedule'
 import type {
   Booking,
   BookingPhoto,
@@ -12,10 +19,12 @@ import type {
   Promotion,
   ProviderLocationCache,
   ProviderProfile,
+  ProviderTimeOff,
   ProviderType,
   ProviderVetting,
   Rating,
   ServiceCatalog,
+  ServiceDurationModifier,
   ServicePackage,
   User,
   Vehicle,
@@ -354,9 +363,20 @@ const ACTIVE_BOOKING_STATUSES = [
   'confirmed',
   'en_route',
   'in_progress',
+  // A confirmed job waiting on the customer's answer to a proposed change. Still
+  // committed — the overlap guard covers it — so it stays on both lists.
+  'pending_adjustment_approval',
 ] as const
 
 const HISTORY_BOOKING_STATUSES = ['completed', 'cancelled', 'no_show'] as const
+
+// Rows waiting on somebody before any price is agreed. Matches
+// idx_bookings_provider_quote_queue from migration 20260821000000.
+const QUOTE_QUEUE_STATUSES = [
+  'pending_provider_quote',
+  'pending_customer_approval',
+  'awaiting_customer_info',
+] as const
 
 export function getBookingById(
   bookingId: string,
@@ -395,6 +415,10 @@ export function getProviderJobById(
   )
 }
 
+// The customer sees their unpriced requests alongside their jobs. Unlike the
+// provider's day, there is no timeline here for a placeholder scheduled_at to
+// mislead, and a request that vanished from the list the moment it was sent
+// would be a request the customer can never get back to.
 export function getUpcomingBookingsForCustomer(
   customerId: string,
 ): Promise<QueryResult<BookingSummary[]>> {
@@ -403,7 +427,7 @@ export function getUpcomingBookingsForCustomer(
       .from('bookings')
       .select(BOOKING_SUMMARY_SELECT)
       .eq('customer_id', customerId)
-      .in('status', [...ACTIVE_BOOKING_STATUSES])
+      .in('status', [...ACTIVE_BOOKING_STATUSES, ...QUOTE_QUEUE_STATUSES])
       .order('scheduled_at', { ascending: true })
       .returns<BookingSummary[]>(),
   )
@@ -433,6 +457,26 @@ export function getUpcomingBookingsForProvider(
       .eq('provider_id', providerId)
       .in('status', [...ACTIVE_BOOKING_STATUSES])
       .order('scheduled_at', { ascending: true })
+      .returns<BookingSummary[]>(),
+  )
+}
+
+// The provider's request queue: rows waiting on somebody, ordered oldest
+// first because the oldest request is the one most at risk of being abandoned.
+// These statuses are deliberately absent from ACTIVE_BOOKING_STATUSES — an
+// unpriced request is not a scheduled job, holds no slot (the overlap
+// constraint covers only committed jobs) and has no meaningful scheduled_at
+// yet, so it must not appear on the day timeline as work.
+export function getQuoteRequestsForProvider(
+  providerId: string,
+): Promise<QueryResult<BookingSummary[]>> {
+  return runList<BookingSummary>(
+    supabase
+      .from('bookings')
+      .select(BOOKING_SUMMARY_SELECT)
+      .eq('provider_id', providerId)
+      .in('status', [...QUOTE_QUEUE_STATUSES])
+      .order('created_at', { ascending: true })
       .returns<BookingSummary[]>(),
   )
 }
@@ -696,5 +740,235 @@ export function getProviderLocation(
       .select('*')
       .eq('provider_id', providerId)
       .maybeSingle(),
+  )
+}
+
+// ── Provider Day Schedule ──────────────────────────────────────────────
+
+/**
+ * Everything needed to draw one provider day: the jobs on it, the time off
+ * blocking it, and the working hours it should be measured against.
+ *
+ * Assembled here rather than in the screen because the three pieces are not
+ * independent — the day's boundaries are local to the provider's timezone, and
+ * the timezone is a column on the profile. Fetching bookings first would mean
+ * guessing at the day boundaries before knowing which zone they are in.
+ */
+export interface ProviderDaySchedule {
+  /** Local-day bounds actually queried, as UTC instants. */
+  range: { start: string; end: string }
+  timeZone: string
+  workingHours: WorkingHours
+  maxJobsPerDay: number | null
+  defaultBufferBeforeMins: number
+  defaultBufferAfterMins: number
+  bookings: ProviderJobSummary[]
+  timeOff: ProviderTimeOff[]
+}
+
+// Statuses that occupy a provider's calendar. Cancelled and no-show rows are
+// excluded because they release the slot; completed rows are kept, since a
+// finished job is still a thing that happened on that day and the provider
+// looking at today should see it.
+const SCHEDULE_BOOKING_STATUSES = [
+  'pending',
+  'pending_provider_approval',
+  'confirmed',
+  'en_route',
+  'in_progress',
+  'completed',
+  // Still holds its slot while the customer considers the change.
+  'pending_adjustment_approval',
+] as const
+
+/**
+ * Bookings are fetched over a window one day wider on each side than the day
+ * being drawn, because occupancy is not the same thing as the start time: a job
+ * starting at 23:00 yesterday with a two-hour duration still consumes this
+ * morning, and one at 00:15 tomorrow with a 30-minute approach buffer already
+ * consumes tonight. DayTimeline.placeJobs clamps what crosses the boundary and
+ * drops what does not reach it, so over-fetching by a day is what makes the
+ * clamping correct rather than merely possible.
+ */
+const SCHEDULE_WINDOW_PAD_MS = 24 * 60 * 60 * 1000
+
+export async function getProviderDaySchedule(
+  providerId: string,
+  date: Date,
+): Promise<QueryResult<ProviderDaySchedule>> {
+  const profileResult = await runSingle<
+    Pick<
+      ProviderProfile,
+      | 'timezone'
+      | 'working_hours'
+      | 'max_jobs_per_day'
+      | 'default_buffer_before_mins'
+      | 'default_buffer_after_mins'
+    >
+  >(
+    supabase
+      .from('provider_profiles')
+      .select(
+        'timezone, working_hours, max_jobs_per_day, default_buffer_before_mins, default_buffer_after_mins',
+      )
+      .eq('id', providerId)
+      .single(),
+  )
+  if (profileResult.error) return { data: null, error: profileResult.error }
+
+  const profile = profileResult.data
+  // A profile row predating 20260819000000's NOT NULL default, or one read
+  // through a stale client, still has to render a day rather than throw.
+  const timeZone = profile.timezone || DEFAULT_TIMEZONE
+  const workingHours = workingHoursFromJson(profile.working_hours)
+  const { start, end } = localDayRange(date, timeZone)
+
+  const padStart = new Date(start.getTime() - SCHEDULE_WINDOW_PAD_MS)
+  const padEnd = new Date(end.getTime() + SCHEDULE_WINDOW_PAD_MS)
+
+  const [bookingsResult, timeOffResult] = await Promise.all([
+    // PROVIDER_JOB_SELECT, not BOOKING_SUMMARY_SELECT: a provider looking at
+    // their own day needs the customer's name on the band, and only the
+    // provider-facing select joins it.
+    runList<ProviderJobSummary>(
+      supabase
+        .from('bookings')
+        .select(PROVIDER_JOB_SELECT)
+        .eq('provider_id', providerId)
+        .in('status', [...SCHEDULE_BOOKING_STATUSES])
+        .gte('scheduled_at', padStart.toISOString())
+        .lt('scheduled_at', padEnd.toISOString())
+        .order('scheduled_at', { ascending: true })
+        .returns<ProviderJobSummary[]>(),
+    ),
+    // Time off is filtered on overlap, not on start: a week-long block started
+    // last Monday must still blank out today.
+    runList<ProviderTimeOff>(
+      supabase
+        .from('provider_time_off')
+        .select('*')
+        .eq('provider_id', providerId)
+        .lt('starts_at', end.toISOString())
+        .gt('ends_at', start.toISOString())
+        .order('starts_at', { ascending: true }),
+    ),
+  ])
+
+  if (bookingsResult.error) return { data: null, error: bookingsResult.error }
+  if (timeOffResult.error) return { data: null, error: timeOffResult.error }
+
+  return {
+    data: {
+      range: { start: start.toISOString(), end: end.toISOString() },
+      timeZone,
+      workingHours,
+      maxJobsPerDay: profile.max_jobs_per_day,
+      defaultBufferBeforeMins: profile.default_buffer_before_mins,
+      defaultBufferAfterMins: profile.default_buffer_after_mins,
+      bookings: bookingsResult.data,
+      timeOff: timeOffResult.data,
+    },
+    error: null,
+  }
+}
+
+/**
+ * Time off overlapping an arbitrary range — the More → Manage list, which shows
+ * upcoming blocks rather than one day's.
+ */
+export function getProviderTimeOff(
+  providerId: string,
+  fromInclusive: Date,
+  toExclusive: Date,
+): Promise<QueryResult<ProviderTimeOff[]>> {
+  return runList<ProviderTimeOff>(
+    supabase
+      .from('provider_time_off')
+      .select('*')
+      .eq('provider_id', providerId)
+      .lt('starts_at', toExclusive.toISOString())
+      .gt('ends_at', fromInclusive.toISOString())
+      .order('starts_at', { ascending: true }),
+  )
+}
+
+// ── Service Duration Modifiers ─────────────────────────────────────────
+
+/**
+ * A provider's published duration modifiers.
+ *
+ * Readable by any signed-in user, not just the owner: the customer's booking
+ * screen shows the suggested duration while they are still choosing, before a
+ * booking row exists for the trigger to fire on, so the client needs the same
+ * numbers the server will use. They are the provider's own rate card in
+ * another form, not private data.
+ */
+export function getServiceDurationModifiers(
+  providerId: string,
+): Promise<QueryResult<ServiceDurationModifier[]>> {
+  return runList<ServiceDurationModifier>(
+    supabase
+      .from('service_duration_modifiers')
+      .select('*')
+      .eq('provider_id', providerId)
+      .order('factor_type', { ascending: true })
+      .order('factor_value', { ascending: true }),
+  )
+}
+
+// ── Live booking updates (Phase 4) ─────────────────────────────────────
+
+/**
+ * Calls `onChange` whenever this booking's row changes — the provider reports
+ * a delay, starts, finishes, or answers a proposal — so a screen showing it can
+ * refetch instead of waiting for a pull-to-refresh. Channel `booking:{id}`, per
+ * the realtime rule; migration 20260823000000 publishes bookings, and RLS
+ * ("bookings: read own") decides who hears about which row.
+ *
+ * Returns the unsubscribe, for the effect's cleanup.
+ */
+export function subscribeToBookingChanges(
+  bookingId: string,
+  onChange: () => void,
+): () => void {
+  const channel = supabase
+    .channel(`booking:${bookingId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `id=eq.${bookingId}`,
+      },
+      () => onChange(),
+    )
+    .subscribe()
+
+  return () => {
+    void supabase.removeChannel(channel)
+  }
+}
+
+// ── Duration calibration (Phase 4) ─────────────────────────────────────
+
+/**
+ * One provider's row of get_duration_calibration(): what the suggestion engine
+ * proposed, what they committed to and what jobs took, how often they start
+ * late, and how far their quotes run above their advertised prices.
+ */
+export type DurationCalibration =
+  Database['public']['Functions']['get_duration_calibration']['Returns'][number]
+
+/**
+ * The calibration report over jobs scheduled since `since`. The function
+ * decides visibility, not the caller: a provider gets their own row, an admin
+ * gets every provider's, anyone else gets nothing.
+ */
+export function getDurationCalibration(
+  since: Date,
+): Promise<QueryResult<DurationCalibration[]>> {
+  return runList<DurationCalibration>(
+    supabase.rpc('get_duration_calibration', { p_since: since.toISOString() }),
   )
 }

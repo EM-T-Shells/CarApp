@@ -48,25 +48,46 @@ export type Database = {
       }
       bookings: {
         Row: {
+          actual_duration_mins: number | null
+          adjustment_duration_mins: number | null
+          adjustment_line_items: Json | null
+          adjustment_reason: string | null
+          adjustment_total_amount: number | null
           approval_expires_at: string | null
+          buffer_after_mins: number | null
+          buffer_before_mins: number | null
           cancellation_fee: number | null
           cancelled_by: string | null
           completed_at: string | null
+          condition_answers: Json | null
           confirmed_at: string | null
           created_at: string | null
           customer_id: string | null
           declined_reason: string | null
           deposit_amount: number | null
           deposit_forfeited: boolean | null
+          estimated_completion_at: string | null
+          estimated_duration_mins: number | null
+          eta_notified_at: string | null
+          eta_notified_completion_at: string | null
           id: string
+          info_request_note: string | null
           location_lat: number | null
           location_lng: number | null
           no_show_at: string | null
           notes: string | null
+          occupied_range: unknown
           package_id: string | null
           platform_fee: number | null
+          proposed_scheduled_at: string | null
           provider_id: string | null
           provider_payout: number | null
+          quote_line_items: Json | null
+          quoted_total_amount: number | null
+          requested_window_end: string | null
+          requested_window_start: string | null
+          reschedule_proposed_by: string | null
+          running_late_mins: number
           scheduled_at: string
           service_address: string | null
           service_fee: number | null
@@ -74,30 +95,54 @@ export type Database = {
           services: Json
           started_at: string | null
           status: string
+          stripe_setup_intent_id: string | null
+          suggested_duration_mins: number | null
           total_amount: number | null
           updated_at: string | null
           vehicle_id: string | null
+          vehicle_size_class: string | null
         }
         Insert: {
+          actual_duration_mins?: number | null
+          adjustment_duration_mins?: number | null
+          adjustment_line_items?: Json | null
+          adjustment_reason?: string | null
+          adjustment_total_amount?: number | null
           approval_expires_at?: string | null
+          buffer_after_mins?: number | null
+          buffer_before_mins?: number | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
+          condition_answers?: Json | null
           confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
           declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
+          estimated_completion_at?: string | null
+          estimated_duration_mins?: number | null
+          eta_notified_at?: string | null
+          eta_notified_completion_at?: string | null
           id?: string
+          info_request_note?: string | null
           location_lat?: number | null
           location_lng?: number | null
           no_show_at?: string | null
           notes?: string | null
+          occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
+          proposed_scheduled_at?: string | null
           provider_id?: string | null
           provider_payout?: number | null
+          quote_line_items?: Json | null
+          quoted_total_amount?: number | null
+          requested_window_end?: string | null
+          requested_window_start?: string | null
+          reschedule_proposed_by?: string | null
+          running_late_mins?: number
           scheduled_at: string
           service_address?: string | null
           service_fee?: number | null
@@ -105,30 +150,54 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          stripe_setup_intent_id?: string | null
+          suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
           vehicle_id?: string | null
+          vehicle_size_class?: string | null
         }
         Update: {
+          actual_duration_mins?: number | null
+          adjustment_duration_mins?: number | null
+          adjustment_line_items?: Json | null
+          adjustment_reason?: string | null
+          adjustment_total_amount?: number | null
           approval_expires_at?: string | null
+          buffer_after_mins?: number | null
+          buffer_before_mins?: number | null
           cancellation_fee?: number | null
           cancelled_by?: string | null
           completed_at?: string | null
+          condition_answers?: Json | null
           confirmed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
           declined_reason?: string | null
           deposit_amount?: number | null
           deposit_forfeited?: boolean | null
+          estimated_completion_at?: string | null
+          estimated_duration_mins?: number | null
+          eta_notified_at?: string | null
+          eta_notified_completion_at?: string | null
           id?: string
+          info_request_note?: string | null
           location_lat?: number | null
           location_lng?: number | null
           no_show_at?: string | null
           notes?: string | null
+          occupied_range?: unknown
           package_id?: string | null
           platform_fee?: number | null
+          proposed_scheduled_at?: string | null
           provider_id?: string | null
           provider_payout?: number | null
+          quote_line_items?: Json | null
+          quoted_total_amount?: number | null
+          requested_window_end?: string | null
+          requested_window_start?: string | null
+          reschedule_proposed_by?: string | null
+          running_late_mins?: number
           scheduled_at?: string
           service_address?: string | null
           service_fee?: number | null
@@ -136,9 +205,12 @@ export type Database = {
           services?: Json
           started_at?: string | null
           status?: string
+          stripe_setup_intent_id?: string | null
+          suggested_duration_mins?: number | null
           total_amount?: number | null
           updated_at?: string | null
           vehicle_id?: string | null
+          vehicle_size_class?: string | null
         }
         Relationships: [
           {
@@ -643,17 +715,22 @@ export type Database = {
           bio: string | null
           coverage_area: string | null
           created_at: string | null
+          default_buffer_after_mins: number
+          default_buffer_before_mins: number
           founding_provider_expires_at: string | null
           id: string
           is_founding_provider: boolean | null
           kudos_count: number | null
+          max_jobs_per_day: number | null
           mile_radius: number | null
           platform_fee_rate: number | null
           provider_type_id: string | null
           stripe_account_id: string | null
+          timezone: string
           total_jobs: number | null
           user_id: string | null
           verification_status: string
+          working_hours: Json | null
         }
         Insert: {
           approved_at?: string | null
@@ -664,17 +741,22 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          default_buffer_after_mins?: number
+          default_buffer_before_mins?: number
           founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
+          max_jobs_per_day?: number | null
           mile_radius?: number | null
           platform_fee_rate?: number | null
           provider_type_id?: string | null
           stripe_account_id?: string | null
+          timezone?: string
           total_jobs?: number | null
           user_id?: string | null
           verification_status?: string
+          working_hours?: Json | null
         }
         Update: {
           approved_at?: string | null
@@ -685,17 +767,22 @@ export type Database = {
           bio?: string | null
           coverage_area?: string | null
           created_at?: string | null
+          default_buffer_after_mins?: number
+          default_buffer_before_mins?: number
           founding_provider_expires_at?: string | null
           id?: string
           is_founding_provider?: boolean | null
           kudos_count?: number | null
+          max_jobs_per_day?: number | null
           mile_radius?: number | null
           platform_fee_rate?: number | null
           provider_type_id?: string | null
           stripe_account_id?: string | null
+          timezone?: string
           total_jobs?: number | null
           user_id?: string | null
           verification_status?: string
+          working_hours?: Json | null
         }
         Relationships: [
           {
@@ -717,6 +804,44 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users_public"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_time_off: {
+        Row: {
+          blocked_range: unknown
+          created_at: string
+          ends_at: string
+          id: string
+          provider_id: string
+          reason: string | null
+          starts_at: string
+        }
+        Insert: {
+          blocked_range?: unknown
+          created_at?: string
+          ends_at: string
+          id?: string
+          provider_id: string
+          reason?: string | null
+          starts_at: string
+        }
+        Update: {
+          blocked_range?: unknown
+          created_at?: string
+          ends_at?: string
+          id?: string
+          provider_id?: string
+          reason?: string | null
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_time_off_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "provider_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -940,6 +1065,44 @@ export type Database = {
           },
         ]
       }
+      service_duration_modifiers: {
+        Row: {
+          created_at: string
+          delta_mins: number
+          delta_price: number
+          factor_type: string
+          factor_value: string
+          id: string
+          provider_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta_mins?: number
+          delta_price?: number
+          factor_type: string
+          factor_value: string
+          id?: string
+          provider_id: string
+        }
+        Update: {
+          created_at?: string
+          delta_mins?: number
+          delta_price?: number
+          factor_type?: string
+          factor_value?: string
+          id?: string
+          provider_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_duration_modifiers_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "provider_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_packages: {
         Row: {
           base_price: number | null
@@ -947,14 +1110,18 @@ export type Database = {
           category: string
           created_at: string | null
           description: string | null
+          duration_max_mins: number | null
+          duration_min_mins: number | null
           duration_mins: number | null
           id: string
           is_active: boolean | null
           is_approved: boolean | null
           is_custom: boolean | null
           name: string
+          parent_package_id: string | null
           provider_id: string | null
           sort_order: number | null
+          tier: string | null
         }
         Insert: {
           base_price?: number | null
@@ -962,14 +1129,18 @@ export type Database = {
           category: string
           created_at?: string | null
           description?: string | null
+          duration_max_mins?: number | null
+          duration_min_mins?: number | null
           duration_mins?: number | null
           id?: string
           is_active?: boolean | null
           is_approved?: boolean | null
           is_custom?: boolean | null
           name: string
+          parent_package_id?: string | null
           provider_id?: string | null
           sort_order?: number | null
+          tier?: string | null
         }
         Update: {
           base_price?: number | null
@@ -977,14 +1148,18 @@ export type Database = {
           category?: string
           created_at?: string | null
           description?: string | null
+          duration_max_mins?: number | null
+          duration_min_mins?: number | null
           duration_mins?: number | null
           id?: string
           is_active?: boolean | null
           is_approved?: boolean | null
           is_custom?: boolean | null
           name?: string
+          parent_package_id?: string | null
           provider_id?: string | null
           sort_order?: number | null
+          tier?: string | null
         }
         Relationships: [
           {
@@ -992,6 +1167,13 @@ export type Database = {
             columns: ["catalog_id"]
             isOneToOne: false
             referencedRelation: "service_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_packages_parent_package_id_fkey"
+            columns: ["parent_package_id"]
+            isOneToOne: false
+            referencedRelation: "service_packages"
             referencedColumns: ["id"]
           },
           {
@@ -1145,6 +1327,7 @@ export type Database = {
           license_plate: string | null
           make: string
           model: string
+          size_class: string | null
           trim: string | null
           user_id: string | null
           vin: string | null
@@ -1158,6 +1341,7 @@ export type Database = {
           license_plate?: string | null
           make: string
           model: string
+          size_class?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null
@@ -1171,6 +1355,7 @@ export type Database = {
           license_plate?: string | null
           make?: string
           model?: string
+          size_class?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null
@@ -1215,7 +1400,33 @@ export type Database = {
       }
     }
     Functions: {
+      assert_booking_line_items: {
+        Args: { column_name: string; items: Json }
+        Returns: undefined
+      }
       expire_founding_providers: { Args: never; Returns: number }
+      get_duration_calibration: {
+        Args: { p_since?: string }
+        Returns: {
+          avg_actual_mins: number
+          avg_estimated_mins: number
+          avg_overrun_mins: number
+          avg_quote_markup_pct: number
+          avg_start_delay_mins: number
+          avg_suggested_mins: number
+          completed_jobs: number
+          late_start_jobs: number
+          max_quote_markup_pct: number
+          over_estimate_jobs: number
+          provider_id: string
+          provider_name: string
+          quoted_jobs: number
+          surcharged_jobs: number
+          timed_jobs: number
+          under_estimate_jobs: number
+          within_estimate_jobs: number
+        }[]
+      }
       is_admin: { Args: { uid: string }; Returns: boolean }
     }
     Enums: {
@@ -1235,12 +1446,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1264,11 +1475,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1289,11 +1500,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1314,11 +1525,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1331,11 +1542,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

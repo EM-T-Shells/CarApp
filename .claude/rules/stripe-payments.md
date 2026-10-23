@@ -13,15 +13,21 @@ paths:
 Read the payment and cancellation sections of `docs/business-rules.md` before
 changing booking or payment behavior.
 
-- Use Stripe PaymentSheet through `presentDepositPaymentSheet()`.
+- Use Stripe PaymentSheet through `presentDepositPaymentSheet()` (payment
+  mode) or `presentCardSetupSheet()` (setup mode — saving a card for a quote
+  request, no hold, no charge).
 - Do not add custom card fields or forms. Never add a Stripe `CardField` or
   `CardForm`.
 - Prices are integer cents and must be formatted through
   `carApp/src/utils/money.ts`.
-- The booking row is created before collecting the deposit because
-  `create_deposit_intent` requires a `booking_id`.
+- The booking row is created before collecting the deposit or saving the card
+  because `create_deposit_intent` and `create_setup_intent` both require a
+  `booking_id`.
 - Cancel the unpaid booking when intent creation fails, the card is declined,
-  or PaymentSheet is dismissed.
+  or PaymentSheet is dismissed. For a quote request, cancel it when the card is
+  not saved (setup intent fails, or the setup sheet is dismissed or fails).
+- Never treat a closed setup sheet as a saved card: `confirm_setup_intent`
+  asks Stripe, and only it notifies the provider.
 - Only `stripe-events` may move a booking from `pending` to
   `pending_provider_approval`.
 - The client must never infer or assert successful payment.

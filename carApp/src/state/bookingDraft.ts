@@ -6,11 +6,15 @@
 // booking screen and is cleared on successful submission or abandonment.
 
 import { create } from 'zustand';
-import type { ServicePackage } from '../types/models';
+import type { ArrivalWindow, ServicePackage } from '../types/models';
 import {
   calculateDeposit,
   calculateServiceFee,
 } from '../utils/money';
+import type {
+  ConditionAnswers,
+  VehicleSizeClass,
+} from '../utils/suggestion';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -21,6 +25,24 @@ export interface ServiceSnapshot {
   category: string;
   base_price: number;
   duration_mins: number | null;
+  /**
+   * Set on an add-on: the main service it belongs to. Draft-only — the stored
+   * snapshot is rebuilt by derive_booking_amounts and does not carry it.
+   */
+  parent_package_id?: string | null;
+}
+
+/**
+ * A photo the customer picked for their request, held on the device until the
+ * request row exists. booking_photos rows FK to a booking, so nothing can be
+ * uploaded before "Send Request" creates one.
+ */
+export interface IntakePhotoDraft {
+  /** Stable key for list rendering and removal. */
+  key: string;
+  uri: string;
+  mimeType: string;
+  fileSize: number;
 }
 
 export interface BookingDraftState {
@@ -38,10 +60,29 @@ export interface BookingDraftState {
   locationLat: number | null;
   /** Longitude of the service location. */
   locationLng: number | null;
-  /** Scheduled date/time as ISO string. */
-  scheduledAt: string | null;
+  /**
+   * The arrival window the customer says they are available in, as two ISO
+   * strings. Replaces the exact `scheduledAt` the deposit-first flow used: in
+   * the quote flow the provider chooses the exact start inside this window when
+   * they quote, because nobody knows the job's duration until it is priced.
+   *
+   * The booking row still needs a `scheduled_at` (it is NOT NULL), so the
+   * window's start goes in as a placeholder and `submit_quote` overwrites it.
+   */
+  arrivalWindow: ArrivalWindow | null;
   /** Free-text notes from the customer. */
   notes: string;
+  /**
+   * Vehicle size as declared for THIS booking. Pre-filled from the chosen
+   * vehicle's own size_class and confirmable, per spec §3 — the customer should
+   * not retype it, but they should get the chance to correct it, since the
+   * duration is quoted against it.
+   */
+  vehicleSizeClass: VehicleSizeClass | null;
+  /** The three condition questions. Partial until all three are answered. */
+  conditionAnswers: ConditionAnswers;
+  /** Photos for the provider to quote from (spec §3 "guided photo upload"). */
+  intakePhotos: IntakePhotoDraft[];
 
   // ── Mutators ──────────────────────────────────────────────────────
 
@@ -50,8 +91,15 @@ export interface BookingDraftState {
   setVehicleId: (vehicleId: string) => void;
   setServiceAddress: (address: string) => void;
   setLocation: (lat: number, lng: number) => void;
-  setScheduledAt: (iso: string) => void;
+  setArrivalWindow: (window: ArrivalWindow) => void;
   setNotes: (notes: string) => void;
+  setVehicleSizeClass: (sizeClass: VehicleSizeClass | null) => void;
+  setConditionAnswer: <K extends keyof ConditionAnswers>(
+    question: K,
+    answer: ConditionAnswers[K],
+  ) => void;
+  addIntakePhoto: (photo: IntakePhotoDraft) => void;
+  removeIntakePhoto: (key: string) => void;
   reset: () => void;
 }
 
@@ -65,6 +113,7 @@ function snapshotService(pkg: ServicePackage): ServiceSnapshot {
     category: pkg.category,
     base_price: Math.round(Number(pkg.base_price ?? 0) * 100),
     duration_mins: pkg.duration_mins,
+    parent_package_id: pkg.parent_package_id ?? null,
   };
 }
 
@@ -78,8 +127,11 @@ const INITIAL_STATE = {
   serviceAddress: '',
   locationLat: null,
   locationLng: null,
-  scheduledAt: null,
+  arrivalWindow: null,
   notes: '',
+  vehicleSizeClass: null,
+  conditionAnswers: {} as ConditionAnswers,
+  intakePhotos: [] as IntakePhotoDraft[],
 };
 
 // ── Store ─────────────────────────────────────────────────────────────
@@ -90,13 +142,16 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
   setProvider: (providerId, providerName) =>
     set({ providerId, providerName }),
 
+  // Deselecting a main service takes its add-ons with it: the database refuses
+  // a booking that carries an add-on without its parent (20260822000000), so
+  // leaving them selected would only fail at "Send Request".
   toggleService: (pkg) =>
     set((s) => {
       const exists = s.selectedServices.some((svc) => svc.id === pkg.id);
       if (exists) {
         return {
           selectedServices: s.selectedServices.filter(
-            (svc) => svc.id !== pkg.id,
+            (svc) => svc.id !== pkg.id && svc.parent_package_id !== pkg.id,
           ),
         };
       }
@@ -112,11 +167,30 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
   setLocation: (lat, lng) =>
     set({ locationLat: lat, locationLng: lng }),
 
-  setScheduledAt: (scheduledAt) => set({ scheduledAt }),
+  setArrivalWindow: (arrivalWindow) => set({ arrivalWindow }),
 
   setNotes: (notes) => set({ notes }),
 
-  reset: () => set({ ...INITIAL_STATE }),
+  setVehicleSizeClass: (vehicleSizeClass) => set({ vehicleSizeClass }),
+
+  // Merged rather than replaced, so answering one question does not clear the
+  // other two. An answer of undefined removes it, which is how a customer
+  // un-answers rather than being stuck with their first tap.
+  setConditionAnswer: (question, answer) =>
+    set((s) => {
+      const next = { ...s.conditionAnswers };
+      if (answer === undefined) delete next[question];
+      else next[question] = answer;
+      return { conditionAnswers: next };
+    }),
+
+  addIntakePhoto: (photo) =>
+    set((s) => ({ intakePhotos: [...s.intakePhotos, photo] })),
+
+  removeIntakePhoto: (key) =>
+    set((s) => ({ intakePhotos: s.intakePhotos.filter((p) => p.key !== key) })),
+
+  reset: () => set({ ...INITIAL_STATE, conditionAnswers: {}, intakePhotos: [] }),
 }));
 
 // ── Selectors ─────────────────────────────────────────────────────────
@@ -161,7 +235,7 @@ export function selectIsReadyToBook(s: BookingDraftState): boolean {
     s.selectedServices.length > 0 &&
     s.vehicleId !== null &&
     s.serviceAddress.trim().length > 0 &&
-    s.scheduledAt !== null
+    s.arrivalWindow !== null
   );
 }
 

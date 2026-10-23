@@ -55,7 +55,7 @@ describe('useBookingDraftStore', () => {
     expect(state.selectedServices).toEqual([]);
     expect(state.vehicleId).toBeNull();
     expect(state.serviceAddress).toBe('');
-    expect(state.scheduledAt).toBeNull();
+    expect(state.arrivalWindow).toBeNull();
     expect(state.notes).toBe('');
   });
 
@@ -112,10 +112,15 @@ describe('useBookingDraftStore', () => {
     expect(state.locationLng).toBe(-77.0365);
   });
 
-  it('setScheduledAt updates the scheduled time', () => {
-    const iso = '2026-05-01T14:00:00Z';
-    useBookingDraftStore.getState().setScheduledAt(iso);
-    expect(useBookingDraftStore.getState().scheduledAt).toBe(iso);
+  it('setArrivalWindow stores both ends of the window', () => {
+    // Both ends move together: bookings_requested_window_check rejects one
+    // without the other, so the store never holds a half-set window.
+    const window = {
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    };
+    useBookingDraftStore.getState().setArrivalWindow(window);
+    expect(useBookingDraftStore.getState().arrivalWindow).toEqual(window);
   });
 
   it('setNotes updates notes', () => {
@@ -128,7 +133,10 @@ describe('useBookingDraftStore', () => {
     useBookingDraftStore.getState().toggleService(pkg1);
     useBookingDraftStore.getState().setVehicleId('veh-1');
     useBookingDraftStore.getState().setServiceAddress('123 Main');
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     useBookingDraftStore.getState().setNotes('Test');
 
     useBookingDraftStore.getState().reset();
@@ -137,7 +145,7 @@ describe('useBookingDraftStore', () => {
     expect(state.selectedServices).toEqual([]);
     expect(state.vehicleId).toBeNull();
     expect(state.serviceAddress).toBe('');
-    expect(state.scheduledAt).toBeNull();
+    expect(state.arrivalWindow).toBeNull();
     expect(state.notes).toBe('');
   });
 });
@@ -199,7 +207,10 @@ describe('selectors', () => {
     useBookingDraftStore.getState().setServiceAddress('123 Main St');
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(false);
 
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(true);
   });
 
@@ -208,7 +219,86 @@ describe('selectors', () => {
     useBookingDraftStore.getState().toggleService(pkg1);
     useBookingDraftStore.getState().setVehicleId('veh-1');
     useBookingDraftStore.getState().setServiceAddress('   ');
-    useBookingDraftStore.getState().setScheduledAt('2026-05-01T14:00:00Z');
+    useBookingDraftStore.getState().setArrivalWindow({
+      start: '2026-05-01T12:00:00Z',
+      end: '2026-05-01T16:00:00Z',
+    });
     expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(false);
+  });
+});
+
+// ── Add-ons and intake photos (Phase 3) ───────────────────────────────
+
+describe('add-ons', () => {
+  const addOn = makePkg({
+    id: 'addon-1',
+    name: 'Ceramic Boost',
+    base_price: 40,
+    parent_package_id: 'pkg-1',
+  });
+
+  it('snapshots the parent so the draft knows it is an add-on', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    const services = useBookingDraftStore.getState().selectedServices;
+    expect(services.find((s) => s.id === 'addon-1')?.parent_package_id).toBe('pkg-1');
+    expect(services.find((s) => s.id === 'pkg-1')?.parent_package_id).toBeNull();
+  });
+
+  // The database refuses an add-on booked without its main service, so it
+  // must not survive the main service being deselected.
+  it('deselecting a main service removes its add-ons', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    useBookingDraftStore.getState().toggleService(pkg2);
+
+    useBookingDraftStore.getState().toggleService(pkg1);
+
+    expect(
+      useBookingDraftStore.getState().selectedServices.map((s) => s.id),
+    ).toEqual(['pkg-2']);
+  });
+
+  it('deselecting an add-on leaves its main service', () => {
+    useBookingDraftStore.getState().toggleService(pkg1);
+    useBookingDraftStore.getState().toggleService(addOn);
+    useBookingDraftStore.getState().toggleService(addOn);
+    expect(
+      useBookingDraftStore.getState().selectedServices.map((s) => s.id),
+    ).toEqual(['pkg-1']);
+  });
+});
+
+describe('intake photos', () => {
+  const photo = (key: string) => ({
+    key,
+    uri: `file:///${key}.jpg`,
+    mimeType: 'image/jpeg',
+    fileSize: 1000,
+  });
+
+  it('adds and removes photos by key', () => {
+    useBookingDraftStore.getState().addIntakePhoto(photo('a'));
+    useBookingDraftStore.getState().addIntakePhoto(photo('b'));
+    useBookingDraftStore.getState().removeIntakePhoto('a');
+    expect(useBookingDraftStore.getState().intakePhotos.map((p) => p.key)).toEqual(['b']);
+  });
+
+  it('reset clears them', () => {
+    useBookingDraftStore.getState().addIntakePhoto(photo('a'));
+    useBookingDraftStore.getState().reset();
+    expect(useBookingDraftStore.getState().intakePhotos).toEqual([]);
+  });
+
+  // Not required to send: a customer without the car to hand should still be
+  // able to ask, and the provider can send it back for photos.
+  it('does not gate readiness', () => {
+    const s = useBookingDraftStore.getState();
+    s.setProvider('prov-1', 'P');
+    s.toggleService(pkg1);
+    s.setVehicleId('veh-1');
+    s.setServiceAddress('1 Main St');
+    s.setArrivalWindow({ start: '2026-10-01T13:00:00Z', end: '2026-10-01T16:00:00Z' });
+    expect(selectIsReadyToBook(useBookingDraftStore.getState())).toBe(true);
   });
 });

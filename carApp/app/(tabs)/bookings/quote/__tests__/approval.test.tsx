@@ -1,0 +1,294 @@
+// approval.test.tsx — the customer quote approval screen.
+//
+// This is where money enters the quote flow, so these cover the sequencing
+// rules rather than the layout: approve first and charge second, take the
+// amounts from the server, and never assert the booking is paid.
+
+import React from 'react';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+
+const mockReplace = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ replace: mockReplace, back: jest.fn() }),
+  useLocalSearchParams: () => ({ bookingId: 'book-1' }),
+}));
+
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = require('react-native');
+  return {
+    SafeAreaView: ({ children }: { children: React.ReactNode }) => (
+      <View>{children}</View>
+    ),
+  };
+});
+
+// Spied rather than jest.mock'd: replacing the Alert module leaves the Alert
+// imported from 'react-native' undefined, and the screen calls Alert.alert on
+// every failure path these tests exercise.
+import { Alert } from 'react-native';
+const mockAlert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+const mockGetBookingById = jest.fn();
+const mockGetModifiers = jest.fn();
+jest.mock('../../../../../src/lib/supabase/queries', () => ({
+  getBookingById: (...args: unknown[]) => mockGetBookingById(...args),
+  getServiceDurationModifiers: (...args: unknown[]) => mockGetModifiers(...args),
+}));
+
+// Calls are recorded in order — the sequence is the thing under test.
+const calls: string[] = [];
+const mockAcceptQuote = jest.fn();
+const mockCreateIntent = jest.fn();
+const mockPresentSheet = jest.fn();
+jest.mock('../../../../../src/lib/stripe', () => ({
+  acceptQuote: (...a: unknown[]) => {
+    calls.push('acceptQuote');
+    return mockAcceptQuote(...a);
+  },
+  createDepositPaymentIntent: (...a: unknown[]) => {
+    calls.push('createDepositPaymentIntent');
+    return mockCreateIntent(...a);
+  },
+  presentDepositPaymentSheet: (...a: unknown[]) => {
+    calls.push('presentDepositPaymentSheet');
+    return mockPresentSheet(...a);
+  },
+}));
+
+import QuoteApprovalScreen, { parseLineItems } from '../[bookingId]';
+
+const BOOKING = {
+  id: 'book-1',
+  status: 'pending_customer_approval',
+  scheduled_at: '2026-10-14T13:00:00.000Z',
+  estimated_duration_mins: 150,
+  quoted_total_amount: 175,
+  quote_line_items: [
+    { label: 'SUV', amount_cents: 3000 },
+    { label: 'Heavy pet hair', amount_cents: 2500 },
+  ],
+  provider_id: 'prov-1',
+  provider_profiles: { users: { full_name: 'Dana Rivers' } },
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockAlert.mockImplementation(() => {});
+  calls.length = 0;
+  mockGetBookingById.mockResolvedValue({ data: BOOKING, error: null });
+  mockGetModifiers.mockResolvedValue({ data: [], error: null });
+  mockAcceptQuote.mockResolvedValue({
+    data: { ok: true, next: 'requires_deposit', total_cents: 17500, deposit_cents: 2625 },
+    error: null,
+  });
+  mockCreateIntent.mockResolvedValue({ data: { clientSecret: 'cs_1' }, error: null });
+  mockPresentSheet.mockResolvedValue({ data: { canceled: false }, error: null });
+});
+
+async function renderAndApprove() {
+  const view = render(<QuoteApprovalScreen />);
+  await waitFor(() => view.getByText('Approve & Pay Deposit'));
+  await act(async () => {
+    fireEvent.press(view.getByText('Approve & Pay Deposit'));
+  });
+  return view;
+}
+
+describe('quote approval', () => {
+  it('shows the server total, not a recomputed one', async () => {
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByTestId('quote-approval-total'));
+    expect(view.getByTestId('quote-approval-total').props.children).toContain(
+      '175.00',
+    );
+  });
+
+  it('approves first, then charges — never the other way round', async () => {
+    await renderAndApprove();
+    expect(calls).toEqual([
+      'acceptQuote',
+      'createDepositPaymentIntent',
+      'presentDepositPaymentSheet',
+    ]);
+  });
+
+  it('passes the server deposit through untouched', async () => {
+    // Not 15% of the total: on a re-quote an already-succeeded deposit is kept
+    // as recorded, so recomputing here would collect the wrong balance.
+    await renderAndApprove();
+    expect(mockCreateIntent).toHaveBeenCalledWith('book-1', 2625);
+    // 15% of 17500 would be 2625 by coincidence at first quote — assert the
+    // value came from the response by changing it.
+    jest.clearAllMocks();
+    calls.length = 0;
+    mockAcceptQuote.mockResolvedValue({
+      data: { ok: true, next: 'requires_deposit', total_cents: 17500, deposit_cents: 999 },
+      error: null,
+    });
+    mockGetBookingById.mockResolvedValue({ data: BOOKING, error: null });
+    mockCreateIntent.mockResolvedValue({ data: { clientSecret: 'cs_1' }, error: null });
+    mockPresentSheet.mockResolvedValue({ data: { canceled: false }, error: null });
+    await renderAndApprove();
+    expect(mockCreateIntent).toHaveBeenCalledWith('book-1', 999);
+  });
+
+  it('does not charge when approval fails', async () => {
+    mockAcceptQuote.mockResolvedValue({
+      data: null,
+      error: new Error('This quote is no longer awaiting your approval'),
+    });
+    await renderAndApprove();
+    expect(calls).toEqual(['acceptQuote']);
+    expect(mockCreateIntent).not.toHaveBeenCalled();
+  });
+
+  it('does not charge unless the server names requires_deposit', async () => {
+    // The next step is stated by the server, never inferred from ok: true.
+    mockAcceptQuote.mockResolvedValue({
+      data: { ok: true, next: 'nothing_owed' },
+      error: null,
+    });
+    await renderAndApprove();
+    expect(mockCreateIntent).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate as if paid when the sheet is dismissed', async () => {
+    mockPresentSheet.mockResolvedValue({ data: { canceled: true }, error: null });
+    await renderAndApprove();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate as if paid when the sheet errors', async () => {
+    mockPresentSheet.mockResolvedValue({
+      data: null,
+      error: new Error('Card declined'),
+    });
+    await renderAndApprove();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  // Spec §5: the card saved at request time is charged off-session, so the
+  // common case opens no sheet at all.
+  it('opens no sheet when the saved card was charged', async () => {
+    mockAcceptQuote.mockResolvedValue({
+      data: { ok: true, next: 'deposit_processing', total_cents: 17500, deposit_cents: 2625 },
+      error: null,
+    });
+    await renderAndApprove();
+    expect(calls).toEqual(['acceptQuote']);
+    // Sent to the booking to watch it confirm — not told it is confirmed.
+    expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1');
+  });
+
+  it('opens no sheet when a deposit was already paid', async () => {
+    mockAcceptQuote.mockResolvedValue({ data: { ok: true, next: 'none' }, error: null });
+    await renderAndApprove();
+    expect(calls).toEqual(['acceptQuote']);
+    expect(mockReplace).toHaveBeenCalledWith('/bookings/book-1');
+  });
+
+  it('explains a refused saved card before falling back to the sheet', async () => {
+    mockAcceptQuote.mockResolvedValue({
+      data: {
+        ok: true,
+        next: 'requires_deposit',
+        deposit_cents: 2625,
+        charge_error: 'Your bank needs you to confirm this payment.',
+      },
+      error: null,
+    });
+    await renderAndApprove();
+
+    // Nothing is opened until the customer has read why.
+    expect(calls).toEqual(['acceptQuote']);
+    const [title, message, buttons] = mockAlert.mock.calls[0] as [
+      string,
+      string,
+      { text: string; onPress: () => void }[],
+    ];
+    expect(title).toBe('Card not charged');
+    expect(message).toContain('Your bank needs you to confirm this payment.');
+
+    await act(async () => {
+      buttons[0].onPress();
+    });
+    await waitFor(() =>
+      expect(calls).toEqual(['acceptQuote', 'createDepositPaymentIntent', 'presentDepositPaymentSheet']),
+    );
+    expect(mockCreateIntent).toHaveBeenCalledWith('book-1', 2625);
+  });
+
+  it('refuses to render an approve button for a quote not awaiting approval', async () => {
+    mockGetBookingById.mockResolvedValue({
+      data: { ...BOOKING, status: 'confirmed' },
+      error: null,
+    });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByText('This quote is no longer waiting on you.'));
+    expect(view.queryByText('Approve & Pay Deposit')).toBeNull();
+  });
+});
+
+describe('parseLineItems', () => {
+  it('reads the stored grammar', () => {
+    expect(
+      parseLineItems([{ label: 'SUV', amount_cents: 3000 }]),
+    ).toEqual([{ label: 'SUV', amount_cents: 3000 }]);
+  });
+
+  it('drops malformed entries rather than throwing on the approval screen', () => {
+    expect(
+      parseLineItems([
+        { label: 'ok', amount_cents: 100 },
+        { label: 'no amount' },
+        { amount_cents: 5 },
+        null,
+        'nope',
+        { label: 'nan', amount_cents: Number.NaN },
+      ]),
+    ).toEqual([{ label: 'ok', amount_cents: 100 }]);
+  });
+
+  it('is empty for a non-array', () => {
+    expect(parseLineItems(null)).toEqual([]);
+    expect(parseLineItems({})).toEqual([]);
+  });
+});
+
+describe('a quote above the advertised range (§7)', () => {
+  // $175 quoted with $55 of surcharges on a $120 base.
+  it('says how far above what the provider lists it is', async () => {
+    mockGetModifiers.mockResolvedValue({
+      data: [{ factor_type: 'size', delta_price: 30 }],
+      error: null,
+    });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByTestId('quote-above-advertised'));
+    expect(mockGetModifiers).toHaveBeenCalledWith('prov-1');
+    // Advertised $120–$150; quoted $175.
+    expect(view.getByTestId('quote-above-advertised').props.children.join('')).toContain(
+      'This is $25.00 above the $120.00–$150.00 Dana Rivers lists',
+    );
+  });
+
+  it('stays quiet when the quote is inside the range', async () => {
+    mockGetModifiers.mockResolvedValue({
+      data: [
+        { factor_type: 'size', delta_price: 30 },
+        { factor_type: 'soil', delta_price: 25 },
+      ],
+      error: null,
+    });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByTestId('quote-approval-total'));
+    expect(view.queryByTestId('quote-above-advertised')).toBeNull();
+  });
+
+  it('says nothing, and still lets them approve, when the range is unknown', async () => {
+    mockGetModifiers.mockResolvedValue({ data: null, error: new Error('offline') });
+    const view = render(<QuoteApprovalScreen />);
+    await waitFor(() => view.getByText('Approve & Pay Deposit'));
+    // Against the bare $120 base, $175 would wrongly read as "above".
+    expect(view.queryByTestId('quote-above-advertised')).toBeNull();
+  });
+});
